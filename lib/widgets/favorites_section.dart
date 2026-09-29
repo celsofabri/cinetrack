@@ -13,11 +13,8 @@ import 'progress_badge.dart';
 
 enum _Filter { all, movies, tv }
 
-/// The former HomeScreen body, extracted as-is (same filter, same
-/// behavior) so it can sit below the discovery/continue-watching
-/// highlights instead of being the whole screen. Owns its own Todos/
-/// Filmes/Séries filter state — by design this filter affects only this
-/// section, never Continue assistindo or the discovery carousels above it.
+/// Body of FavoritesScreen: the Todos/Filmes/Séries filter plus the
+/// favorites list. The screen's AppBar carries the "Meus favoritos" title.
 class FavoritesSection extends ConsumerStatefulWidget {
   const FavoritesSection({super.key});
 
@@ -35,10 +32,6 @@ class _FavoritesSectionState extends ConsumerState<FavoritesSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text('Meus favoritos', style: Theme.of(context).textTheme.titleLarge),
-        ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           child: SegmentedButton<_Filter>(

@@ -34,7 +34,8 @@ flutter test
 
 - `test/progress_calculator_test.dart` — lógica de progresso/próximo episódio (unitário, sem Flutter).
 - `test/tmdb_api_client_test.dart` — parsing de busca e mapeamento de erros HTTP (401/429) do TMDB.
-- `test/home_screen_test.dart` — estados vazio, filme e série na lista de favoritos.
+- `test/favorites_screen_test.dart` — estados vazio, filme, série e filtro na tela "Meus favoritos".
+- `test/home_screen_composition_test.dart` — composição da home e navegação pelo menu do topo até "Meus favoritos".
 
 ## Estrutura
 

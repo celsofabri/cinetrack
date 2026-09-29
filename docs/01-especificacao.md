@@ -19,7 +19,7 @@ Uso subjetivo: o usuário consegue, em menos de 10s, responder "que episódio eu
 ### Inclui (MVP)
 - Busca de filmes e séries via TMDB API.
 - Adicionar/remover favorito.
-- Lista de favoritos com filtro (Todos / Filmes / Séries) e status de progresso.
+- Lista de favoritos com filtro (Todos / Filmes / Séries) e status de progresso, em tela própria ("Meus favoritos", rota `/favorites`) acessada pelo menu do topo da home.
 - Tela de detalhes do filme: marcar como assistido (boolean simples).
 - Tela de detalhes da série: lista de temporadas → lista de episódios, cada um com toggle "assistido"; contagem agregada por temporada e geral.
 - Cálculo automático do "próximo episódio a assistir" (primeiro não marcado, em ordem de temporada/episódio).

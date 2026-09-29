@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:cinetrack/models/discovery_category.dart';
 import 'package:cinetrack/models/favorite_item.dart';
@@ -11,6 +12,7 @@ import 'package:cinetrack/models/episode_cache.dart';
 import 'package:cinetrack/providers/providers.dart';
 import 'package:cinetrack/repositories/discovery_repository.dart';
 import 'package:cinetrack/repositories/favorites_repository.dart';
+import 'package:cinetrack/screens/favorites_screen.dart';
 import 'package:cinetrack/screens/home_screen.dart';
 import 'package:cinetrack/services/local_store.dart';
 import 'package:cinetrack/services/tmdb_api_client.dart';
@@ -91,8 +93,8 @@ void _useTallViewport(WidgetTester tester) {
 void main() {
   testWidgets(
       'Cenário 1: sem favoritos, mas com seções de descoberta preenchidas — '
-      'a home mostra as seções de descoberta E uma indicação curta de '
-      '"nenhum favorito ainda", nunca a tela inteira vazia', (tester) async {
+      'a home mostra as seções de descoberta e o atalho "Meus favoritos" no '
+      'menu do topo, nunca a tela inteira vazia', (tester) async {
     _useTallViewport(tester);
     const trendingItem = SearchResult(
       id: 1,
@@ -136,10 +138,9 @@ void main() {
     }
     expect(find.text('Category Movie'), findsNWidgets(kDiscoveryCategories.length));
 
-    // ...e, ao mesmo tempo, a seção de favoritos mostra só uma indicação
-    // curta — não a tela inteira em branco.
+    // ...e a lista de favoritos não mora mais na home: só o atalho no menu.
     expect(find.text('Meus favoritos'), findsOneWidget);
-    expect(find.text('Nenhum favorito ainda'), findsOneWidget);
+    expect(find.text('Nenhum favorito ainda'), findsNothing);
   });
 
   testWidgets(
@@ -204,8 +205,66 @@ void main() {
     // "Continue assistindo" e "Meus favoritos" — dados puramente locais —
     // continuam funcionando normalmente na mesma árvore.
     expect(find.text('Continue assistindo'), findsOneWidget);
-    expect(find.text('In Progress Show'), findsNWidgets(2)); // destaque + lista geral
+    expect(find.text('In Progress Show'), findsOneWidget);
     expect(find.text('Meus favoritos'), findsOneWidget);
+  });
+
+  testWidgets(
+      'o menu do topo "Meus favoritos" abre a segunda tela com a lista de '
+      'favoritos', (tester) async {
+    _useTallViewport(tester);
+    final favoriteMovie = FavoriteItem(
+      id: 10,
+      mediaType: MediaType.movie,
+      title: 'Favorite Movie',
+      posterPath: null,
+      overview: '',
+      addedAt: DateTime.now(),
+    );
+    final router = GoRouter(routes: [
+      GoRoute(path: '/', builder: (_, __) => const HomeScreen()),
+      GoRoute(path: '/favorites', builder: (_, __) => const FavoritesScreen()),
+    ]);
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        favoritesRepositoryProvider
+            .overrideWithValue(_FakeFavoritesRepository([favoriteMovie])),
+        discoveryRepositoryProvider
+            .overrideWithValue(_ConfigurableDiscoveryRepository()),
+      ],
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Favorite Movie'), findsNothing);
+
+    await tester.tap(find.text('Meus favoritos'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Favorite Movie'), findsOneWidget);
+    expect(find.byType(FavoritesScreen), findsOneWidget);
+  });
+
+  testWidgets(
+      '/favorites abre direto (deep link) e voltar leva à home',
+      (tester) async {
+    _useTallViewport(tester);
+    final router = GoRouter(initialLocation: '/favorites', routes: [
+      GoRoute(path: '/', builder: (_, __) => const HomeScreen()),
+      GoRoute(path: '/favorites', builder: (_, __) => const FavoritesScreen()),
+    ]);
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        favoritesRepositoryProvider.overrideWithValue(_FakeFavoritesRepository(const [])),
+        discoveryRepositoryProvider.overrideWithValue(_ConfigurableDiscoveryRepository()),
+      ],
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FavoritesScreen), findsOneWidget);
+    expect(find.text('Nenhum favorito ainda'), findsOneWidget);
   });
 }
