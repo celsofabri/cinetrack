@@ -21,17 +21,18 @@ class HomeScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('CineTrack'),
         actions: [
-          TextButton.icon(
+          IconButton(
+            tooltip: 'Buscar',
+            icon: const Icon(Icons.search),
+            onPressed: () => context.push('/search'),
+          ),
+          FilledButton.tonalIcon(
             onPressed: () => context.push('/favorites'),
             icon: const Icon(Icons.favorite),
             label: const Text('Meus favoritos'),
           ),
           const SizedBox(width: 8),
         ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => context.push('/search'),
-        child: const Icon(Icons.search),
       ),
       body: ListView(
         children: [

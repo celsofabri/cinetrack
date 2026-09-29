@@ -10,10 +10,15 @@ class FavoritesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Meus favoritos')),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => context.push('/search'),
-        child: const Icon(Icons.search),
+      appBar: AppBar(
+        title: const Text('Meus favoritos'),
+        actions: [
+          IconButton(
+            tooltip: 'Buscar',
+            icon: const Icon(Icons.search),
+            onPressed: () => context.push('/search'),
+          ),
+        ],
       ),
       body: ListView(children: const [FavoritesSection()]),
     );
