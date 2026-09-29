@@ -121,4 +121,16 @@ void main() {
     expect(find.text('A Show'), findsNothing);
     expect(find.text('A Movie'), findsOneWidget);
   });
+
+  testWidgets('the Todos/Filmes/Séries filter is horizontally centered',
+      (tester) async {
+    await tester.pumpWidget(_wrap(const []));
+    await tester.pumpAndSettle();
+
+    // "Filmes" is the middle segment, so it sits at the control's center.
+    final filterCenter = tester.getCenter(find.text('Filmes'));
+    final screenCenter = tester.getCenter(find.byType(Scaffold));
+
+    expect(filterCenter.dx, closeTo(screenCenter.dx, 12));
+  });
 }

@@ -32,16 +32,18 @@ class _FavoritesSectionState extends ConsumerState<FavoritesSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          child: SegmentedButton<_Filter>(
-            segments: const [
-              ButtonSegment(value: _Filter.all, label: Text('Todos')),
-              ButtonSegment(value: _Filter.movies, label: Text('Filmes')),
-              ButtonSegment(value: _Filter.tv, label: Text('Séries')),
-            ],
-            selected: {_filter},
-            onSelectionChanged: (s) => setState(() => _filter = s.first),
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: SegmentedButton<_Filter>(
+              segments: const [
+                ButtonSegment(value: _Filter.all, label: Text('Todos')),
+                ButtonSegment(value: _Filter.movies, label: Text('Filmes')),
+                ButtonSegment(value: _Filter.tv, label: Text('Séries')),
+              ],
+              selected: {_filter},
+              onSelectionChanged: (s) => setState(() => _filter = s.first),
+            ),
           ),
         ),
         favoritesAsync.when(
@@ -64,7 +66,9 @@ class _FavoritesSectionState extends ConsumerState<FavoritesSection> {
             if (filtered.isEmpty) {
               return EmptyState(
                 icon: Icons.favorite_border,
-                title: favorites.isEmpty ? 'Nenhum favorito ainda' : 'Nada neste filtro',
+                title: favorites.isEmpty
+                    ? 'Nenhum favorito ainda'
+                    : 'Nada neste filtro',
                 message: favorites.isEmpty
                     ? 'Toque na lupa para buscar um filme ou série e favoritar.'
                     : 'Troque o filtro acima ou adicione mais itens.',
@@ -75,7 +79,8 @@ class _FavoritesSectionState extends ConsumerState<FavoritesSection> {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: filtered.length,
-              itemBuilder: (context, index) => _FavoriteTile(item: filtered[index]),
+              itemBuilder: (context, index) =>
+                  _FavoriteTile(item: filtered[index]),
             );
           },
         ),
@@ -104,7 +109,8 @@ class _FavoriteTile extends StatelessWidget {
               watched: progress!.watchedCount,
               total: progress.totalCount,
             ),
-      onTap: () => context.push(isMovie ? '/movie/${item.id}' : '/tv/${item.id}'),
+      onTap: () =>
+          context.push(isMovie ? '/movie/${item.id}' : '/tv/${item.id}'),
     );
   }
 }
