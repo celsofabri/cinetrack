@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -18,14 +20,33 @@ class SearchScreen extends ConsumerStatefulWidget {
 }
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
+  static const _minChars = 2;
+  static const _debounce = Duration(milliseconds: 400);
+
   final _controller = TextEditingController();
+  Timer? _debounceTimer;
   String _submittedQuery = '';
   final Set<String> _pendingKeys = {};
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _controller.dispose();
     super.dispose();
+  }
+
+  /// Searches as the user types: waits for a pause in typing ([_debounce])
+  /// and only fires from [_minChars] characters on, so we don't spam TMDB.
+  void _onChanged(String value) {
+    _debounceTimer?.cancel();
+    final query = value.trim();
+    if (query.length < _minChars) {
+      setState(() => _submittedQuery = '');
+      return;
+    }
+    _debounceTimer = Timer(_debounce, () {
+      if (mounted) setState(() => _submittedQuery = query);
+    });
   }
 
   @override
@@ -46,14 +67,18 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             hintText: 'Buscar filme ou série...',
             border: InputBorder.none,
           ),
-          onSubmitted: (value) => setState(() => _submittedQuery = value.trim()),
+          onChanged: _onChanged,
+          onSubmitted: (value) {
+            _debounceTimer?.cancel();
+            setState(() => _submittedQuery = value.trim());
+          },
         ),
       ),
       body: _submittedQuery.isEmpty
           ? const EmptyState(
               icon: Icons.search,
               title: 'Busque algo para favoritar',
-              message: 'Digite um título e toque em buscar no teclado.',
+              message: 'Digite pelo menos 2 letras do título.',
             )
           : _buildResults(favoriteKeys),
     );
