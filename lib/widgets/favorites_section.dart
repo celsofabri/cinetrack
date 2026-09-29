@@ -1,0 +1,117 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../models/favorite_item.dart';
+import '../models/media_type.dart';
+import '../providers/providers.dart';
+import '../services/progress_calculator.dart';
+import 'empty_state.dart';
+import 'error_state.dart';
+import 'poster_image.dart';
+import 'progress_badge.dart';
+
+enum _Filter { all, movies, tv }
+
+/// The former HomeScreen body, extracted as-is (same filter, same
+/// behavior) so it can sit below the discovery/continue-watching
+/// highlights instead of being the whole screen. Owns its own Todos/
+/// Filmes/Séries filter state — by design this filter affects only this
+/// section, never Continue assistindo or the discovery carousels above it.
+class FavoritesSection extends ConsumerStatefulWidget {
+  const FavoritesSection({super.key});
+
+  @override
+  ConsumerState<FavoritesSection> createState() => _FavoritesSectionState();
+}
+
+class _FavoritesSectionState extends ConsumerState<FavoritesSection> {
+  _Filter _filter = _Filter.all;
+
+  @override
+  Widget build(BuildContext context) {
+    final favoritesAsync = ref.watch(favoritesListProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text('Meus favoritos', style: Theme.of(context).textTheme.titleLarge),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: SegmentedButton<_Filter>(
+            segments: const [
+              ButtonSegment(value: _Filter.all, label: Text('Todos')),
+              ButtonSegment(value: _Filter.movies, label: Text('Filmes')),
+              ButtonSegment(value: _Filter.tv, label: Text('Séries')),
+            ],
+            selected: {_filter},
+            onSelectionChanged: (s) => setState(() => _filter = s.first),
+          ),
+        ),
+        favoritesAsync.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          error: (error, _) =>
+              ErrorState(message: 'Erro ao carregar seus favoritos: $error'),
+          data: (favorites) {
+            final filtered = favorites.where((f) {
+              return switch (_filter) {
+                _Filter.all => true,
+                _Filter.movies => f.mediaType == MediaType.movie,
+                _Filter.tv => f.mediaType == MediaType.tv,
+              };
+            }).toList()
+              ..sort((a, b) => b.addedAt.compareTo(a.addedAt));
+
+            if (filtered.isEmpty) {
+              return EmptyState(
+                icon: Icons.favorite_border,
+                title: favorites.isEmpty ? 'Nenhum favorito ainda' : 'Nada neste filtro',
+                message: favorites.isEmpty
+                    ? 'Toque na lupa para buscar um filme ou série e favoritar.'
+                    : 'Troque o filtro acima ou adicione mais itens.',
+              );
+            }
+
+            return ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: filtered.length,
+              itemBuilder: (context, index) => _FavoriteTile(item: filtered[index]),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _FavoriteTile extends StatelessWidget {
+  final FavoriteItem item;
+
+  const _FavoriteTile({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final isMovie = item.mediaType == MediaType.movie;
+    final progress =
+        isMovie ? null : ProgressCalculator.compute(item.seasons ?? const []);
+
+    return ListTile(
+      leading: PosterImage(posterPath: item.posterPath, width: 56, height: 84),
+      title: Text(item.title),
+      subtitle: isMovie
+          ? Text(item.watchedMovie ? 'Assistido' : 'Não assistido')
+          : ProgressBadge(
+              watched: progress!.watchedCount,
+              total: progress.totalCount,
+            ),
+      onTap: () => context.push(isMovie ? '/movie/${item.id}' : '/tv/${item.id}'),
+    );
+  }
+}

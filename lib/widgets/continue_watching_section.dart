@@ -1,0 +1,85 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../models/favorite_item.dart';
+import '../providers/providers.dart';
+import '../services/progress_calculator.dart';
+import 'poster_image.dart';
+import 'progress_badge.dart';
+
+/// Highlights TV shows with partial watch progress (some episode watched,
+/// not all) — separate from the generic favorites list per product spec.
+/// Purely local/derived data (`continueWatchingProvider`), so it never has
+/// a loading/error state of its own: it either has entries, or it doesn't.
+class ContinueWatchingSection extends ConsumerWidget {
+  const ContinueWatchingSection({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final items = ref.watch(continueWatchingProvider);
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text('Continue assistindo', style: Theme.of(context).textTheme.titleLarge),
+          ),
+          SizedBox(
+            height: 288,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: items.length,
+              itemBuilder: (context, index) => _ContinueWatchingCard(item: items[index]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContinueWatchingCard extends StatelessWidget {
+  final FavoriteItem item;
+
+  const _ContinueWatchingCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = ProgressCalculator.compute(item.seasons ?? const []);
+
+    return Semantics(
+      label: item.title,
+      button: true,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 12),
+        child: SizedBox(
+          width: 130,
+          child: GestureDetector(
+            onTap: () => context.push('/tv/${item.id}'),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                PosterImage(posterPath: item.posterPath, width: 130, height: 195),
+                const SizedBox(height: 4),
+                Text(
+                  item.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 4),
+                ProgressBadge(watched: progress.watchedCount, total: progress.totalCount),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
