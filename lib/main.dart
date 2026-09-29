@@ -11,6 +11,7 @@ import 'screens/movie_details_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/tv_details_screen.dart';
 import 'services/local_store.dart';
+import 'widgets/app_splash.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -81,6 +82,7 @@ class CineTrackApp extends StatelessWidget {
         useMaterial3: true,
       ),
       routerConfig: _router,
+      builder: (context, child) => AppSplash(child: child ?? const SizedBox.shrink()),
     );
   }
 }

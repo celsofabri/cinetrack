@@ -86,3 +86,38 @@ for e in cj["images"]:
 
 # In-app logo (symbol only, transparent background)
 save(symbol, "assets/logo.png", 256)
+
+
+# ---- Splash logo (icon + wordmark, white text, transparent background) ----
+# Uses a macOS system font; the generated PNGs are committed, so other
+# platforms only need the font if they re-run this script.
+from PIL import ImageFont
+
+FONT = "/System/Library/Fonts/Supplemental/Arial Rounded Bold.ttf"
+
+
+def make_splash_logo(width):
+    W, H = 900, 760
+    canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    sym = symbol.resize((420, 420), Image.LANCZOS)  # symbol has 1.25x scale headroom
+    canvas.alpha_composite(sym, ((W - 420) // 2, 0))
+    font = ImageFont.truetype(FONT, 150)
+    d = ImageDraw.Draw(canvas)
+    text = "CineTrack"
+    l, t, r, b = d.textbbox((0, 0), text, font=font)
+    d.text(((W - (r - l)) / 2 - l, 520 - t), text, font=font, fill=(255, 255, 255, 255))
+    h = round(width * H / W)
+    return canvas.resize((width, h), Image.LANCZOS)
+
+
+make_splash_logo(675).save("assets/splash_logo.png")  # in-app (3x of 225 logical px)
+os.makedirs("web/splash", exist_ok=True)
+make_splash_logo(675).save("web/splash/logo.png")
+
+# Android: xxhdpi bucket (480dpi) so 675px renders at 225dp on every density
+os.makedirs("android/app/src/main/res/drawable-xxhdpi", exist_ok=True)
+make_splash_logo(675).save("android/app/src/main/res/drawable-xxhdpi/splash_logo.png")
+
+# iOS LaunchImage 1x/2x/3x = 225/450/675 px wide
+for name, w in {"LaunchImage.png": 225, "LaunchImage@2x.png": 450, "LaunchImage@3x.png": 675}.items():
+    make_splash_logo(w).save("ios/Runner/Assets.xcassets/LaunchImage.imageset/" + name)

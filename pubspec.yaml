@@ -28,3 +28,4 @@ flutter:
   assets:
     - .env
     - assets/logo.png
+    - assets/splash_logo.png

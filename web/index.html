@@ -31,8 +31,26 @@
 
   <title>CineTrack</title>
   <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#5E2CA5">
+  <style>
+    html, body { margin: 0; height: 100%; background: #5E2CA5; }
+    #splash {
+      position: fixed; inset: 0; display: flex; align-items: center;
+      justify-content: center; background: #5E2CA5; z-index: 10;
+    }
+    #splash img { width: 225px; height: auto; }
+  </style>
 </head>
 <body>
+  <div id="splash"><img src="splash/logo.png" alt="CineTrack"></div>
+  <script>
+    // Flutter draws its own identical splash (which owns the fade), so the
+    // HTML one is dropped on the first frame without any visual jump.
+    window.addEventListener('flutter-first-frame', function () {
+      var el = document.getElementById('splash');
+      if (el) el.remove();
+    });
+  </script>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
