@@ -56,6 +56,6 @@ O deploy é automático via GitHub Actions (`.github/workflows/deploy-pages.yml`
 1. Settings > Pages > Build and deployment > Source: **GitHub Actions**.
 2. Settings > Secrets and variables > Actions > New repository secret: `TMDB_API_KEY` com a sua chave do TMDB.
 
-**Atenção:** em app web a chave do TMDB é embutida nos assets publicados e pode ser extraída por qualquer visitante. Use uma chave dedicada/gratuita, sem outros usos, e revogue-a no TMDB se houver abuso. A chave nunca é commitada nem impressa nos logs.
+**Atenção:** em app web a chave do TMDB é compilada no JavaScript publicado e pode ser extraída por qualquer visitante. Use uma chave dedicada/gratuita, sem outros usos, e revogue-a no TMDB se houver abuso. A chave nunca é commitada nem impressa nos logs.
 
 **Rollback:** em Actions, abra um run anterior bem-sucedido e clique em "Re-run all jobs" (republica aquela versão); ou faça `git revert` do commit problemático na `main` e o deploy roda de novo.

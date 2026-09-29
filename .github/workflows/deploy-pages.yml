@@ -31,7 +31,7 @@ jobs:
         run: flutter pub get
 
       # pubspec declares .env as an asset and the file is gitignored, so
-      # analyze/test run with a dummy one (tests never need the real key).
+      # analyze/test/build run with a dummy one (the real key comes via --dart-define).
       - name: Create dummy .env for analyze/test
         run: printf 'TMDB_API_KEY=test\n' > .env
 
@@ -41,20 +41,18 @@ jobs:
       - name: Test
         run: flutter test
 
-      # Overwrite with the real key only right before the build.
-      # The value is never echoed.
-      - name: Create .env from secret
+      # GitHub Pages drops dotfiles, so the key is compiled in with
+      # --dart-define instead of shipped as the .env asset. Never echoed.
+      - name: Build web
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
           if [ -z "$TMDB_API_KEY" ]; then
             echo "::error::Secret TMDB_API_KEY is not set (Settings > Secrets and variables > Actions)."
             exit 1
           fi
-          printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .env
-
-      - name: Build web
-        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
+          flutter build web --release --base-href "/${REPO_NAME}/" --dart-define=TMDB_API_KEY="$TMDB_API_KEY"
 
       - name: Prepare Pages artifact
         run: |

@@ -13,7 +13,17 @@ import 'services/local_store.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await dotenv.load(fileName: '.env');
+  // Web builds get the key via --dart-define (dotfile assets are not served
+  // by GitHub Pages); local runs fall back to the .env asset.
+  var apiKey = const String.fromEnvironment('TMDB_API_KEY');
+  if (apiKey.isEmpty) {
+    try {
+      await dotenv.load(fileName: '.env');
+      apiKey = dotenv.env['TMDB_API_KEY'] ?? '';
+    } catch (_) {
+      // Missing .env: the app still opens, search shows a config error.
+    }
+  }
 
   final localStore = LocalStore();
   await localStore.init();
@@ -22,7 +32,7 @@ Future<void> main() async {
     ProviderScope(
       overrides: [
         localStoreProvider.overrideWithValue(localStore),
-        tmdbApiKeyProvider.overrideWithValue(dotenv.env['TMDB_API_KEY'] ?? ''),
+        tmdbApiKeyProvider.overrideWithValue(apiKey),
       ],
       child: const CineTrackApp(),
     ),
