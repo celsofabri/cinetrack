@@ -20,6 +20,15 @@ Contexto do produto e decisões técnicas: [`docs/01-especificacao.md`](docs/01-
    flutter run
    ```
 
+### Local x deploy (como a chave TMDB chega ao app)
+
+| Ambiente | Como a chave entra | Comando |
+|---|---|---|
+| **Local** | Asset `.env` (arquivo ignorado pelo git) | `flutter run -d chrome`, ou `flutter build web` + servir `build/web` |
+| **GitHub Pages** | `--dart-define` com o secret `TMDB_API_KEY` (o Pages não serve arquivos com ponto, como `.env`) | Automático no workflow |
+
+`--dart-define=TMDB_API_KEY=...` tem prioridade sobre o `.env`. Por isso, **não passe um valor de teste** (ex.: `=x`) em builds locais: todas as chamadas ao TMDB voltam 401 ("Chave de API ausente ou inválida"). Em builds locais, não use `--dart-define`.
+
 Sem a chave configurada, o app abre normalmente mas a busca por novos filmes/séries mostra um erro de configuração (itens já favoritados continuam funcionando offline).
 
 ## Stack
