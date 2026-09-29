@@ -19,7 +19,19 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CineTrack'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset(
+              'assets/logo.png',
+              width: 28,
+              height: 28,
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            ),
+            const SizedBox(width: 8),
+            const Text('CineTrack'),
+          ],
+        ),
         actions: [
           IconButton(
             tooltip: 'Buscar',
