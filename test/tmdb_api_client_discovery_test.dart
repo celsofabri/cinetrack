@@ -165,4 +165,66 @@ void main() {
       );
     });
   });
+
+  group('TmdbApiClient catalog (getGenres / discoverPage)', () {
+    test('getGenres parses /genre/tv/list', () async {
+      final client = _client(MockClient((request) async {
+        expect(request.url.path, '/3/genre/tv/list');
+        return http.Response(
+          jsonEncode({
+            'genres': [
+              {'id': 10759, 'name': 'Action & Adventure'},
+              {'id': 16, 'name': 'Animação'},
+            ],
+          }),
+          200,
+        );
+      }));
+
+      final genres = await client.getGenres(MediaType.tv);
+
+      expect(genres.map((g) => (g.id, g.name)), [(10759, 'Action & Adventure'), (16, 'Animação')]);
+    });
+
+    test('discoverPage sends genre, page and quality filters and parses paging', () async {
+      final client = _client(MockClient((request) async {
+        expect(request.url.path, '/3/discover/movie');
+        expect(request.url.queryParameters['with_genres'], '27');
+        expect(request.url.queryParameters['page'], '3');
+        expect(request.url.queryParameters['sort_by'], 'popularity.desc');
+        expect(request.url.queryParameters['include_adult'], 'false');
+        return http.Response(
+          jsonEncode({
+            'page': 3,
+            'total_pages': 900,
+            'results': [
+              {'id': 1, 'title': 'Scary', 'poster_path': null, 'overview': ''},
+            ],
+          }),
+          200,
+        );
+      }));
+
+      final page = await client.discoverPage(MediaType.movie, genreId: 27, page: 3);
+
+      expect(page.results.single.title, 'Scary');
+      expect(page.page, 3);
+      expect(page.totalPages, 900);
+      expect(page.hasMore, isTrue);
+    });
+
+    test('discoverPage omits with_genres for "all" and stops at TMDB\'s 500-page cap', () async {
+      final client = _client(MockClient((request) async {
+        expect(request.url.queryParameters.containsKey('with_genres'), isFalse);
+        return http.Response(
+          jsonEncode({'page': 500, 'total_pages': 1000, 'results': []}),
+          200,
+        );
+      }));
+
+      final page = await client.discoverPage(MediaType.tv, page: 500);
+
+      expect(page.hasMore, isFalse);
+    });
+  });
 }

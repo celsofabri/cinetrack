@@ -29,7 +29,7 @@ class HomeScreen extends ConsumerWidget {
               errorBuilder: (_, __, ___) => const SizedBox.shrink(),
             ),
             const SizedBox(width: 8),
-            const Text('CineTrack'),
+            const Flexible(child: Text('CineTrack', overflow: TextOverflow.ellipsis)),
           ],
         ),
         actions: [
@@ -38,10 +38,15 @@ class HomeScreen extends ConsumerWidget {
             icon: const Icon(Icons.search),
             onPressed: () => context.push('/search'),
           ),
-          FilledButton.tonalIcon(
+          _NavAction(
+            label: 'Explorar',
+            icon: Icons.explore,
+            onPressed: () => context.push('/catalog'),
+          ),
+          _NavAction(
+            label: 'Meus favoritos',
+            icon: Icons.favorite,
             onPressed: () => context.push('/favorites'),
-            icon: const Icon(Icons.favorite),
-            label: const Text('Meus favoritos'),
           ),
           const SizedBox(width: 8),
         ],
@@ -55,6 +60,27 @@ class HomeScreen extends ConsumerWidget {
             DiscoverySection(title: category.label, provider: categoryProvider(category)),
         ],
       ),
+    );
+  }
+}
+
+/// Top-menu button: icon + label on wide screens, icon-only (with tooltip)
+/// on narrow ones so three actions never overflow the app bar.
+class _NavAction extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  const _NavAction({required this.label, required this.icon, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 640;
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: wide
+          ? FilledButton.tonalIcon(onPressed: onPressed, icon: Icon(icon), label: Text(label))
+          : IconButton.filledTonal(tooltip: label, onPressed: onPressed, icon: Icon(icon)),
     );
   }
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../models/catalog.dart';
 import '../models/media_type.dart';
 import '../models/search_result.dart';
 import '../models/season_cache.dart';
@@ -109,6 +110,37 @@ class TmdbApiClient {
         .cast<Map<String, dynamic>>()
         .map((r) => SearchResult.fromTmdbTyped(r, MediaType.tv))
         .toList();
+  }
+
+  Future<List<Genre>> getGenres(MediaType type) async {
+    final json = await _get(_uri('/genre/${type.jsonValue}/list'));
+    final genres = json['genres'] as List? ?? [];
+    return genres.cast<Map<String, dynamic>>().map(Genre.fromTmdb).toList();
+  }
+
+  /// Full catalog browsing: every movie or TV show (optionally within one
+  /// genre), most popular first, one page at a time.
+  Future<DiscoverPage> discoverPage(
+    MediaType type, {
+    int? genreId,
+    int page = 1,
+  }) async {
+    final json = await _get(_uri('/discover/${type.jsonValue}', {
+      'sort_by': 'popularity.desc',
+      'include_adult': 'false',
+      'vote_count.gte': '20', // hides unrated/obscure entries with no poster
+      'page': '$page',
+      if (genreId != null) 'with_genres': '$genreId',
+    }));
+    final results = json['results'] as List? ?? [];
+    return DiscoverPage(
+      results: results
+          .cast<Map<String, dynamic>>()
+          .map((r) => SearchResult.fromTmdbTyped(r, type))
+          .toList(),
+      page: json['page'] as int? ?? page,
+      totalPages: json['total_pages'] as int? ?? page,
+    );
   }
 
   Future<Map<String, dynamic>> getMovieDetails(int id) =>

@@ -161,7 +161,7 @@ class _DiscoveryCard extends StatelessWidget {
                     Positioned(
                       top: 4,
                       right: 4,
-                      child: _FavoriteButton(
+                      child: FavoriteButton(
                         isFavorite: isFavorite,
                         isPending: isPending,
                         onPressed: isFavorite ? null : onToggleFavorite,
@@ -193,12 +193,13 @@ class _DiscoveryCard extends StatelessWidget {
   }
 }
 
-class _FavoriteButton extends StatelessWidget {
+class FavoriteButton extends StatelessWidget {
   final bool isFavorite;
   final bool isPending;
   final VoidCallback? onPressed;
 
-  const _FavoriteButton({
+  const FavoriteButton({
+    super.key,
     required this.isFavorite,
     required this.isPending,
     required this.onPressed,

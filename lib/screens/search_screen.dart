@@ -140,22 +140,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   Future<void> _addFavorite(SearchResult result, String key) async {
     setState(() => _pendingKeys.add(key));
     try {
-      final repo = ref.read(favoritesRepositoryProvider);
-      if (result.mediaType == MediaType.movie) {
-        await repo.addMovie(
-          id: result.id,
-          title: result.title,
-          posterPath: result.posterPath,
-          overview: result.overview,
-        );
-      } else {
-        await repo.addTvShow(
-          id: result.id,
-          title: result.title,
-          posterPath: result.posterPath,
-          overview: result.overview,
-        );
-      }
+      await ref.read(favoritesRepositoryProvider).addResult(result);
     } finally {
       if (mounted) setState(() => _pendingKeys.remove(key));
     }

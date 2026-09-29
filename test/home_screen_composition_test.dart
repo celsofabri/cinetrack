@@ -140,6 +140,7 @@ void main() {
 
     // ...e a lista de favoritos não mora mais na home: só o atalho no menu.
     expect(find.text('Meus favoritos'), findsOneWidget);
+    expect(find.text('Explorar'), findsOneWidget);
     expect(find.text('Nenhum favorito ainda'), findsNothing);
   });
 
@@ -266,5 +267,26 @@ void main() {
 
     expect(find.byType(FavoritesScreen), findsOneWidget);
     expect(find.text('Nenhum favorito ainda'), findsOneWidget);
+  });
+
+  testWidgets('a 320px-wide home shows icon-only menu buttons with no overflow',
+      (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(_wrap(
+      favorites: const [],
+      discoveryRepository: _ConfigurableDiscoveryRepository(),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byTooltip('Explorar'), findsOneWidget);
+    expect(find.byTooltip('Meus favoritos'), findsOneWidget);
+    expect(find.byTooltip('Buscar'), findsOneWidget);
   });
 }

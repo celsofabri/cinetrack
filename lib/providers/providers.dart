@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/catalog.dart';
 import '../models/discovery_category.dart';
 import '../models/favorite_item.dart';
 import '../models/media_type.dart';
@@ -85,4 +86,10 @@ final continueWatchingProvider = Provider<List<FavoriteItem>>((ref) {
   }).toList()
     ..sort((a, b) => (b.lastWatchedAt ?? b.addedAt).compareTo(a.lastWatchedAt ?? a.addedAt));
   return inProgress;
+});
+
+/// Genre list per media type for the catalog filter (rarely changes, so it
+/// stays cached for the session).
+final genresProvider = FutureProvider.family<List<Genre>, MediaType>((ref, type) {
+  return ref.watch(tmdbApiClientProvider).getGenres(type);
 });

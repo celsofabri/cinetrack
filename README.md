@@ -34,6 +34,8 @@ flutter test
 
 - `test/progress_calculator_test.dart` — lógica de progresso/próximo episódio (unitário, sem Flutter).
 - `test/tmdb_api_client_test.dart` — parsing de busca e mapeamento de erros HTTP (401/429) do TMDB.
+- `test/catalog_screen_test.dart` — tela Explorar: filmes/séries, filtro por gênero e paginação ao rolar.
+- `test/search_screen_test.dart` — busca ao digitar (a partir de 2 caracteres, com debounce).
 - `test/favorites_screen_test.dart` — estados vazio, filme, série e filtro na tela "Meus favoritos".
 - `test/home_screen_composition_test.dart` — composição da home e navegação pelo menu do topo até "Meus favoritos".
 
@@ -45,7 +47,7 @@ lib/
   services/      # TmdbApiClient, LocalStore (Hive), ProgressCalculator
   repositories/  # FavoritesRepository — única camada que decide rede x cache
   providers/     # Riverpod providers
-  screens/       # Home, Busca, Detalhe de Filme, Detalhe de Série
+  screens/       # Home, Explorar (catálogo por gênero), Meus favoritos, Busca, Detalhes
   widgets/       # Componentes reutilizáveis (poster, badge de progresso, estados)
 ```
 

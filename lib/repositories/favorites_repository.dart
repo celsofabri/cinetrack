@@ -1,5 +1,6 @@
 import '../models/favorite_item.dart';
 import '../models/media_type.dart';
+import '../models/search_result.dart';
 import '../models/season_cache.dart';
 import '../models/tv_season_summary.dart';
 import '../services/local_store.dart';
@@ -23,6 +24,11 @@ class FavoritesRepository {
 
   bool isFavorite(int id, MediaType mediaType) =>
       _store.read('$id-${mediaType.jsonValue}') != null;
+
+  /// Favorites a catalog/search result, whichever media type it is.
+  Future<void> addResult(SearchResult r) => r.mediaType == MediaType.movie
+      ? addMovie(id: r.id, title: r.title, posterPath: r.posterPath, overview: r.overview)
+      : addTvShow(id: r.id, title: r.title, posterPath: r.posterPath, overview: r.overview);
 
   Future<void> addMovie({
     required int id,
