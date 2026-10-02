@@ -1,0 +1,14 @@
+{
+  "name": "cinetrack-firestore-rules-test",
+  "private": true,
+  "description": "Security Rules tests for CineTrack. Run against the Firestore Emulator only.",
+  "scripts": {
+    "test": "firebase emulators:exec --only firestore --project demo-cinetrack \"node --test\"",
+    "test:direct": "node --test"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.0",
+    "firebase": "^12.0.0",
+    "firebase-tools": "^15.0.0"
+  }
+}

@@ -58,5 +58,10 @@ app.*.map.json
 *.p12
 *.mobileprovision
 key.properties
-google-services.json
-GoogleService-Info.plist
+# NOTE: google-services.json / GoogleService-Info.plist are intentionally NOT
+# ignored: they hold public Firebase identifiers and are versioned (ADR-003).
+
+# Firestore rules tests (Node)
+firestore_rules_test/node_modules/
+firebase-debug.log
+firestore-debug.log
