@@ -1,8 +1,10 @@
 # CineTrack
 
-App Flutter para favoritar filmes e séries e acompanhar o progresso episódio por episódio. Catálogo via [TMDB API](https://www.themoviedb.org/documentation/api); favoritos e progresso salvos **somente localmente** no aparelho (Hive), sem conta e sem sincronização entre dispositivos.
+App Flutter para favoritar filmes e séries e acompanhar o progresso episódio por episódio. Catálogo via [TMDB API](https://www.themoviedb.org/documentation/api); login com Google (Firebase Auth) e favoritos/progresso salvos **por usuário na nuvem** (Cloud Firestore, plano gratuito), acessíveis de qualquer dispositivo. Sem login, o catálogo (Home, Explorar, Busca, Detalhes) continua livre; gravar favoritos e progresso exige entrar.
 
-Contexto do produto e decisões técnicas: [`docs/01-especificacao.md`](docs/01-especificacao.md), [`docs/02-design.md`](docs/02-design.md), [`docs/adr/adr-001-stack.md`](docs/adr/adr-001-stack.md).
+Contexto do produto e decisões técnicas: [`docs/01-especificacao.md`](docs/01-especificacao.md), [`docs/02-design.md`](docs/02-design.md), [`docs/adr/adr-001-stack.md`](docs/adr/adr-001-stack.md). Login e dados na nuvem: [`docs/07-especificacao-login-perfil.md`](docs/07-especificacao-login-perfil.md), [`docs/08-design-login-perfil.md`](docs/08-design-login-perfil.md), [`docs/adr/adr-003-firebase-auth-e-persistencia-na-nuvem.md`](docs/adr/adr-003-firebase-auth-e-persistencia-na-nuvem.md).
+
+> **Nota de versão: favoritos locais antigos.** Os favoritos e o progresso que ficavam só no aparelho (Hive) **não aparecem mais** nesta versão: decidimos não migrá-los. Os dados antigos não são apagados (continuam no armazenamento do aparelho/navegador); voltar para a versão anterior do app os exibe de novo. Ao entrar com o Google, você recomeça com a lista da sua conta.
 
 ## Setup
 
@@ -29,11 +31,27 @@ Contexto do produto e decisões técnicas: [`docs/01-especificacao.md`](docs/01-
 
 `--dart-define=TMDB_API_KEY=...` tem prioridade sobre o `.env`. Por isso, **não passe um valor de teste** (ex.: `=x`) em builds locais: todas as chamadas ao TMDB voltam 401 ("Chave de API ausente ou inválida"). Em builds locais, não use `--dart-define`.
 
+### Login com Google e dados na nuvem (Firebase)
+
+O projeto Firebase é criado pelo mantenedor (passo a passo em [`docs/08-design-login-perfil.md`](docs/08-design-login-perfil.md), seção "Passo a passo manual do Manager"). Os identificadores do Firebase (`lib/firebase_options.dart`, `google-services.json`, `GoogleService-Info.plist`) são públicos por design e ficam versionados; a proteção real são as regras do Firestore ([`firestore.rules`](firestore.rules)). Nenhum segredo entra no repositório.
+
+- **Estado atual:** `lib/firebase_options.dart` já é real, mas **só para web** (projeto `cinetrack-d9398`). Android/iOS ainda não foram configurados (fora de escopo). Se o arquivo voltar a ser o *placeholder*, o app abre como navegador de catálogo, sem botão de login ("Login indisponível no momento") e o deploy no CI é barrado.
+- **Configurar outra plataforma/projeto:** `dart pub global activate flutterfire_cli` e, na raiz do projeto, `flutterfire configure` (sobrescreve `lib/firebase_options.dart`). No Android, cadastre a SHA-1 no console; no iOS, adicione o `GoogleService-Info.plist` ao Runner.
+- **Desligar:** `--dart-define=CLOUD_SYNC=false` desliga login e nuvem (catálogo apenas). O padrão é ligado.
+- **Regras:** publique `firestore.rules` no console (ou `firebase deploy --only firestore:rules`). Plano **Spark**, sem Blaze.
+
+#### Sincronização, perfil e privacidade
+
+- **Indicador de sincronização** (ícone de nuvem ao lado do avatar): sincronizado, enviando, sem conexão (mostrando dados do aparelho) ou com problema. Escritas funcionam offline e são enviadas ao reconectar.
+- **Avisos** (faixa no rodapé): *sessão expirada* (as alterações pendentes ficam guardadas e seguem após entrar de novo **com a mesma conta**), *limite diário gratuito atingido* e *alteração recusada pelo servidor*. Na primeira carga, "não consegui carregar" nunca aparece como "você não tem favoritos": há um estado de erro com "Tentar novamente".
+- **Perfil:** apelido editável (1 a 40 caracteres), estatísticas (calculadas a partir dos dados, sem contadores guardados), "Membro desde", resumo de privacidade e link para a [política de privacidade](web/privacidade.html) (publicada como `privacidade.html` junto do app no GitHub Pages).
+- **Excluir conta e dados:** pede para entrar com o Google de novo, apaga favoritos, progresso e apelido em lotes e, por fim, a conta. É retomável: se for interrompida, o app oferece "Concluir exclusão". Exige estar online.
+
 Sem a chave configurada, o app abre normalmente mas a busca por novos filmes/séries mostra um erro de configuração (itens já favoritados continuam funcionando offline).
 
 ## Stack
 
-Flutter · Riverpod (estado) · Hive (persistência local) · go_router (navegação) · TMDB API (catálogo). Detalhes e trade-offs em `docs/adr/adr-001-stack.md`.
+Flutter · Riverpod (estado) · go_router (navegação) · TMDB API (catálogo) · Firebase Auth + Cloud Firestore (login Google e dados por usuário, plano Spark) · Hive (apenas cache de catálogo/descoberta). Detalhes e trade-offs em `docs/adr/adr-001-stack.md` e `docs/adr/adr-003-firebase-auth-e-persistencia-na-nuvem.md`.
 
 ## Testes
 
@@ -47,16 +65,35 @@ flutter test
 - `test/search_screen_test.dart` — busca ao digitar (a partir de 2 caracteres, com debounce).
 - `test/favorites_screen_test.dart` — estados vazio, filme, série e filtro na tela "Meus favoritos".
 - `test/home_screen_composition_test.dart` — composição da home e navegação pelo menu do topo até "Meus favoritos".
+- `test/favorites_repository_contract_test.dart` e `test/favorites_repository_test.dart` — contrato do `FavoritesRepository` (favoritar, `addTvShow`, assistido, temporada), independente do armazenamento.
+- `test/favorite_mapper_test.dart` — mapper do documento da nuvem e merge por campo dos episódios.
+- `test/login_widgets_test.dart`, `test/pending_intent_test.dart`, `test/account_isolation_test.dart` — login (sucesso, cancelado, popup bloqueado, sem rede, duplo toque), intenção pendente após login e isolamento/troca de conta, tudo com fakes (sem Firebase nem rede).
+
+- `test/sync_status_test.dart`, `test/sync_status_provider_test.dart`, `test/sync_widgets_test.dart` — estado de sincronização (pendente/offline/erro), erros de escrita visíveis (regras, cota, sessão), erro x vazio no primeiro login, sessão expirada preservando pendências, indicador e faixa de avisos.
+- `test/account_deleter_test.dart`, `test/profile_screen_test.dart`, `test/profile_stats_test.dart` — exclusão de conta retomável (ordem, offline, reauth cancelada/outra conta, falha no meio), diálogo acessível por teclado, apelido, estatísticas e link de privacidade.
+
+Todos os testes acima rodam no CI sem credenciais. Os **testes das regras do Firestore** exigem o Emulator (Node + JDK 21 ou superior) e não rodam no `flutter test`:
+
+```
+cd firestore_rules_test
+npm install
+npm test          # sobe o emulator, roda os testes e encerra (projeto "demo-cinetrack", sem rede)
+```
+
+Na máquina de desenvolvimento o `java` padrão é o 11 (recusado pelo firebase-tools): use `JAVA_HOME=/opt/homebrew/opt/openjdk@24 PATH=/opt/homebrew/opt/openjdk@24/bin:$PATH npm test`. A suíte cobre isolamento entre usuários, validação de schema, apelido (1-40) e a sequência da exclusão de conta (marcador, lotes de 400, perfil).
 
 ## Estrutura
 
 ```
 lib/
   models/        # FavoriteItem, SeasonCache, EpisodeCache, SearchResult...
-  services/      # TmdbApiClient, LocalStore (Hive), ProgressCalculator
-  repositories/  # FavoritesRepository — única camada que decide rede x cache
+  auth/          # AuthRepository (Firebase Auth + Google), AppUser, AuthFailure
+  account/       # AccountDeleter (exclusão retomável), sessão expirada
+  data/          # FavoritesDataSource e ProfileDataSource (Firestore / deslogado), estado de sincronização
+  services/      # TmdbApiClient, LocalStore (Hive: só caches), ProgressCalculator, FavoriteMapper
+  repositories/  # FavoritesRepository — única camada que decide rede x nuvem x cache
   providers/     # Riverpod providers
-  screens/       # Home, Explorar (catálogo por gênero), Meus favoritos, Busca, Detalhes
+  screens/       # Home, Explorar (catálogo por gênero), Meus favoritos, Busca, Detalhes, Perfil
   widgets/       # Componentes reutilizáveis (poster, badge de progresso, estados)
 ```
 
@@ -71,3 +108,5 @@ O deploy é automático via GitHub Actions (`.github/workflows/deploy-pages.yml`
 **Atenção:** em app web a chave do TMDB é compilada no JavaScript publicado e pode ser extraída por qualquer visitante. Use uma chave dedicada/gratuita, sem outros usos, e revogue-a no TMDB se houver abuso. A chave nunca é commitada nem impressa nos logs.
 
 **Rollback:** em Actions, abra um run anterior bem-sucedido e clique em "Re-run all jobs" (republica aquela versão); ou faça `git revert` do commit problemático na `main` e o deploy roda de novo.
+
+**Antes de publicar na `main`:** o build de produção só consegue gravar favoritos com o Firebase configurado (`lib/firebase_options.dart` real, o que já vale para web) **e as regras do Firestore publicadas** (`firestore.rules` do repositório). O workflow barra o deploy se o arquivo ainda for o placeholder. O workflow não muda para o Firebase (config pública, sem secrets novos). A política de privacidade (`web/privacidade.html`) vai junto no build, em `/cinetrack/privacidade.html`.

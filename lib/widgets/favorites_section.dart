@@ -5,9 +5,10 @@ import 'package:go_router/go_router.dart';
 import '../models/favorite_item.dart';
 import '../models/media_type.dart';
 import '../providers/providers.dart';
+import '../providers/sync_providers.dart';
 import '../services/progress_calculator.dart';
 import 'empty_state.dart';
-import 'error_state.dart';
+import 'sync_widgets.dart';
 import 'poster_image.dart';
 import 'progress_badge.dart';
 
@@ -28,6 +29,7 @@ class _FavoritesSectionState extends ConsumerState<FavoritesSection> {
   @override
   Widget build(BuildContext context) {
     final favoritesAsync = ref.watch(favoritesListProvider);
+    final gate = ref.watch(favoritesGateProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -51,9 +53,19 @@ class _FavoritesSectionState extends ConsumerState<FavoritesSection> {
             padding: EdgeInsets.all(24),
             child: Center(child: CircularProgressIndicator()),
           ),
-          error: (error, _) =>
-              ErrorState(message: 'Erro ao carregar seus favoritos: $error'),
+          error: (error, _) => const FavoritesLoadError(),
           data: (favorites) {
+            // Empty but never confirmed by the server: loading or "could
+            // not load", never the misleading "Nenhum favorito ainda".
+            if (favorites.isEmpty && gate == FavoritesGate.loading) {
+              return const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (favorites.isEmpty && gate == FavoritesGate.unconfirmed) {
+              return const FavoritesLoadError();
+            }
             final filtered = favorites.where((f) {
               return switch (_filter) {
                 _Filter.all => true,

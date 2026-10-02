@@ -6,6 +6,7 @@ import '../models/media_type.dart';
 import '../models/search_result.dart';
 import '../providers/providers.dart';
 import '../services/tmdb_exception.dart';
+import '../widgets/auth_gate.dart';
 import '../widgets/error_state.dart';
 import '../widgets/poster_image.dart';
 
@@ -106,22 +107,7 @@ class _DiscoverySectionState extends ConsumerState<DiscoverySection> {
     final key = result.storageKey;
     setState(() => _pendingKeys.add(key));
     try {
-      final repo = ref.read(favoritesRepositoryProvider);
-      if (result.mediaType == MediaType.movie) {
-        await repo.addMovie(
-          id: result.id,
-          title: result.title,
-          posterPath: result.posterPath,
-          overview: result.overview,
-        );
-      } else {
-        await repo.addTvShow(
-          id: result.id,
-          title: result.title,
-          posterPath: result.posterPath,
-          overview: result.overview,
-        );
-      }
+      await runWrite(context, (repo) => repo.addResult(result));
     } finally {
       if (mounted) setState(() => _pendingKeys.remove(key));
     }

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/discovery_category.dart';
+import '../widgets/account_widgets.dart';
 import '../widgets/continue_watching_section.dart';
 import '../widgets/discovery_section.dart';
 import '../providers/providers.dart';
@@ -48,11 +49,13 @@ class HomeScreen extends ConsumerWidget {
             icon: Icons.favorite,
             onPressed: () => context.push('/favorites'),
           ),
+          const AccountAction(),
           const SizedBox(width: 8),
         ],
       ),
       body: ListView(
         children: [
+          const SignInInvite(),
           const ContinueWatchingSection(),
           DiscoverySection(title: 'Em Alta', provider: trendingProvider),
           DiscoverySection(title: 'Novidades', provider: noveltiesProvider),

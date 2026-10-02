@@ -9,6 +9,7 @@ import '../models/search_result.dart';
 import '../providers/providers.dart';
 import '../services/tmdb_exception.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/auth_gate.dart';
 import '../widgets/error_state.dart';
 import '../widgets/poster_image.dart';
 
@@ -140,7 +141,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   Future<void> _addFavorite(SearchResult result, String key) async {
     setState(() => _pendingKeys.add(key));
     try {
-      await ref.read(favoritesRepositoryProvider).addResult(result);
+      await runWrite(context, (repo) => repo.addResult(result));
     } finally {
       if (mounted) setState(() => _pendingKeys.remove(key));
     }

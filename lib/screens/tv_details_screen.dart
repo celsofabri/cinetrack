@@ -12,6 +12,7 @@ import '../services/tmdb_exception.dart';
 import '../widgets/error_state.dart';
 import '../widgets/poster_image.dart';
 import '../widgets/progress_badge.dart';
+import '../widgets/auth_gate.dart';
 
 class TvDetailsScreen extends ConsumerWidget {
   final int tvId;
@@ -168,9 +169,10 @@ class _SeasonTileState extends ConsumerState<_SeasonTile> {
           final markAllWatched = !(progress?.isFullyWatched ?? false);
           setState(() => _isPending = true);
           try {
-            await ref
-                .read(favoritesRepositoryProvider)
-                .setSeasonWatched(tvId, summary.seasonNumber, watched: markAllWatched);
+            await runWrite(
+              context,
+              (repo) => repo.setSeasonWatched(tvId, summary.seasonNumber, watched: markAllWatched),
+            );
             // Same class of bug the individual-episode toggle fix already
             // addresses: seasonProvider caches the season and doesn't watch
             // the favorites list, so once the tile is expanded it needs an
@@ -226,13 +228,14 @@ class _SeasonTileState extends ConsumerState<_SeasonTile> {
                       value: episode.watched,
                       onChanged: episode.hasAired
                           ? (_) async {
-                              await ref
-                                  .read(favoritesRepositoryProvider)
-                                  .toggleEpisodeWatched(
-                                    tvId,
-                                    summary.seasonNumber,
-                                    episode.episodeNumber,
-                                  );
+                              await runWrite(
+                                context,
+                                (repo) => repo.toggleEpisodeWatched(
+                                  tvId,
+                                  summary.seasonNumber,
+                                  episode.episodeNumber,
+                                ),
+                              );
                               // seasonProvider caches the season in Riverpod
                               // and doesn't watch the favorites list, so it
                               // won't pick up the toggle on its own —

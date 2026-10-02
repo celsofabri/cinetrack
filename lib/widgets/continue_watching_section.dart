@@ -5,7 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../models/favorite_item.dart';
 import '../providers/providers.dart';
 import '../services/progress_calculator.dart';
+import '../providers/sync_providers.dart';
 import 'poster_image.dart';
+import 'sync_widgets.dart';
 import 'progress_badge.dart';
 
 /// Highlights TV shows with partial watch progress (some episode watched,
@@ -18,6 +20,9 @@ class ContinueWatchingSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final items = ref.watch(continueWatchingProvider);
+    if (items.isEmpty && ref.watch(favoritesGateProvider) == FavoritesGate.unconfirmed) {
+      return const FavoritesLoadError(compact: true);
+    }
     if (items.isEmpty) return const SizedBox.shrink();
 
     return Padding(

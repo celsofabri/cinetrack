@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/media_type.dart';
 import '../providers/providers.dart';
 import '../widgets/poster_image.dart';
+import '../widgets/auth_gate.dart';
 
 class MovieDetailsScreen extends ConsumerWidget {
   final int movieId;
@@ -56,9 +57,10 @@ class MovieDetailsScreen extends ConsumerWidget {
                       FilterChip(
                         label: Text(item.watchedMovie ? 'Assistido' : 'Marcar como assistido'),
                         selected: item.watchedMovie,
-                        onSelected: (_) => ref
-                            .read(favoritesRepositoryProvider)
-                            .toggleMovieWatched(item.id),
+                        onSelected: (_) => runWrite(
+                          context,
+                          (repo) => repo.toggleMovieWatched(item.id),
+                        ),
                       ),
                     ],
                   ),

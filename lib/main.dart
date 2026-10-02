@@ -1,17 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'providers/providers.dart';
-import 'screens/catalog_screen.dart';
-import 'screens/favorites_screen.dart';
-import 'screens/home_screen.dart';
-import 'screens/movie_details_screen.dart';
-import 'screens/search_screen.dart';
-import 'screens/tv_details_screen.dart';
+import 'auth/firebase_auth_repository.dart';
+import 'router.dart';
+import 'services/firebase_bootstrap.dart';
 import 'services/local_store.dart';
 import 'widgets/app_splash.dart';
+import 'widgets/auth_gate.dart';
+import 'widgets/sync_widgets.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,9 +29,19 @@ Future<void> main() async {
   final localStore = LocalStore();
   await localStore.init();
 
+  // False when Firebase is not configured / CLOUD_SYNC=false: the app then
+  // runs as a free catalog browser with login unavailable.
+  final firebaseReady = await initFirebase(
+    purgeCache: localStore.firestoreCachePurgePending,
+    onPurgeResult: (ok) {
+      if (ok) localStore.clearFirestoreCachePurgeFlag();
+    },
+  );
+
   runApp(
     ProviderScope(
       overrides: [
+        if (firebaseReady) authRepositoryProvider.overrideWithValue(FirebaseAuthRepository()),
         localStoreProvider.overrideWithValue(localStore),
         tmdbApiKeyProvider.overrideWithValue(apiKey),
       ],
@@ -42,31 +50,13 @@ Future<void> main() async {
   );
 }
 
-final _router = GoRouter(
-  initialLocation: '/',
-  routes: [
-    GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
-    GoRoute(path: '/favorites', builder: (context, state) => const FavoritesScreen()),
-    GoRoute(path: '/catalog', builder: (context, state) => const CatalogScreen()),
-    GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
-    GoRoute(
-      path: '/movie/:id',
-      builder: (context, state) =>
-          MovieDetailsScreen(movieId: int.parse(state.pathParameters['id']!)),
-    ),
-    GoRoute(
-      path: '/tv/:id',
-      builder: (context, state) =>
-          TvDetailsScreen(tvId: int.parse(state.pathParameters['id']!)),
-    ),
-  ],
-);
-
-class CineTrackApp extends StatelessWidget {
+class CineTrackApp extends ConsumerWidget {
   const CineTrackApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Splash stays until the first auth event (session restored or none).
+    final sessionKnown = !ref.watch(authStateProvider).isLoading;
     return MaterialApp.router(
       title: 'CineTrack',
       debugShowCheckedModeBanner: false,
@@ -81,8 +71,18 @@ class CineTrackApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      routerConfig: _router,
-      builder: (context, child) => AppSplash(child: child ?? const SizedBox.shrink()),
+      routerConfig: ref.watch(routerProvider),
+      builder: (context, child) => AppSplash(
+        ready: sessionKnown,
+        child: PendingIntentRunner(
+          child: Column(
+            children: [
+              Expanded(child: child ?? const SizedBox.shrink()),
+              SyncBanner(onOpenProfile: () => ref.read(routerProvider).go('/profile')),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

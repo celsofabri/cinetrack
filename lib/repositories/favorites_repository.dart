@@ -1,29 +1,95 @@
+import 'dart:async';
+
+import '../data/favorites_data_source.dart';
+import '../models/favorite_doc.dart';
 import '../models/favorite_item.dart';
 import '../models/media_type.dart';
 import '../models/search_result.dart';
 import '../models/season_cache.dart';
 import '../models/tv_season_summary.dart';
+import '../services/favorite_mapper.dart';
 import '../services/local_store.dart';
 import '../services/tmdb_api_client.dart';
 
 /// The only layer that knows whether a piece of data comes from the
-/// network (TMDB) or from local cache (Hive). Screens/providers depend
-/// on this, never on TmdbApiClient or LocalStore directly.
+/// network (TMDB), the user's cloud space ([FavoritesDataSource]) or the
+/// local catalog cache. Screens/providers depend on this, never on the
+/// data source, TmdbApiClient or LocalStore directly.
+///
+/// It rebuilds the public [FavoriteItem] shape (cloud document + cached
+/// catalog + watched overlay), so screens and `ProgressCalculator` don't
+/// know the storage moved to the cloud. Writes are single-intent updates
+/// (one field path), never read-modify-write of the whole object.
 class FavoritesRepository {
   final TmdbApiClient _api;
   final LocalStore _store;
+  final FavoritesDataSource _data;
 
-  FavoritesRepository({required TmdbApiClient api, required LocalStore store})
-      : _api = api,
-        _store = store;
+  /// [dataSource] defaults to the signed-out source (empty reads, writes
+  /// throw [AuthRequiredException]); the app wires the real one through
+  /// `favoritesDataSourceProvider`.
+  FavoritesRepository({
+    required TmdbApiClient api,
+    required LocalStore store,
+    FavoritesDataSource? dataSource,
+  })  : _api = api,
+        _store = store,
+        _data = dataSource ?? const SignedOutFavoritesDataSource();
 
-  Stream<List<FavoriteItem>> watchAll() async* {
-    yield _store.readAll();
-    yield* _store.watch().map((_) => _store.readAll());
+  /// Emits the hydrated list now and whenever the user's favorites OR the
+  /// season catalog change (e.g. a season finishing its first download).
+  Stream<List<FavoriteItem>> watchAll() {
+    late final StreamController<List<FavoriteItem>> controller;
+    StreamSubscription<List<FavoriteDoc>>? docsSub;
+    StreamSubscription<void>? catalogSub;
+    List<FavoriteDoc>? latest;
+
+    void emit() {
+      final docs = latest;
+      if (docs == null || controller.isClosed) return;
+      controller.add([
+        for (final doc in docs)
+          FavoriteMapper.hydrate(
+            doc,
+            doc.mediaType == MediaType.tv ? _store.readSeasonCatalog(doc.id) : const [],
+          ),
+      ]);
+    }
+
+    controller = StreamController<List<FavoriteItem>>(
+      onListen: () {
+        docsSub = _data.watchAll().listen(
+          (docs) {
+            latest = docs;
+            emit();
+          },
+          onError: controller.addError,
+        );
+        catalogSub = _store.watchSeasonCatalog().listen((_) => emit());
+      },
+      onCancel: () async {
+        await docsSub?.cancel();
+        await catalogSub?.cancel();
+      },
+    );
+    return controller.stream;
   }
 
-  bool isFavorite(int id, MediaType mediaType) =>
-      _store.read('$id-${mediaType.jsonValue}') != null;
+  /// The raw cloud documents (no catalog hydration), for statistics.
+  Stream<List<FavoriteDoc>> watchDocs() => _data.watchAll();
+
+  /// Idempotency check for adds. If the read is unavailable (cold cache while
+  /// offline) we proceed as "not favorited": the add is a `set` whose rules
+  /// forbid moving `addedAt` forward, so it cannot clobber an existing doc,
+  /// and the user's action is not lost. Toggles do NOT do this: they need the
+  /// current state, so they let [FavoritesUnavailableException] propagate.
+  Future<bool> _exists(String key) async {
+    try {
+      return await _data.get(key) != null;
+    } on FavoritesUnavailableException {
+      return false;
+    }
+  }
 
   /// Favorites a catalog/search result, whichever media type it is.
   Future<void> addResult(SearchResult r) => r.mediaType == MediaType.movie
@@ -37,8 +103,8 @@ class FavoritesRepository {
     required String overview,
   }) async {
     final key = '$id-${MediaType.movie.jsonValue}';
-    if (_store.read(key) != null) return; // idempotent: already favorited
-    await _store.save(FavoriteItem(
+    if (await _exists(key)) return; // idempotent: already favorited
+    await _data.add(FavoriteDoc(
       id: id,
       mediaType: MediaType.movie,
       title: title,
@@ -55,88 +121,76 @@ class FavoritesRepository {
     required String overview,
   }) async {
     final key = '$id-${MediaType.tv.jsonValue}';
-    if (_store.read(key) != null) return; // idempotent: already favorited
+    if (await _exists(key)) return; // idempotent: already favorited
 
-    // Best-effort: fetch season names/counts now so the season list shows
-    // up offline right away. If it fails, the show is still favorited —
-    // the details screen offers a retry (loadSeasonSummaries).
-    List<TvSeasonSummary> summaries = const [];
-    try {
-      final details = await _api.getTvDetails(id);
-      summaries = TvSeasonSummary.listFromTvDetails(details);
-    } catch (_) {
-      summaries = const [];
-    }
-
-    await _store.save(FavoriteItem(
+    // Favorite first (so it is saved even if TMDB is slow/unreachable and
+    // signed-out callers fail before any network call)...
+    await _data.add(FavoriteDoc(
       id: id,
       mediaType: MediaType.tv,
       title: title,
       posterPath: posterPath,
       overview: overview,
       addedAt: DateTime.now(),
-      seasons: const [],
-      seasonSummaries: summaries,
     ));
+
+    // ...then best-effort: fetch season names/counts so the season list
+    // shows up offline right away. If it fails, the show is still
+    // favorited — the details screen offers a retry (reloadSeasonSummaries).
+    try {
+      final details = await _api.getTvDetails(id);
+      await _data.setSeasonSummaries(key, TvSeasonSummary.listFromTvDetails(details));
+    } catch (_) {
+      // Keep the favorite with empty summaries.
+    }
   }
 
   /// Retries fetching season names/counts for a show that was favorited
   /// while offline (or when the initial fetch failed).
   Future<void> reloadSeasonSummaries(int tvId) async {
     final key = '$tvId-${MediaType.tv.jsonValue}';
-    final item = _store.read(key);
-    if (item == null) return;
+    if (await _data.get(key) == null) return;
     final details = await _api.getTvDetails(tvId);
-    final summaries = TvSeasonSummary.listFromTvDetails(details);
-    await _store.save(item.copyWith(seasonSummaries: summaries));
+    await _data.setSeasonSummaries(key, TvSeasonSummary.listFromTvDetails(details));
   }
 
-  Future<void> remove(int id, MediaType mediaType) =>
-      _store.delete('$id-${mediaType.jsonValue}');
+  Future<void> remove(int id, MediaType mediaType) => _data.remove('$id-${mediaType.jsonValue}');
 
   Future<void> toggleMovieWatched(int id) async {
     final key = '$id-${MediaType.movie.jsonValue}';
-    final item = _store.read(key);
-    if (item == null) return;
-    await _store.save(item.copyWith(watchedMovie: !item.watchedMovie));
+    final doc = await _data.get(key);
+    if (doc == null) return;
+    await _data.setWatchedMovie(key, !doc.watchedMovie);
   }
 
   /// Returns cached episodes for [seasonNumber] if we already have them;
-  /// otherwise fetches from TMDB and caches the result. Toggling watched
-  /// state never depends on this call succeeding.
+  /// otherwise fetches from TMDB and caches the result (only for shows the
+  /// user favorited). The returned season carries the user's `watched`
+  /// flags. Toggling watched state never depends on this call succeeding.
   Future<SeasonCache> loadSeason(int tvId, int seasonNumber) async {
     final key = '$tvId-${MediaType.tv.jsonValue}';
-    final item = _store.read(key);
-    final cached = item?.seasons?.where((s) => s.seasonNumber == seasonNumber);
-    if (cached != null && cached.isNotEmpty) {
-      return cached.first;
+    final doc = await _data.get(key);
+    final watched = doc?.watchedEpisodes ?? const <String>{};
+
+    final cached = _store.readSeasonCatalog(tvId).where((s) => s.seasonNumber == seasonNumber);
+    if (cached.isNotEmpty) {
+      return FavoriteMapper.overlayWatched(cached.first, watched);
     }
 
     final fetched = await _api.getSeasonEpisodes(tvId, seasonNumber);
-    if (item != null) {
-      final updatedSeasons = [
-        for (final s in item.seasons ?? const <SeasonCache>[])
-          if (s.seasonNumber != seasonNumber) s,
-        fetched,
-      ];
-      await _store.save(item.copyWith(seasons: updatedSeasons));
+    if (doc != null) {
+      await _store.saveCatalogSeason(tvId, fetched);
     }
-    return fetched;
+    return FavoriteMapper.overlayWatched(fetched, watched);
   }
 
   Future<void> toggleEpisodeWatched(int tvId, int seasonNumber, int episodeNumber) async {
     final key = '$tvId-${MediaType.tv.jsonValue}';
-    final item = _store.read(key);
-    if (item == null) return;
+    final doc = await _data.get(key);
+    if (doc == null) return;
 
-    final seasons = item.seasons ?? const <SeasonCache>[];
-    final updatedSeasons = _updateSeason(
-      seasons,
-      seasonNumber,
-      (season) => _toggleEpisode(season, episodeNumber),
-    );
-
-    await _store.save(item.copyWith(seasons: updatedSeasons, lastWatchedAt: DateTime.now()));
+    final episodeKey = FavoriteMapper.episodeKey(seasonNumber, episodeNumber);
+    await _data.setEpisodes(key, {episodeKey: !doc.watchedEpisodes.contains(episodeKey)});
   }
 
   /// Marks every already-aired episode of a season as watched (or
@@ -147,46 +201,15 @@ class FavoritesRepository {
   /// locally (user never expanded it), fetches them first via
   /// [loadSeason] so we know what "already aired" means for it.
   Future<void> setSeasonWatched(int tvId, int seasonNumber, {required bool watched}) async {
-    await loadSeason(tvId, seasonNumber);
+    final season = await loadSeason(tvId, seasonNumber);
 
     final key = '$tvId-${MediaType.tv.jsonValue}';
-    final item = _store.read(key);
-    if (item == null) return;
+    if (await _data.get(key) == null) return;
 
-    final seasons = item.seasons ?? const <SeasonCache>[];
-    final updatedSeasons = _updateSeason(
-      seasons,
-      seasonNumber,
-      (season) => _setAiredEpisodesWatched(season, watched),
-    );
-
-    await _store.save(item.copyWith(seasons: updatedSeasons, lastWatchedAt: DateTime.now()));
+    await _data.setEpisodes(key, {
+      for (final episode in season.episodes)
+        if (episode.hasAired)
+          FavoriteMapper.episodeKey(seasonNumber, episode.episodeNumber): watched,
+    });
   }
-
-  /// Replaces the season matching [seasonNumber] in [seasons] with the
-  /// result of applying [transform] to it, leaving every other season
-  /// untouched. Shared by [toggleEpisodeWatched] and [setSeasonWatched] so
-  /// neither has to duplicate the "find this season in the list" scan.
-  List<SeasonCache> _updateSeason(
-    List<SeasonCache> seasons,
-    int seasonNumber,
-    SeasonCache Function(SeasonCache season) transform,
-  ) =>
-      [
-        for (final season in seasons)
-          if (season.seasonNumber == seasonNumber) transform(season) else season,
-      ];
-
-  SeasonCache _toggleEpisode(SeasonCache season, int episodeNumber) {
-    final episode = season.episodes.firstWhere((ep) => ep.episodeNumber == episodeNumber);
-    return season.copyWithEpisode(episode.copyWith(watched: !episode.watched));
-  }
-
-  SeasonCache _setAiredEpisodesWatched(SeasonCache season, bool watched) => SeasonCache(
-        seasonNumber: season.seasonNumber,
-        episodes: [
-          for (final episode in season.episodes)
-            episode.hasAired ? episode.copyWith(watched: watched) : episode,
-        ],
-      );
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 /// Brand purple shared by every splash surface (web HTML, Android, iOS and
@@ -13,11 +15,24 @@ class AppSplash extends StatefulWidget {
   final Duration hold;
   final Duration fade;
 
+  /// The splash only starts fading once this is true (and [hold] elapsed).
+  /// The app passes "first auth event received" so the signed-out UI never
+  /// flashes before the session is known.
+  final bool ready;
+
+  /// Safety cap: if [ready] never becomes true (e.g. the auth stream never
+  /// emits because browser storage is blocked) the splash fades anyway after
+  /// this long, so the public catalog never stays hidden. The UI then
+  /// continues as signed out until a session event arrives.
+  final Duration maxWait;
+
   const AppSplash({
     super.key,
     required this.child,
     this.hold = const Duration(milliseconds: 700),
     this.fade = const Duration(milliseconds: 600),
+    this.ready = true,
+    this.maxWait = const Duration(seconds: 3),
   });
 
   @override
@@ -25,15 +40,37 @@ class AppSplash extends StatefulWidget {
 }
 
 class _AppSplashState extends State<AppSplash> {
-  bool _fading = false;
+  bool _holdElapsed = false;
   bool _gone = false;
+  bool _timedOut = false;
+  Timer? _maxWaitTimer;
+
+  bool get _fading => _holdElapsed && (widget.ready || _timedOut);
 
   @override
   void initState() {
     super.initState();
     Future.delayed(widget.hold, () {
-      if (mounted) setState(() => _fading = true);
+      if (mounted) setState(() => _holdElapsed = true);
     });
+    // Only armed while the session is unknown; cancelled once it is ready.
+    if (!widget.ready) {
+      _maxWaitTimer = Timer(widget.maxWait, () {
+        if (mounted) setState(() => _timedOut = true);
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(AppSplash oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.ready) _maxWaitTimer?.cancel();
+  }
+
+  @override
+  void dispose() {
+    _maxWaitTimer?.cancel();
+    super.dispose();
   }
 
   @override

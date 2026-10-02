@@ -1,7 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../auth/app_user.dart';
+import '../account/session_expiry.dart';
+import '../auth/auth_failure.dart';
+import '../auth/auth_repository.dart';
+import '../data/favorites_data_source.dart';
+import '../data/firestore_favorites_data_source.dart';
+import '../data/sync_status.dart';
 import '../models/catalog.dart';
 import '../models/discovery_category.dart';
+import '../models/favorite_doc.dart';
 import '../models/favorite_item.dart';
 import '../models/media_type.dart';
 import '../models/search_result.dart';
@@ -29,11 +37,122 @@ final tmdbApiClientProvider = Provider<TmdbApiClient>((ref) {
   return client;
 });
 
+/// Overridden in main() with the Firebase implementation when Firebase is
+/// configured. The default keeps the app (and every test) free of Firebase:
+/// always signed out, login unavailable.
+final authRepositoryProvider = Provider<AuthRepository>((ref) {
+  return const UnavailableAuthRepository();
+});
+
+/// Current session. The first event means "session restored (or none)";
+/// the splash waits for it so the signed-out UI never flashes.
+final authStateProvider = StreamProvider<AppUser?>((ref) {
+  return ref.watch(authRepositoryProvider).authStateChanges();
+});
+
+final currentUserProvider = Provider<AppUser?>((ref) {
+  return ref.watch(authStateProvider).valueOrNull;
+});
+
+/// Only the uid: profile-field changes (name/photo) must not rebuild the
+/// data layer.
+final currentUidProvider = Provider<String?>((ref) {
+  return ref.watch(authStateProvider.select((state) => state.valueOrNull?.uid));
+});
+
+/// Where data sources report writes the server rejected after the UI moved
+/// on. One per signed-in account (recreated with the uid, so failures of a
+/// previous account never reach the next one).
+final syncFailureSinkProvider = Provider<SyncFailureSink>((ref) {
+  ref.watch(currentUidProvider);
+  final sink = SyncFailureSink();
+  ref.onDispose(sink.dispose);
+  return sink;
+});
+
+typedef FavoritesDataSourceFactory = FavoritesDataSource Function(String uid);
+
+/// Builds the cloud data source for a uid. Overridden in tests with fakes.
+final favoritesDataSourceFactoryProvider = Provider<FavoritesDataSourceFactory>((ref) {
+  final sink = ref.watch(syncFailureSinkProvider);
+  return (uid) => FirestoreFavoritesDataSource(uid: uid, sink: sink);
+});
+
+/// The single door to the user's data. Depends on the uid, so it is
+/// DISPOSED AND RECREATED when the account changes (dropping listeners and
+/// in-memory state of the previous account); signed out = empty source.
+final favoritesDataSourceProvider = Provider<FavoritesDataSource>((ref) {
+  final uid = ref.watch(currentUidProvider);
+  if (uid == null) return const SignedOutFavoritesDataSource();
+  return ref.watch(favoritesDataSourceFactoryProvider)(uid);
+});
+
 final favoritesRepositoryProvider = Provider<FavoritesRepository>((ref) {
   return FavoritesRepository(
     api: ref.watch(tmdbApiClientProvider),
     store: ref.watch(localStoreProvider),
+    dataSource: ref.watch(favoritesDataSourceProvider),
   );
+});
+
+/// A write the user attempted while signed out, replayed once login
+/// succeeds (and dropped if it fails or is cancelled). Memory only: the web
+/// login popup keeps the page alive.
+class PendingIntent {
+  final Future<void> Function(FavoritesRepository repo) run;
+
+  const PendingIntent(this.run);
+}
+
+final pendingIntentProvider = StateProvider<PendingIntent?>((ref) => null);
+
+class AuthActionState {
+  final bool signingIn;
+
+  const AuthActionState({this.signingIn = false});
+}
+
+/// Login/logout actions with an in-progress flag (the button disables on it,
+/// so a double tap never opens a second attempt).
+class AuthController extends Notifier<AuthActionState> {
+  @override
+  AuthActionState build() => const AuthActionState();
+
+  /// Returns null on success (or when ignored because a login is already
+  /// running), the [AuthFailure] otherwise. A failure also drops the
+  /// pending intent: nothing is saved if login did not happen.
+  Future<AuthFailure?> signIn() async {
+    if (state.signingIn) return null;
+    state = const AuthActionState(signingIn: true);
+    try {
+      // No await before this call: web needs the popup opened in the tap.
+      await ref.read(authRepositoryProvider).signInWithGoogle();
+      return null;
+    } on AuthFailure catch (failure) {
+      ref.read(pendingIntentProvider.notifier).state = null;
+      return failure;
+    } catch (_) {
+      ref.read(pendingIntentProvider.notifier).state = null;
+      return const AuthFailure(AuthFailureKind.unknown);
+    } finally {
+      state = const AuthActionState();
+    }
+  }
+
+  Future<void> signOut() async {
+    ref.read(pendingIntentProvider.notifier).state = null;
+    ref.read(sessionExpiryProvider.notifier).expectSignOut();
+    await ref.read(authRepositoryProvider).signOut();
+  }
+}
+
+final authControllerProvider =
+    NotifierProvider<AuthController, AuthActionState>(AuthController.new);
+
+/// Raw documents (cloud shape): the profile statistics need the watched
+/// flags even for seasons whose catalog is not cached on this device.
+final favoriteDocsProvider = StreamProvider<List<FavoriteDoc>>((ref) {
+  return ref.watch(favoritesRepositoryProvider).watchDocs();
 });
 
 final favoritesListProvider = StreamProvider<List<FavoriteItem>>((ref) {

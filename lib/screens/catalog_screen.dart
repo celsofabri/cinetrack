@@ -8,6 +8,7 @@ import '../providers/providers.dart';
 import '../services/tmdb_exception.dart';
 import '../widgets/discovery_section.dart' show FavoriteButton;
 import '../widgets/empty_state.dart';
+import '../widgets/auth_gate.dart';
 import '../widgets/error_state.dart';
 import '../widgets/poster_image.dart';
 
@@ -117,7 +118,7 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
     final key = result.storageKey;
     setState(() => _pendingKeys.add(key));
     try {
-      await ref.read(favoritesRepositoryProvider).addResult(result);
+      await runWrite(context, (repo) => repo.addResult(result));
     } finally {
       if (mounted) setState(() => _pendingKeys.remove(key));
     }
