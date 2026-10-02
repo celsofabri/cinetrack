@@ -7,6 +7,7 @@ import 'auth/firebase_auth_repository.dart';
 import 'router.dart';
 import 'services/firebase_bootstrap.dart';
 import 'services/local_store.dart';
+import 'widgets/app_shell.dart';
 import 'widgets/app_splash.dart';
 import 'widgets/auth_gate.dart';
 import 'widgets/sync_widgets.dart';
@@ -78,7 +79,10 @@ class CineTrackApp extends ConsumerWidget {
           child: Column(
             children: [
               Expanded(child: child ?? const SizedBox.shrink()),
-              SyncBanner(onOpenProfile: () => ref.read(routerProvider).go('/profile')),
+              // On mobile the banner lives inside the shell (above the tab
+              // bar) and in detail screens; here only for desktop widths.
+              if (!isMobileWidth(context))
+                SyncBanner(onOpenProfile: () => ref.read(routerProvider).go('/profile')),
             ],
           ),
         ),

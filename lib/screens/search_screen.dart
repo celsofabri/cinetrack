@@ -8,6 +8,7 @@ import '../models/media_type.dart';
 import '../models/search_result.dart';
 import '../providers/providers.dart';
 import '../services/tmdb_exception.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/auth_gate.dart';
 import '../widgets/error_state.dart';
@@ -53,35 +54,45 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final favoritesAsync = ref.watch(favoritesListProvider);
-    final favoriteKeys = favoritesAsync.value
-            ?.map((f) => '${f.id}-${f.mediaType.jsonValue}')
-            .toSet() ??
-        <String>{};
+    final favoriteKeys =
+        favoritesAsync.value?.map((f) => '${f.id}-${f.mediaType.jsonValue}').toSet() ?? <String>{};
+
+    final inShell = MobileShellScope.active(context);
+    final field = TextField(
+      controller: _controller,
+      // On mobile this screen is a tab: don't pop the keyboard on every visit.
+      autofocus: !inShell,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: 'Buscar filme ou série...',
+        border: inShell ? const OutlineInputBorder() : InputBorder.none,
+        prefixIcon: inShell ? const Icon(Icons.search) : null,
+      ),
+      onChanged: _onChanged,
+      onSubmitted: (value) {
+        _debounceTimer?.cancel();
+        setState(() => _submittedQuery = value.trim());
+      },
+    );
+
+    final content = _submittedQuery.isEmpty
+        ? const EmptyState(
+            icon: Icons.search,
+            title: 'Busque algo para favoritar',
+            message: 'Digite pelo menos 2 letras do título.',
+          )
+        : _buildResults(favoriteKeys);
 
     return Scaffold(
-      appBar: AppBar(
-        title: TextField(
-          controller: _controller,
-          autofocus: true,
-          textInputAction: TextInputAction.search,
-          decoration: const InputDecoration(
-            hintText: 'Buscar filme ou série...',
-            border: InputBorder.none,
-          ),
-          onChanged: _onChanged,
-          onSubmitted: (value) {
-            _debounceTimer?.cancel();
-            setState(() => _submittedQuery = value.trim());
-          },
-        ),
-      ),
-      body: _submittedQuery.isEmpty
-          ? const EmptyState(
-              icon: Icons.search,
-              title: 'Busque algo para favoritar',
-              message: 'Digite pelo menos 2 letras do título.',
+      appBar: inShell ? null : AppBar(title: field),
+      body: inShell
+          ? Column(
+              children: [
+                Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8), child: field),
+                Expanded(child: content),
+              ],
             )
-          : _buildResults(favoriteKeys),
+          : content,
     );
   }
 

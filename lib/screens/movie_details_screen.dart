@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/media_type.dart';
 import '../providers/providers.dart';
 import '../widgets/poster_image.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/auth_gate.dart';
 
 class MovieDetailsScreen extends ConsumerWidget {
@@ -14,19 +15,22 @@ class MovieDetailsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final favorites = ref.watch(favoritesListProvider).value ?? [];
-    final matches =
-        favorites.where((f) => f.id == movieId && f.mediaType == MediaType.movie);
+    final matches = favorites.where((f) => f.id == movieId && f.mediaType == MediaType.movie);
     final item = matches.isEmpty ? null : matches.first;
 
     if (item == null) {
-      return const Scaffold(
-        body: Center(child: Text('Este filme não está mais nos seus favoritos.')),
+      return Scaffold(
+        appBar: detailAppBar(context, title: 'Detalhes'),
+        bottomNavigationBar: const DetailBottomBanner(),
+        body: const Center(child: Text('Este filme não está mais nos seus favoritos.')),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(item.title),
+      bottomNavigationBar: const DetailBottomBanner(),
+      appBar: detailAppBar(
+        context,
+        title: item.title,
         actions: [
           IconButton(
             icon: const Icon(Icons.delete_outline),

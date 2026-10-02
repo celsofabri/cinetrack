@@ -12,6 +12,7 @@ import '../services/tmdb_exception.dart';
 import '../widgets/error_state.dart';
 import '../widgets/poster_image.dart';
 import '../widgets/progress_badge.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/auth_gate.dart';
 
 class TvDetailsScreen extends ConsumerWidget {
@@ -26,16 +27,20 @@ class TvDetailsScreen extends ConsumerWidget {
     final item = matches.isEmpty ? null : matches.first;
 
     if (item == null) {
-      return const Scaffold(
-        body: Center(child: Text('Esta série não está mais nos seus favoritos.')),
+      return Scaffold(
+        appBar: detailAppBar(context, title: 'Detalhes'),
+        bottomNavigationBar: const DetailBottomBanner(),
+        body: const Center(child: Text('Esta série não está mais nos seus favoritos.')),
       );
     }
 
     final progress = ProgressCalculator.compute(item.seasons ?? const []);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(item.title),
+      bottomNavigationBar: const DetailBottomBanner(),
+      appBar: detailAppBar(
+        context,
+        title: item.title,
         actions: [
           IconButton(
             icon: const Icon(Icons.delete_outline),
@@ -54,8 +59,7 @@ class TvDetailsScreen extends ConsumerWidget {
             SliverToBoxAdapter(
               child: ErrorState(
                 message: 'Não foi possível carregar as temporadas ainda.',
-                onRetry: () =>
-                    ref.read(favoritesRepositoryProvider).reloadSeasonSummaries(item.id),
+                onRetry: () => ref.read(favoritesRepositoryProvider).reloadSeasonSummaries(item.id),
               ),
             )
           else
@@ -152,8 +156,7 @@ class _SeasonTileState extends ConsumerState<_SeasonTile> {
     final matches = favorites.where((f) => f.id == tvId && f.mediaType == MediaType.tv);
     final item = matches.isEmpty ? null : matches.first;
 
-    final cachedSeasons =
-        item?.seasons?.where((s) => s.seasonNumber == summary.seasonNumber);
+    final cachedSeasons = item?.seasons?.where((s) => s.seasonNumber == summary.seasonNumber);
     final cachedSeason =
         (cachedSeasons != null && cachedSeasons.isNotEmpty) ? cachedSeasons.first : null;
     // Null until the season has been opened at least once (nothing cached
@@ -309,9 +312,8 @@ class _SeasonWatchedCheckbox extends StatelessWidget {
                 : null;
 
     return Tooltip(
-      message: value == true
-          ? 'Desmarcar temporada inteira'
-          : 'Marcar temporada inteira como assistida',
+      message:
+          value == true ? 'Desmarcar temporada inteira' : 'Marcar temporada inteira como assistida',
       child: Checkbox(
         tristate: true,
         value: value,

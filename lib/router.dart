@@ -10,6 +10,7 @@ import 'screens/movie_details_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/tv_details_screen.dart';
+import 'widgets/app_shell.dart';
 
 /// The catalog is public; only `/profile` needs a session. While the
 /// session is still being restored we don't redirect (the profile screen
@@ -29,11 +30,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       return auth.valueOrNull == null ? '/' : null;
     },
     routes: [
-      GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
-      GoRoute(path: '/favorites', builder: (context, state) => const FavoritesScreen()),
-      GoRoute(path: '/catalog', builder: (context, state) => const CatalogScreen()),
-      GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
-      GoRoute(path: '/profile', builder: (context, state) => const ProfileScreen()),
+      // Main destinations share the shell (mobile: logo bar + bottom tab bar).
+      ShellRoute(
+        builder: (context, state, child) => AppShell(location: state.uri.path, child: child),
+        routes: [
+          GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
+          GoRoute(path: '/favorites', builder: (context, state) => const FavoritesScreen()),
+          GoRoute(path: '/catalog', builder: (context, state) => const CatalogScreen()),
+          GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
+          GoRoute(path: '/profile', builder: (context, state) => const ProfileScreen()),
+        ],
+      ),
+      // Detail screens sit outside the shell: no tab bar, back button kept.
       GoRoute(
         path: '/movie/:id',
         builder: (context, state) =>

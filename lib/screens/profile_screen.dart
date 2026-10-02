@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../providers/account_providers.dart';
 import '../providers/providers.dart';
 import '../widgets/account_widgets.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/delete_account_dialog.dart';
 import '../widgets/nickname_dialog.dart';
 import '../widgets/privacy_summary.dart';
@@ -22,11 +23,11 @@ class ProfileScreen extends ConsumerWidget {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Perfil')),
+      appBar: MobileShellScope.active(context) ? null : AppBar(title: const Text('Perfil')),
       body: user == null
           ? const Center(child: Text('Você não está conectado.'))
           : ListView(
-              padding: const EdgeInsets.all(24),
+              padding: EdgeInsets.all(isMobileWidth(context) ? 16 : 24),
               children: [
                 Center(child: UserAvatar(user: user, radius: 48)),
                 const SizedBox(height: 16),

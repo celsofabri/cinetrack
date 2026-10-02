@@ -6,6 +6,7 @@ import '../models/media_type.dart';
 import '../models/search_result.dart';
 import '../providers/providers.dart';
 import '../services/tmdb_exception.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/discovery_section.dart' show FavoriteButton;
 import '../widgets/empty_state.dart';
 import '../widgets/auth_gate.dart';
@@ -128,20 +129,21 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
   Widget build(BuildContext context) {
     final genresAsync = ref.watch(genresProvider(_type));
     final favoriteKeys =
-        ref.watch(favoritesListProvider).value?.map((f) => f.storageKey).toSet() ??
-            <String>{};
+        ref.watch(favoritesListProvider).value?.map((f) => f.storageKey).toSet() ?? <String>{};
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Explorar'),
-        actions: [
-          IconButton(
-            tooltip: 'Buscar',
-            icon: const Icon(Icons.search),
-            onPressed: () => context.push('/search'),
-          ),
-        ],
-      ),
+      appBar: MobileShellScope.active(context)
+          ? null
+          : AppBar(
+              title: const Text('Explorar'),
+              actions: [
+                IconButton(
+                  tooltip: 'Buscar',
+                  icon: const Icon(Icons.search),
+                  onPressed: () => context.push('/search'),
+                ),
+              ],
+            ),
       body: Column(
         children: [
           Padding(
@@ -219,8 +221,8 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
         SliverPadding(
           padding: const EdgeInsets.all(12),
           sliver: SliverGrid.builder(
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 170,
+            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: isMobileWidth(context) ? 190 : 170,
               mainAxisSpacing: 12,
               crossAxisSpacing: 12,
               childAspectRatio: 0.52,

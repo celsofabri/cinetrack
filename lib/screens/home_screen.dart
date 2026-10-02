@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../models/discovery_category.dart';
 import '../widgets/account_widgets.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/continue_watching_section.dart';
 import '../widgets/discovery_section.dart';
 import '../providers/providers.dart';
@@ -19,40 +20,42 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Image.asset(
-              'assets/logo.png',
-              width: 28,
-              height: 28,
-              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+      appBar: MobileShellScope.active(context)
+          ? null
+          : AppBar(
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Image.asset(
+                    'assets/logo.png',
+                    width: 28,
+                    height: 28,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+                  const SizedBox(width: 8),
+                  const Flexible(child: Text('CineTrack', overflow: TextOverflow.ellipsis)),
+                ],
+              ),
+              actions: [
+                IconButton(
+                  tooltip: 'Buscar',
+                  icon: const Icon(Icons.search),
+                  onPressed: () => context.push('/search'),
+                ),
+                _NavAction(
+                  label: 'Explorar',
+                  icon: Icons.explore,
+                  onPressed: () => context.push('/catalog'),
+                ),
+                _NavAction(
+                  label: 'Meus favoritos',
+                  icon: Icons.favorite,
+                  onPressed: () => context.push('/favorites'),
+                ),
+                const AccountAction(),
+                const SizedBox(width: 8),
+              ],
             ),
-            const SizedBox(width: 8),
-            const Flexible(child: Text('CineTrack', overflow: TextOverflow.ellipsis)),
-          ],
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Buscar',
-            icon: const Icon(Icons.search),
-            onPressed: () => context.push('/search'),
-          ),
-          _NavAction(
-            label: 'Explorar',
-            icon: Icons.explore,
-            onPressed: () => context.push('/catalog'),
-          ),
-          _NavAction(
-            label: 'Meus favoritos',
-            icon: Icons.favorite,
-            onPressed: () => context.push('/favorites'),
-          ),
-          const AccountAction(),
-          const SizedBox(width: 8),
-        ],
-      ),
       body: ListView(
         children: [
           const SignInInvite(),

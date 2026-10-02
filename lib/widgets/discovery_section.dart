@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'app_shell.dart';
 import '../models/media_type.dart';
 import '../models/search_result.dart';
 import '../providers/providers.dart';
@@ -48,9 +49,7 @@ class _DiscoverySectionState extends ConsumerState<DiscoverySection> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: ErrorState(
-            message: error is TmdbException
-                ? error.message
-                : 'Erro ao carregar "${widget.title}".',
+            message: error is TmdbException ? error.message : 'Erro ao carregar "${widget.title}".',
             onRetry: () => ref.invalidate(widget.provider),
           ),
         ),
@@ -81,8 +80,8 @@ class _DiscoverySectionState extends ConsumerState<DiscoverySection> {
   }
 
   Widget _carousel(List<SearchResult> items) {
-    final favoriteKeys = ref.watch(favoritesListProvider).value?.map((f) => f.storageKey).toSet() ??
-        <String>{};
+    final favoriteKeys =
+        ref.watch(favoritesListProvider).value?.map((f) => f.storageKey).toSet() ?? <String>{};
 
     return SizedBox(
       height: 240,
@@ -218,9 +217,10 @@ class FavoriteButton extends StatelessWidget {
           isFavorite ? Icons.favorite : Icons.favorite_border,
           color: isFavorite ? scheme.primary : scheme.onSurface,
         ),
+        // Desktop keeps the original compact 40px target; mobile uses 48px.
+        visualDensity: isMobileWidth(context) ? null : VisualDensity.compact,
         onPressed: onPressed,
         tooltip: isFavorite ? 'Já é favorito' : 'Favoritar',
-        visualDensity: VisualDensity.compact,
       ),
     );
   }
