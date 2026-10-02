@@ -13,6 +13,7 @@ import '../models/favorite_doc.dart';
 import '../models/favorite_item.dart';
 import '../models/media_type.dart';
 import '../models/search_result.dart';
+import '../models/title_details.dart';
 import '../models/season_cache.dart';
 import '../repositories/discovery_repository.dart';
 import '../repositories/favorites_repository.dart';
@@ -211,4 +212,17 @@ final continueWatchingProvider = Provider<List<FavoriteItem>>((ref) {
 /// stays cached for the session).
 final genresProvider = FutureProvider.family<List<Genre>, MediaType>((ref, type) {
   return ref.watch(tmdbApiClientProvider).getGenres(type);
+});
+
+typedef TitleKey = ({int id, MediaType type});
+
+/// TMDB details of a title, for the details screens when it is not (yet)
+/// favorited. Auto-disposed so reopening the screen refetches after an error.
+final titleDetailsProvider =
+    FutureProvider.autoDispose.family<TitleDetails, TitleKey>((ref, key) async {
+  final api = ref.watch(tmdbApiClientProvider);
+  final json = key.type == MediaType.movie
+      ? await api.getMovieDetails(key.id)
+      : await api.getTvDetails(key.id);
+  return TitleDetails.fromTmdb(json, key.type);
 });

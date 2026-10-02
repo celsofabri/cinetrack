@@ -3,8 +3,14 @@ import 'package:flutter/material.dart';
 class ErrorState extends StatelessWidget {
   final String message;
   final VoidCallback? onRetry;
+  final String retryLabel;
 
-  const ErrorState({super.key, required this.message, this.onRetry});
+  const ErrorState({
+    super.key,
+    required this.message,
+    this.onRetry,
+    this.retryLabel = 'Tentar de novo',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -19,7 +25,7 @@ class ErrorState extends StatelessWidget {
             Text(message, textAlign: TextAlign.center),
             if (onRetry != null) ...[
               const SizedBox(height: 16),
-              FilledButton.tonal(onPressed: onRetry, child: const Text('Tentar de novo')),
+              FilledButton.tonal(onPressed: onRetry, child: Text(retryLabel)),
             ],
           ],
         ),

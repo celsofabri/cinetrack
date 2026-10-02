@@ -1,9 +1,13 @@
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../models/favorite_doc.dart';
 import '../models/favorite_item.dart';
 import '../models/media_type.dart';
+import '../models/search_result.dart';
+import '../models/title_details.dart';
 import '../models/tv_season_summary.dart';
 import '../providers/providers.dart';
 import '../services/progress_calculator.dart';
@@ -14,61 +18,114 @@ import '../widgets/poster_image.dart';
 import '../widgets/progress_badge.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/auth_gate.dart';
+import '../widgets/detail_actions.dart';
+import 'movie_details_screen.dart' show detailsErrorMessage;
 
-class TvDetailsScreen extends ConsumerWidget {
+/// Details of a TV show. Works for any TMDB show: a favorite shows its saved
+/// data and progress; otherwise the show and its seasons come from TMDB (the
+/// episodes of a season are fetched when it is expanded), so the user can look
+/// before favoriting, and favorite / mark episodes watched from here.
+class TvDetailsScreen extends ConsumerStatefulWidget {
   final int tvId;
 
   const TvDetailsScreen({super.key, required this.tvId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TvDetailsScreen> createState() => _TvDetailsScreenState();
+}
+
+class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
+  /// Last favorite seen: keeps the content if the user removes it while TMDB
+  /// is unreachable (otherwise the screen would turn into an error page).
+  FavoriteItem? _last;
+
+  @override
+  Widget build(BuildContext context) {
+    final tvId = widget.tvId;
     final favorites = ref.watch(favoritesListProvider).value ?? [];
     final matches = favorites.where((f) => f.id == tvId && f.mediaType == MediaType.tv);
-    final item = matches.isEmpty ? null : matches.first;
+    final FavoriteItem? item = matches.isEmpty ? null : matches.first;
 
-    if (item == null) {
+    final key = (id: tvId, type: MediaType.tv);
+    // Favorites also use it as a fallback for missing season names and for
+    // year/genres; its failure is ignored (saved data is enough, e.g. offline).
+    final detailsAsync = ref.watch(titleDetailsProvider(key));
+    final details = detailsAsync.valueOrNull;
+    _last = item ?? _last;
+    final base = item ?? (details == null ? _last : null);
+
+    if (base == null && details == null) {
       return Scaffold(
         appBar: detailAppBar(context, title: 'Detalhes'),
         bottomNavigationBar: const DetailBottomBanner(),
-        body: const Center(child: Text('Esta série não está mais nos seus favoritos.')),
+        body: detailsAsync.hasError
+            ? ErrorState(
+                message: detailsErrorMessage(detailsAsync.error),
+                retryLabel: 'Tentar novamente',
+                onRetry: () => ref.invalidate(titleDetailsProvider(key)),
+              )
+            : const Center(child: CircularProgressIndicator()),
       );
     }
 
-    final progress = ProgressCalculator.compute(item.seasons ?? const []);
+    final title = base?.title ?? details!.title;
+    final result = base == null
+        ? details!.toSearchResult()
+        : SearchResult(
+            id: base.id,
+            mediaType: MediaType.tv,
+            title: base.title,
+            posterPath: base.posterPath,
+            overview: base.overview,
+          );
+    final progress = item == null ? null : ProgressCalculator.compute(item.seasons ?? const []);
+    // Progress lives in the favorite document (episodes of seasons not cached
+    // on this device are not in `progress`). While the documents are loading
+    // or failed we cannot rule progress out, so removing must ask.
+    final docsAsync = ref.watch(favoriteDocsProvider);
+    final hasProgress = (progress?.isStarted ?? false) ||
+        (item != null &&
+            (!docsAsync.hasValue ||
+                docsAsync.requireValue.any((d) =>
+                    d.id == tvId && d.mediaType == MediaType.tv && d.watchedEpisodes.isNotEmpty)));
+
+    final savedSummaries = base?.seasonSummaries;
+    final summaries = (savedSummaries != null && savedSummaries.isNotEmpty)
+        ? savedSummaries
+        : (details?.seasonSummaries ?? const <TvSeasonSummary>[]);
 
     return Scaffold(
       bottomNavigationBar: const DetailBottomBanner(),
-      appBar: detailAppBar(
-        context,
-        title: item.title,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            tooltip: 'Remover dos favoritos',
-            onPressed: () {
-              ref.read(favoritesRepositoryProvider).remove(item.id, MediaType.tv);
-              Navigator.of(context).pop();
-            },
-          ),
-        ],
-      ),
+      appBar: detailAppBar(context, title: title),
       body: CustomScrollView(
         slivers: [
-          SliverToBoxAdapter(child: _Header(item: item, progress: progress)),
-          if (item.seasonSummaries == null || item.seasonSummaries!.isEmpty)
+          SliverToBoxAdapter(
+            child: _Header(
+              result: result,
+              details: details,
+              progress: progress,
+              isFavorite: item != null,
+              hasProgress: hasProgress,
+            ),
+          ),
+          if (summaries.isEmpty)
             SliverToBoxAdapter(
-              child: ErrorState(
-                message: 'Não foi possível carregar as temporadas ainda.',
-                onRetry: () => ref.read(favoritesRepositoryProvider).reloadSeasonSummaries(item.id),
-              ),
+              child: item == null
+                  ? const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: Text('Nenhuma temporada disponível.')),
+                    )
+                  : ErrorState(
+                      message: 'Não foi possível carregar as temporadas ainda.',
+                      onRetry: () =>
+                          ref.read(favoritesRepositoryProvider).reloadSeasonSummaries(item.id),
+                    ),
             )
           else
             SliverList.builder(
-              itemCount: item.seasonSummaries!.length,
-              itemBuilder: (context, index) {
-                final summary = item.seasonSummaries![index];
-                return _SeasonTile(tvId: item.id, summary: summary);
-              },
+              itemCount: summaries.length,
+              itemBuilder: (context, index) =>
+                  _SeasonTile(result: result, summary: summaries[index]),
             ),
         ],
       ),
@@ -76,14 +133,24 @@ class TvDetailsScreen extends ConsumerWidget {
   }
 }
 
-class _Header extends StatelessWidget {
-  final FavoriteItem item;
-  final SeriesProgress progress;
+class _Header extends ConsumerWidget {
+  final SearchResult result;
+  final TitleDetails? details;
+  final SeriesProgress? progress;
+  final bool isFavorite;
+  final bool hasProgress;
 
-  const _Header({required this.item, required this.progress});
+  const _Header({
+    required this.result,
+    required this.details,
+    required this.progress,
+    required this.isFavorite,
+    required this.hasProgress,
+  });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final progress = this.progress;
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -92,29 +159,43 @@ class _Header extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              PosterImage(posterPath: item.posterPath, width: 120, height: 180),
+              PosterImage(posterPath: result.posterPath, width: 120, height: 180),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    ProgressBadge(watched: progress.watchedCount, total: progress.totalCount),
+                    Text(result.title, style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 8),
-                    if (progress.nextEpisode != null)
-                      Text(
-                        'Próximo: T${progress.nextSeasonNumber} '
-                        'E${progress.nextEpisode!.episodeNumber} · '
-                        '${progress.nextEpisode!.name}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
+                    TitleMeta(details: details),
+                    if (progress != null) ...[
+                      const SizedBox(height: 8),
+                      ProgressBadge(watched: progress.watchedCount, total: progress.totalCount),
+                      const SizedBox(height: 8),
+                      if (progress.nextEpisode != null)
+                        Text(
+                          'Próximo: T${progress.nextSeasonNumber} '
+                          'E${progress.nextEpisode!.episodeNumber} · '
+                          '${progress.nextEpisode!.name}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 16),
+          FavoriteToggleButton(
+            isFavorite: isFavorite,
+            hasProgress: hasProgress,
+            title: result.title,
+            onAdd: () => runDetailWrite(context, (repo) => repo.addResult(result)),
+            onRemove: () => runDetailWrite(context, (repo) => repo.remove(result.id, MediaType.tv)),
+          ),
+          const SizedBox(height: 16),
           Text(
-            item.overview.isEmpty ? 'Sem sinopse disponível.' : item.overview,
+            result.overview.isEmpty ? 'Sem sinopse disponível.' : result.overview,
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 8),
@@ -125,10 +206,10 @@ class _Header extends StatelessWidget {
 }
 
 class _SeasonTile extends ConsumerStatefulWidget {
-  final int tvId;
+  final SearchResult result;
   final TvSeasonSummary summary;
 
-  const _SeasonTile({required this.tvId, required this.summary});
+  const _SeasonTile({required this.result, required this.summary});
 
   @override
   ConsumerState<_SeasonTile> createState() => _SeasonTileState();
@@ -142,10 +223,34 @@ class _SeasonTileState extends ConsumerState<_SeasonTile> {
   // button, just scoped to this single tile instead of a set of keys.
   bool _isPending = false;
 
+  /// Episodes whose write is in flight (a quick second tap must not repeat the
+  /// same target state before the stream catches up).
+  final Set<int> _busyEpisodes = {};
+
   @override
   Widget build(BuildContext context) {
-    final tvId = widget.tvId;
+    final tvId = widget.result.id;
     final summary = widget.summary;
+
+    // seasonProvider caches the season (with the watched overlay) and does not
+    // watch the favorites. Re-read it whenever this show's document appears,
+    // disappears or its watched episodes change, whatever caused it: a login
+    // replay, a removal, another device. Without it the checks go stale.
+    ref.listen(favoriteDocsProvider, (previous, next) {
+      FavoriteDoc? docOf(AsyncValue<List<FavoriteDoc>>? v) {
+        for (final d in v?.valueOrNull ?? const <FavoriteDoc>[]) {
+          if (d.id == tvId && d.mediaType == MediaType.tv) return d;
+        }
+        return null;
+      }
+
+      final before = docOf(previous);
+      final after = docOf(next);
+      if ((before == null) != (after == null) ||
+          !setEquals(before?.watchedEpisodes, after?.watchedEpisodes)) {
+        ref.invalidate(seasonProvider((tvId: tvId, seasonNumber: summary.seasonNumber)));
+      }
+    });
 
     // Read from favoritesListProvider (not seasonProvider, which only
     // populates once the tile is expanded) so the season's progress shows
@@ -172,10 +277,17 @@ class _SeasonTileState extends ConsumerState<_SeasonTile> {
           final markAllWatched = !(progress?.isFullyWatched ?? false);
           setState(() => _isPending = true);
           try {
-            await runWrite(
-              context,
-              (repo) => repo.setSeasonWatched(tvId, summary.seasonNumber, watched: markAllWatched),
-            );
+            await runWrite(context, (repo) async {
+              // Not a favorite yet: progress lives in the favorite, so favorite
+              // it first (see docs/15). Decided at tap time, so a replay after
+              // login does the same.
+              await favoriteThen(
+                repo,
+                widget.result,
+                item != null,
+                () => repo.setSeasonWatched(tvId, summary.seasonNumber, watched: markAllWatched),
+              );
+            });
             // Same class of bug the individual-episode toggle fix already
             // addresses: seasonProvider caches the season and doesn't watch
             // the favorites list, so once the tile is expanded it needs an
@@ -185,8 +297,8 @@ class _SeasonTileState extends ConsumerState<_SeasonTile> {
             );
           } catch (error) {
             if (!context.mounted) return;
-            final message = error is TmdbException
-                ? error.message
+            final message = error is TmdbException || error is PartialWriteException
+                ? writeErrorMessage(error)
                 : 'Não foi possível atualizar esta temporada. Tente novamente.';
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
           } finally {
@@ -229,28 +341,38 @@ class _SeasonTileState extends ConsumerState<_SeasonTile> {
                           ? null
                           : Text(DateFormat('dd/MM/yyyy').format(episode.airDate!)),
                       value: episode.watched,
-                      onChanged: episode.hasAired
+                      onChanged: episode.hasAired && !_busyEpisodes.contains(episode.episodeNumber)
                           ? (_) async {
-                              await runWrite(
-                                context,
-                                (repo) => repo.toggleEpisodeWatched(
-                                  tvId,
-                                  summary.seasonNumber,
-                                  episode.episodeNumber,
-                                ),
-                              );
-                              // seasonProvider caches the season in Riverpod
-                              // and doesn't watch the favorites list, so it
-                              // won't pick up the toggle on its own —
-                              // invalidate it to reflect the new watched
-                              // state (favoritesRepository already cached
-                              // the season in Hive, so this re-read is
-                              // local, no network call).
-                              ref.invalidate(
-                                seasonProvider(
-                                  (tvId: tvId, seasonNumber: summary.seasonNumber),
-                                ),
-                              );
+                              final number = episode.episodeNumber;
+                              setState(() => _busyEpisodes.add(number));
+                              try {
+                                await runDetailWrite(context, (repo) async {
+                                  if (item == null) {
+                                    await favoriteThen(
+                                      repo,
+                                      widget.result,
+                                      false,
+                                      () => repo.setEpisodeWatched(
+                                        tvId,
+                                        summary.seasonNumber,
+                                        number,
+                                        watched: !episode.watched,
+                                      ),
+                                    );
+                                  } else {
+                                    await repo.toggleEpisodeWatched(
+                                      tvId,
+                                      summary.seasonNumber,
+                                      number,
+                                    );
+                                  }
+                                });
+                                ref.invalidate(
+                                  seasonProvider((tvId: tvId, seasonNumber: summary.seasonNumber)),
+                                );
+                              } finally {
+                                if (mounted) setState(() => _busyEpisodes.remove(number));
+                              }
                             }
                           : null,
                     ),

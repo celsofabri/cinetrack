@@ -137,11 +137,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     )
                   : IconButton(
                       icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border),
+                      tooltip: isFavorite ? 'Já é favorito' : 'Favoritar ${result.title}',
                       onPressed: isFavorite ? null : () => _addFavorite(result, key),
                     ),
-              onTap: isFavorite
-                  ? () => _openDetails(result)
-                  : (isPending ? null : () => _addFavorite(result, key)),
+              // Tapping the row opens the details (favorite or not); the
+              // heart is the quick-favorite shortcut.
+              onTap: () => _openDetails(result),
             );
           },
         );

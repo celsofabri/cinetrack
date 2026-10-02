@@ -198,6 +198,19 @@ class FavoriteButton extends StatelessWidget {
       shape: BoxShape.circle,
     );
 
+    // The heart is a quick-favorite shortcut: whatever its state, a tap on it
+    // must never fall through to the card underneath (which opens details).
+    // An enabled IconButton wins the gesture arena on its own; this absorbs
+    // the taps of the disabled/pending states.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      excludeFromSemantics: true,
+      onTap: () {},
+      child: _button(context, scheme, decoration),
+    );
+  }
+
+  Widget _button(BuildContext context, ColorScheme scheme, BoxDecoration decoration) {
     if (isPending) {
       return Container(
         padding: const EdgeInsets.all(6),

@@ -163,6 +163,24 @@ class FavoritesRepository {
     await _data.setWatchedMovie(key, !doc.watchedMovie);
   }
 
+  /// Marks a movie as watched (explicit, not a toggle). Progress lives inside
+  /// the favorite document, so for a title that is not a favorite yet callers
+  /// run [addResult] first (see `favoriteThen`).
+  Future<void> markMovieWatched(int id) =>
+      _data.setWatchedMovie('$id-${MediaType.movie.jsonValue}', true);
+
+  /// Explicit (not toggle) episode state. Used for a title that was not a
+  /// favorite when the user acted, after [addResult].
+  Future<void> setEpisodeWatched(
+    int tvId,
+    int seasonNumber,
+    int episodeNumber, {
+    required bool watched,
+  }) async {
+    final key = '$tvId-${MediaType.tv.jsonValue}';
+    await _data.setEpisodes(key, {FavoriteMapper.episodeKey(seasonNumber, episodeNumber): watched});
+  }
+
   /// Returns cached episodes for [seasonNumber] if we already have them;
   /// otherwise fetches from TMDB and caches the result (only for shows the
   /// user favorited). The returned season carries the user's `watched`

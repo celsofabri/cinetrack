@@ -56,6 +56,18 @@ class FakeTmdbApiClient extends TmdbApiClient {
   Map<String, dynamic> tvDetails = {'seasons': <dynamic>[]};
   Object? tvDetailsError;
 
+  int movieDetailsCalls = 0;
+  Map<String, dynamic> movieDetails = {};
+  Object? movieDetailsError;
+
+  @override
+  Future<Map<String, dynamic>> getMovieDetails(int id) async {
+    movieDetailsCalls++;
+    final error = movieDetailsError;
+    if (error != null) throw error;
+    return movieDetails;
+  }
+
   @override
   Future<SeasonCache> getSeasonEpisodes(int tvId, int seasonNumber) async {
     seasonCalls++;
