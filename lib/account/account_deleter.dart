@@ -34,13 +34,11 @@ class AccountDeleter {
 
   AccountDeleter({
     required this.uid,
-    required AuthRepository auth,
-    required ProfileDataSource profile,
+    required this._auth,
+    required this._profile,
     void Function()? onBeforeUserDelete,
     void Function()? onDeleteAborted,
-  })  : _auth = auth,
-        _profile = profile,
-        onBeforeUserDelete = onBeforeUserDelete ?? _noop,
+  })  : onBeforeUserDelete = onBeforeUserDelete ?? _noop,
         onDeleteAborted = onDeleteAborted ?? _noop;
 
   static void _noop() {}

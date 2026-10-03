@@ -43,7 +43,7 @@ class BrandMark extends StatelessWidget {
           width: size,
           height: size,
           excludeFromSemantics: true,
-          errorBuilder: (_, __, ___) => SizedBox(width: size, height: size),
+          errorBuilder: (_, _, _) => SizedBox(width: size, height: size),
         ),
         if (showName) ...[
           const SizedBox(width: 8),

@@ -25,7 +25,7 @@ class UserAvatar extends StatelessWidget {
       child: CircleAvatar(
         radius: radius,
         foregroundImage: photo == null || photo.isEmpty ? null : NetworkImage(photo),
-        onForegroundImageError: photo == null || photo.isEmpty ? null : (_, __) {},
+        onForegroundImageError: photo == null || photo.isEmpty ? null : (_, _) {},
         child: initials,
       ),
     );

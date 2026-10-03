@@ -35,9 +35,9 @@ class CatalogReconciler {
   final Duration idleTtl;
 
   CatalogReconciler({
-    required TmdbApiClient api,
-    required LocalStore store,
-    required Future<void> Function(int tvId, List<TvSeasonSummary> summaries) saveSummaries,
+    required this._api,
+    required this._store,
+    required this._saveSummaries,
     this.concurrency = 3,
     this.maxRetries = 3,
     Future<void> Function(Duration)? delay,
@@ -45,9 +45,6 @@ class CatalogReconciler {
     this.airingTtl = const Duration(hours: 24),
     this.idleTtl = const Duration(days: 7),
   })  : _now = now ?? DateTime.now,
-        _api = api,
-        _store = store,
-        _saveSummaries = saveSummaries,
         _delay = delay ?? Future.delayed;
 
   /// Series whose catalog does not cover their known seasons (or that have no

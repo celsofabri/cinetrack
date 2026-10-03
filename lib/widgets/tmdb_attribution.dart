@@ -31,7 +31,7 @@ class TmdbAttribution extends StatelessWidget {
               'assets/tmdb_logo.png',
               width: 110,
               semanticLabel: 'Logo do TMDB',
-              errorBuilder: (_, __, ___) => const SizedBox(width: 110, height: 14),
+              errorBuilder: (_, _, _) => const SizedBox(width: 110, height: 14),
             ),
           ),
         ),

@@ -78,7 +78,7 @@ Future<void> _pump(
   final router = GoRouter(routes: [
     GoRoute(
       path: '/',
-      builder: (_, __) =>
+      builder: (_, _) =>
           home ??
           Scaffold(
               body: SingleChildScrollView(child: DiscoverySection(title: 'Alta', provider: _list))),

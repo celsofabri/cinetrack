@@ -162,8 +162,8 @@ void main() {
       catalogSyncDelayProvider.overrideWithValue((_) async {}),
     ]);
     addTearDown(c.dispose);
-    c.listen(catalogSyncProvider, (_, __) {});
-    c.listen(continueWatchingProvider, (_, __) {});
+    c.listen(catalogSyncProvider, (_, _) {});
+    c.listen(continueWatchingProvider, (_, _) {});
     await Future<void>.delayed(const Duration(milliseconds: 100));
     expect(c.read(catalogSyncProvider).failed, {7});
     expect(c.read(continueWatchingProvider).map((e) => e.id), [7]);
@@ -216,7 +216,7 @@ void main() {
         catalogSyncDelayProvider.overrideWithValue((_) async {}),
       ]);
       addTearDown(c.dispose);
-      c.listen(catalogSyncProvider, (_, __) {});
+      c.listen(catalogSyncProvider, (_, _) {});
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(h.api.movieDetailsCalls, 1);
 
@@ -249,7 +249,7 @@ void main() {
         catalogClockProvider.overrideWithValue(clockNow),
       ]);
       addTearDown(c.dispose);
-      c.listen(catalogSyncProvider, (_, __) {});
+      c.listen(catalogSyncProvider, (_, _) {});
       await Future<void>.delayed(const Duration(milliseconds: 100));
       return c;
     }
@@ -328,7 +328,7 @@ void main() {
         catalogSyncDelayProvider.overrideWithValue((_) async {}),
       ]);
       addTearDown(c.dispose);
-      c.listen(catalogSyncProvider, (_, __) {});
+      c.listen(catalogSyncProvider, (_, _) {});
       await settle();
       expect(h.api.movieGates, hasLength(1)); // Ana's loop is in flight
 

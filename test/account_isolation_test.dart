@@ -26,7 +26,7 @@ void main() {
       overrides: cloudOverrides(auth: auth, cloud: cloud, createdFor: created),
     );
     // Keep the session stream subscribed, as the running app does.
-    final authSub = container.listen(authStateProvider, (_, __) {});
+    final authSub = container.listen(authStateProvider, (_, _) {});
     addTearDown(authSub.close);
     addTearDown(container.dispose);
   });
@@ -94,7 +94,7 @@ void main() {
     await container
         .read(favoritesRepositoryProvider)
         .addMovie(id: 1, title: 'A', posterPath: null, overview: '');
-    final sub = container.listen(favoritesListProvider, (_, __) {});
+    final sub = container.listen(favoritesListProvider, (_, _) {});
     addTearDown(sub.close);
     await pumpEventQueue();
     expect(container.read(favoritesListProvider).value!.map((f) => f.title), ['A']);

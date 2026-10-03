@@ -173,7 +173,7 @@ class TmdbApiClient {
   /// `/person/{id}`; [language] overrides the default pt-BR (used to fetch
   /// the English biography when the Portuguese one is empty).
   Future<Map<String, dynamic>> getPerson(int id, {String? language}) =>
-      _get(_uri('/person/$id', {if (language != null) 'language': language}));
+      _get(_uri('/person/$id', {'language': ?language}));
 
   /// Acting credits (movies and shows) of a person, adult ones removed.
   Future<List<PersonCredit>> getPersonCredits(int id) async {

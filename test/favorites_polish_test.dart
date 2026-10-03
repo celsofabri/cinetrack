@@ -572,7 +572,7 @@ void main() {
         '1-tv': _doc(1, 'S', summaries: const [_s1], eps: {'1_1'}),
         '3-movie': _doc(3, 'M', type: MediaType.movie, watchedMovie: true),
       };
-      container.listen(favoriteDocsProvider, (_, __) {});
+      container.listen(favoriteDocsProvider, (_, _) {});
       await container.read(authStateProvider.future);
       await Future<void>.delayed(const Duration(milliseconds: 10));
       final stats = container.read(profileStatsProvider);

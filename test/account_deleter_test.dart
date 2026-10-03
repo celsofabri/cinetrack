@@ -260,9 +260,9 @@ void main() {
     ProviderContainer container(FakeAuthRepository auth, FakeCloud cloud) {
       final c = ProviderContainer(overrides: cloudOverrides(auth: auth, cloud: cloud));
       addTearDown(c.dispose);
-      c.listen(authStateProvider, (_, __) {});
-      c.listen(sessionExpiryProvider, (_, __) {});
-      c.listen(syncStatusProvider, (_, __) {});
+      c.listen(authStateProvider, (_, _) {});
+      c.listen(sessionExpiryProvider, (_, _) {});
+      c.listen(syncStatusProvider, (_, _) {});
       return c;
     }
 
@@ -295,8 +295,8 @@ void main() {
         overrides: cloudOverrides(auth: auth, cloud: FakeCloud(), store: store),
       );
       addTearDown(c.dispose);
-      c.listen(authStateProvider, (_, __) {});
-      c.listen(syncStatusProvider, (_, __) {});
+      c.listen(authStateProvider, (_, _) {});
+      c.listen(syncStatusProvider, (_, _) {});
       await settle();
 
       await c.read(authControllerProvider.notifier).signOut();
@@ -318,8 +318,8 @@ void main() {
         overrides: cloudOverrides(auth: auth, cloud: FakeCloud(), store: store),
       );
       addTearDown(c.dispose);
-      c.listen(authStateProvider, (_, __) {});
-      c.listen(syncStatusProvider, (_, __) {});
+      c.listen(authStateProvider, (_, _) {});
+      c.listen(syncStatusProvider, (_, _) {});
       await settle();
 
       expect(await c.read(accountControllerProvider.notifier).deleteAccount(), isFalse);

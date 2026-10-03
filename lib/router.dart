@@ -27,7 +27,7 @@ int? _parseId(GoRouterState state) {
 /// handles "not connected" itself); once known, signed-out goes home.
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier<int>(0);
-  ref.listen(authStateProvider, (_, __) => refresh.value++);
+  ref.listen(authStateProvider, (_, _) => refresh.value++);
   ref.onDispose(refresh.dispose);
 
   final router = GoRouter(

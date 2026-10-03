@@ -26,10 +26,9 @@ class FirestoreFavoritesDataSource implements FavoritesDataSource {
 
   FirestoreFavoritesDataSource({
     required this.uid,
-    required SyncFailureSink sink,
+    required this._sink,
     FirebaseFirestore? firestore,
-  })  : _sink = sink,
-        _db = firestore ?? FirebaseFirestore.instance;
+  })  : _db = firestore ?? FirebaseFirestore.instance;
 
   CollectionReference<Map<String, dynamic>> get _col =>
       _db.collection('users').doc(uid).collection('favorites');

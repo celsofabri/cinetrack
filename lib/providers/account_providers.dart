@@ -65,7 +65,7 @@ class AccountController extends Notifier<AccountDeletionState> {
   AccountDeletionState build() {
     // Keeps the sync status alive (and up to date) while a deletion may start,
     // so the offline pre-check below has real data to look at.
-    ref.listen(syncStatusProvider, (_, __) {});
+    ref.listen(syncStatusProvider, (_, _) {});
     return const AccountDeletionState();
   }
 

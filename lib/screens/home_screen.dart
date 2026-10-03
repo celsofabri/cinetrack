@@ -30,7 +30,7 @@ class HomeScreen extends ConsumerWidget {
                     'assets/logo.png',
                     width: 28,
                     height: 28,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
                   ),
                   const SizedBox(width: 8),
                   const Flexible(child: Text('CineTrack', overflow: TextOverflow.ellipsis)),

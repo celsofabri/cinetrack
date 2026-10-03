@@ -239,7 +239,7 @@ class _Carousel extends StatelessWidget {
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           itemCount: members.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 4),
+          separatorBuilder: (_, _) => const SizedBox(width: 4),
           itemBuilder: (_, i) => CastCard(member: members[i]),
         ),
       ),
@@ -263,8 +263,8 @@ class _CastSkeleton extends StatelessWidget {
             physics: const NeverScrollableScrollPhysics(),
             padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: 6,
-            separatorBuilder: (_, __) => const SizedBox(width: 32),
-            itemBuilder: (_, __) => Padding(
+            separatorBuilder: (_, _) => const SizedBox(width: 32),
+            itemBuilder: (_, _) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
               child: DecoratedBox(
                 decoration: BoxDecoration(color: color, shape: BoxShape.circle),

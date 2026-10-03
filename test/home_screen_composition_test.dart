@@ -223,8 +223,8 @@ void main() {
       addedAt: DateTime.now(),
     );
     final router = GoRouter(routes: [
-      GoRoute(path: '/', builder: (_, __) => const HomeScreen()),
-      GoRoute(path: '/favorites', builder: (_, __) => const FavoritesScreen()),
+      GoRoute(path: '/', builder: (_, _) => const HomeScreen()),
+      GoRoute(path: '/favorites', builder: (_, _) => const FavoritesScreen()),
     ]);
 
     await tester.pumpWidget(ProviderScope(
@@ -252,8 +252,8 @@ void main() {
       (tester) async {
     _useTallViewport(tester);
     final router = GoRouter(initialLocation: '/favorites', routes: [
-      GoRoute(path: '/', builder: (_, __) => const HomeScreen()),
-      GoRoute(path: '/favorites', builder: (_, __) => const FavoritesScreen()),
+      GoRoute(path: '/', builder: (_, _) => const HomeScreen()),
+      GoRoute(path: '/favorites', builder: (_, _) => const FavoritesScreen()),
     ]);
 
     await tester.pumpWidget(ProviderScope(

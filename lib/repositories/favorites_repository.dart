@@ -36,15 +36,12 @@ class FavoritesRepository {
   /// throw [AuthRequiredException]); the app wires the real one through
   /// `favoritesDataSourceProvider`.
   FavoritesRepository({
-    required TmdbApiClient api,
-    required LocalStore store,
+    required this._api,
+    required this._store,
     FavoritesDataSource? dataSource,
     this.catalogDebounce = const Duration(milliseconds: 300),
-    DateTime Function()? now,
-  })  : _now = now,
-        _api = api,
-        _store = store,
-        _data = dataSource ?? const SignedOutFavoritesDataSource();
+    this._now,
+  })  : _data = dataSource ?? const SignedOutFavoritesDataSource();
 
   /// Emits the hydrated list now and whenever the user's favorites OR the
   /// season catalog change (e.g. a season finishing its first download).

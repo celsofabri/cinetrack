@@ -62,15 +62,15 @@ class PosterImage extends StatelessWidget {
             gaplessPlayback: true,
             webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
             loadingBuilder: (_, child, progress) => progress == null ? child : placeholder,
-            errorBuilder: (_, __, ___) => placeholder,
+            errorBuilder: (_, _, _) => placeholder,
           )
         : CachedNetworkImage(
             imageUrl: url,
             width: width,
             height: height,
             fit: fit,
-            placeholder: (_, __) => placeholder,
-            errorWidget: (_, __, ___) => placeholder,
+            placeholder: (_, _) => placeholder,
+            errorWidget: (_, _, _) => placeholder,
           );
 
     return ClipRRect(borderRadius: BorderRadius.circular(8), child: image);

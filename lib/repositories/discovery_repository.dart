@@ -21,9 +21,7 @@ class DiscoveryRepository {
   static const noveltiesTtl = Duration(hours: 6);
   static const categoryTtl = Duration(hours: 12);
 
-  DiscoveryRepository({required TmdbApiClient api, required LocalStore store})
-      : _api = api,
-        _store = store;
+  DiscoveryRepository({required this._api, required this._store});
 
   Future<List<SearchResult>> getTrending() =>
       _cached('trending', trendingTtl, () => _api.getTrending());

@@ -162,7 +162,7 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
             child: genresAsync.when(
               loading: () => const SizedBox.shrink(),
               // The catalog still works without the genre chips.
-              error: (_, __) => Align(
+              error: (_, _) => Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton(
                   onPressed: () => ref.invalidate(genresProvider(_type)),

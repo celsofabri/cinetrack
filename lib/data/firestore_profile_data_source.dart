@@ -19,10 +19,9 @@ class FirestoreProfileDataSource implements ProfileDataSource {
 
   FirestoreProfileDataSource({
     required this.uid,
-    required SyncFailureSink sink,
+    required this._sink,
     FirebaseFirestore? firestore,
-  })  : _sink = sink,
-        _db = firestore ?? FirebaseFirestore.instance;
+  })  : _db = firestore ?? FirebaseFirestore.instance;
 
   DocumentReference<Map<String, dynamic>> get _doc => _db.collection('users').doc(uid);
   CollectionReference<Map<String, dynamic>> get _favorites => _doc.collection('favorites');

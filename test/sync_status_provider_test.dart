@@ -37,9 +37,9 @@ ProviderContainer _container(FakeAuthRepository auth, FakeCloud cloud,
   );
   addTearDown(container.dispose);
   // Keep the notifiers alive like the app root does.
-  container.listen(authStateProvider, (_, __) {});
-  container.listen(syncStatusProvider, (_, __) {});
-  container.listen(sessionExpiryProvider, (_, __) {});
+  container.listen(authStateProvider, (_, _) {});
+  container.listen(syncStatusProvider, (_, _) {});
+  container.listen(sessionExpiryProvider, (_, _) {});
   return container;
 }
 
@@ -183,14 +183,14 @@ void main() {
         overrides: cloudOverrides(auth: FakeAuthRepository(initialUser: kAna), cloud: FakeCloud()),
       );
       addTearDown(container.dispose);
-      container.listen(authStateProvider, (_, __) {});
+      container.listen(authStateProvider, (_, _) {});
       await _settle();
 
       // Nobody has read syncStatusProvider yet (no banner built).
       container.read(syncFailureSinkProvider).reportCode('resource-exhausted');
       await _settle();
 
-      container.listen(syncStatusProvider, (_, __) {});
+      container.listen(syncStatusProvider, (_, _) {});
       await _settle();
       expect(container.read(syncStatusProvider).failure!.kind, SyncFailureKind.quotaExceeded);
     });
@@ -297,7 +297,7 @@ void main() {
           cloud,
           grace: const Duration(seconds: 5),
         );
-        container.listen(favoritesListProvider, (_, __) {});
+        container.listen(favoritesListProvider, (_, _) {});
         async.elapse(const Duration(milliseconds: 100));
 
         expect(container.read(favoritesGateProvider), FavoritesGate.loading);
@@ -312,7 +312,7 @@ void main() {
 
     test('a server answer with no favorites is a legitimate empty state', () async {
       final container = _container(FakeAuthRepository(initialUser: kAna), FakeCloud());
-      container.listen(favoritesListProvider, (_, __) {});
+      container.listen(favoritesListProvider, (_, _) {});
       await _settle();
       expect(container.read(favoritesGateProvider), FavoritesGate.ready);
       expect(container.read(favoritesListProvider).value, isEmpty);
@@ -321,7 +321,7 @@ void main() {
     test('cached favorites are shown even while offline (never an error state)', () async {
       final cloud = FakeCloud();
       final container = _container(FakeAuthRepository(initialUser: kAna), cloud);
-      container.listen(favoritesListProvider, (_, __) {});
+      container.listen(favoritesListProvider, (_, _) {});
       await _settle();
       await container.read(favoritesRepositoryProvider).addResult(_movie);
       cloud.offline = true;
@@ -338,8 +338,8 @@ void main() {
         overrides: cloudOverrides(auth: auth, cloud: cloud, createdFor: created),
       );
       addTearDown(container.dispose);
-      container.listen(syncStatusProvider, (_, __) {});
-      container.listen(favoritesListProvider, (_, __) {});
+      container.listen(syncStatusProvider, (_, _) {});
+      container.listen(favoritesListProvider, (_, _) {});
       await _settle();
       expect(container.read(favoritesGateProvider), FavoritesGate.unconfirmed);
       final before = created.length;
