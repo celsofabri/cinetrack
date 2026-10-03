@@ -22,6 +22,8 @@ List<Override> cloudOverrides({
 }) {
   return [
     authRepositoryProvider.overrideWithValue(auth),
+    // No trailing timers in widget tests; the debounce has its own test.
+    catalogDebounceProvider.overrideWithValue(Duration.zero),
     syncGraceProvider.overrideWithValue(grace),
     syncStallProvider.overrideWithValue(stall),
     favoritesDataSourceFactoryProvider.overrideWithValue((uid) {

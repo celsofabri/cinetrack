@@ -3,6 +3,7 @@ import 'media_type.dart';
 import 'season_cache.dart';
 import '../services/favorite_mapper.dart';
 import '../services/progress_calculator.dart';
+import '../services/watch_time.dart';
 
 /// Numbers shown on the profile. Always derived from the user's documents
 /// (never stored as counters, so they cannot drift).
@@ -14,6 +15,9 @@ class ProfileStats {
   final int watchedEpisodes;
   final int completedSeries;
 
+  /// Total watched time (movies + episodes) and its reliability.
+  final WatchTime watchTime;
+
   const ProfileStats({
     this.favorites = 0,
     this.movies = 0,
@@ -21,16 +25,19 @@ class ProfileStats {
     this.watchedMovies = 0,
     this.watchedEpisodes = 0,
     this.completedSeries = 0,
+    this.watchTime = const WatchTime(),
   });
 
   /// [catalog] returns the cached seasons of a show (may be empty on a new
-  /// device). A series is "completed" when every episode is watched: counted
-  /// against the cached catalog when it covers all known seasons (same
-  /// numbers as the progress badge), else against the season summaries
+  /// device). A series is "completed" when every episode that already aired is
+  /// watched (same rule as the "Concluídos" group, docs/18): decided against
+  /// the cached catalog when it covers all known seasons, else against the season summaries
   /// stored with the favorite.
   factory ProfileStats.fromDocs(
     List<FavoriteDoc> docs, {
     required List<SeasonCache> Function(int tvId) catalog,
+    int? Function(int movieId)? movieRuntime,
+    int? Function(int tvId)? tvFallbackRuntime,
   }) {
     var movies = 0, series = 0, watchedMovies = 0, watchedEpisodes = 0, completed = 0;
     for (final doc in docs) {
@@ -50,6 +57,12 @@ class ProfileStats {
       watchedMovies: watchedMovies,
       watchedEpisodes: watchedEpisodes,
       completedSeries: completed,
+      watchTime: WatchTimeCalculator.compute(
+        docs,
+        catalog: catalog,
+        movieRuntime: movieRuntime ?? (_) => null,
+        tvFallbackRuntime: tvFallbackRuntime ?? (_) => null,
+      ),
     );
   }
 
@@ -62,7 +75,7 @@ class ProfileStats {
       final seasons = [
         for (final s in cached) FavoriteMapper.overlayWatched(s, doc.watchedEpisodes)
       ];
-      return ProgressCalculator.compute(seasons).isCompleted;
+      return ProgressCalculator.compute(seasons).isCaughtUp;
     }
     final total = summaries.fold<int>(0, (sum, s) => sum + s.episodeCount);
     return total > 0 && doc.watchedEpisodes.length >= total;

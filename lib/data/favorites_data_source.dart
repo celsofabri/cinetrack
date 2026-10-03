@@ -49,6 +49,7 @@ abstract class FavoritesDataSource {
 
   Future<void> remove(String key);
 
+  /// Marks/unmarks a movie and stamps `lastWatchedAt` (recent-activity order).
   Future<void> setWatchedMovie(String key, bool watched);
 
   /// Applies per-episode changes (`true` = watched, `false` = unwatched) as

@@ -51,6 +51,26 @@ class LocalStore {
     return _seasonCatalogBox.put('$tvId', seasons.map((s) => s.toJson()).toList());
   }
 
+  /// Runtime (minutes) of a movie / typical episode runtime of a show
+  /// (`episode_run_time`, fallback when an episode has none). Same box, keys
+  /// that cannot collide with the show ids used by the catalog.
+  int? readMovieRuntime(int id) => _seasonCatalogBox.get('rt:movie:$id') as int?;
+  Future<void> saveMovieRuntime(int id, int minutes) =>
+      _seasonCatalogBox.put('rt:movie:$id', minutes);
+  int? readTvFallbackRuntime(int id) => _seasonCatalogBox.get('rt:tv:$id') as int?;
+  Future<void> saveTvFallbackRuntime(int id, int minutes) =>
+      _seasonCatalogBox.put('rt:tv:$id', minutes);
+
+  /// When the catalog of [tvId] was last checked against TMDB (drives the
+  /// TTL refresh of shows still airing).
+  DateTime? readCatalogFetchedAt(int tvId) {
+    final raw = _seasonCatalogBox.get('ts:$tvId');
+    return raw is String ? DateTime.tryParse(raw) : null;
+  }
+
+  Future<void> saveCatalogFetchedAt(int tvId, DateTime at) =>
+      _seasonCatalogBox.put('ts:$tvId', at.toIso8601String());
+
   /// Fires whenever the season catalog changes, so hydrated favorites can
   /// be re-emitted.
   Stream<void> watchSeasonCatalog() => _seasonCatalogBox.watch().map((_) {});

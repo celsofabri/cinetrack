@@ -131,7 +131,9 @@ class InMemoryFavoritesDataSource implements FavoritesDataSource {
   @override
   Future<void> setWatchedMovie(String key, bool watched) async => cloud.write(uid, (docs) {
         final doc = docs[key];
-        if (doc != null) docs[key] = doc.copyWith(watchedMovie: watched);
+        if (doc != null) {
+          docs[key] = doc.copyWith(watchedMovie: watched, lastWatchedAt: DateTime.now());
+        }
       });
 
   @override

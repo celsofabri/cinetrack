@@ -9,11 +9,17 @@ class PosterImage extends StatelessWidget {
   final double width;
   final double height;
 
+  /// `cover` fills the box (may crop an image that is not exactly 2:3);
+  /// `contain` always shows the whole poster. Lists of favorites use
+  /// `contain` inside a 2:3 box.
+  final BoxFit fit;
+
   const PosterImage({
     super.key,
     required this.posterPath,
     this.width = 92,
     this.height = 138,
+    this.fit = BoxFit.cover,
   });
 
   @override
@@ -43,18 +49,17 @@ class PosterImage extends StatelessWidget {
             url,
             width: width,
             height: height,
-            fit: BoxFit.cover,
+            fit: fit,
             gaplessPlayback: true,
             webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-            loadingBuilder: (_, child, progress) =>
-                progress == null ? child : placeholder,
+            loadingBuilder: (_, child, progress) => progress == null ? child : placeholder,
             errorBuilder: (_, __, ___) => placeholder,
           )
         : CachedNetworkImage(
             imageUrl: url,
             width: width,
             height: height,
-            fit: BoxFit.cover,
+            fit: fit,
             placeholder: (_, __) => placeholder,
             errorWidget: (_, __, ___) => placeholder,
           );

@@ -119,9 +119,23 @@ class _FavoriteToggleButtonState extends State<FavoriteToggleButton> {
 
   @override
   Widget build(BuildContext context) {
+    // Same Material 3 button family as the rest of the app (stadium shape,
+    // 18 px icon, labelLarge): filled primary (the purple accent) to
+    // favorite, tonal (same family, calmer) to remove. 48 px high on mobile
+    // for the touch target, the M3 default 40 px on desktop.
     final minimumSize = Size(0, isMobileWidth(context) ? 48 : 40);
     final icon = _pending
-        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+        ? Builder(
+            builder: (context) => SizedBox(
+              width: 18,
+              height: 18,
+              // Same color as the button's foreground, never a stray accent.
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: IconTheme.of(context).color,
+              ),
+            ),
+          )
         : Icon(widget.isFavorite ? Icons.favorite : Icons.favorite_border);
 
     if (widget.isFavorite) {
@@ -129,8 +143,8 @@ class _FavoriteToggleButtonState extends State<FavoriteToggleButton> {
         button: true,
         label: 'Remover ${widget.title} dos favoritos',
         excludeSemantics: true,
-        child: OutlinedButton.icon(
-          style: OutlinedButton.styleFrom(minimumSize: minimumSize),
+        child: FilledButton.tonalIcon(
+          style: FilledButton.styleFrom(minimumSize: minimumSize),
           onPressed: _pending ? null : _remove,
           icon: icon,
           label: const Text('Remover dos favoritos'),

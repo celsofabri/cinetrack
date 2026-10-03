@@ -18,7 +18,7 @@ import '../models/season_cache.dart';
 import '../repositories/discovery_repository.dart';
 import '../repositories/favorites_repository.dart';
 import '../services/local_store.dart';
-import '../services/progress_calculator.dart';
+import '../services/favorite_status.dart';
 import '../services/tmdb_api_client.dart';
 
 /// Overridden in main() with the instance created (and initialized)
@@ -88,8 +88,16 @@ final favoritesDataSourceProvider = Provider<FavoritesDataSource>((ref) {
   return ref.watch(favoritesDataSourceFactoryProvider)(uid);
 });
 
+/// Clock of the catalog TTL refresh. Overridden in tests.
+final catalogClockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
+
+/// Coalescing window of catalog re-emissions (see `FavoritesRepository`).
+final catalogDebounceProvider = Provider<Duration>((ref) => const Duration(milliseconds: 300));
+
 final favoritesRepositoryProvider = Provider<FavoritesRepository>((ref) {
   return FavoritesRepository(
+    now: ref.watch(catalogClockProvider),
+    catalogDebounce: ref.watch(catalogDebounceProvider),
     api: ref.watch(tmdbApiClientProvider),
     store: ref.watch(localStoreProvider),
     dataSource: ref.watch(favoritesDataSourceProvider),
@@ -160,17 +168,14 @@ final favoritesListProvider = StreamProvider<List<FavoriteItem>>((ref) {
   return ref.watch(favoritesRepositoryProvider).watchAll();
 });
 
-final searchResultsProvider =
-    FutureProvider.family<List<SearchResult>, String>((ref, query) {
+final searchResultsProvider = FutureProvider.family<List<SearchResult>, String>((ref, query) {
   return ref.watch(tmdbApiClientProvider).searchMulti(query);
 });
 
 typedef SeasonKey = ({int tvId, int seasonNumber});
 
 final seasonProvider = FutureProvider.family<SeasonCache, SeasonKey>((ref, key) {
-  return ref
-      .watch(favoritesRepositoryProvider)
-      .loadSeason(key.tvId, key.seasonNumber);
+  return ref.watch(favoritesRepositoryProvider).loadSeason(key.tvId, key.seasonNumber);
 });
 
 final discoveryRepositoryProvider = Provider<DiscoveryRepository>((ref) {
@@ -199,13 +204,13 @@ final categoryProvider =
 /// for the `seasonProvider` class of bug.
 final continueWatchingProvider = Provider<List<FavoriteItem>>((ref) {
   final favorites = ref.watch(favoritesListProvider).valueOrNull ?? const [];
-  final inProgress = favorites.where((item) {
-    if (item.mediaType != MediaType.tv) return false;
-    final progress = ProgressCalculator.compute(item.seasons ?? const []);
-    return progress.isStarted && !progress.isCompleted;
-  }).toList()
-    ..sort((a, b) => (b.lastWatchedAt ?? b.addedAt).compareTo(a.lastWatchedAt ?? a.addedAt));
-  return inProgress;
+  // Started and not yet caught up. A series whose seasons are still being
+  // downloaded (new device) has no known progress and is left out until the
+  // catalog reconciliation fills it (docs/18).
+  return [
+    for (final item in favorites)
+      if (FavoriteStatus.of(item).state == WatchState.inProgress) item,
+  ]..sort(FavoriteItem.byRecentActivity);
 });
 
 /// Genre list per media type for the catalog filter (rarely changes, so it

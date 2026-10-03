@@ -140,6 +140,7 @@ class FavoriteMapper {
               name: ep.name,
               airDate: ep.airDate,
               watched: false,
+              runtime: ep.runtime,
             ),
         ],
       );

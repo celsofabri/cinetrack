@@ -42,6 +42,35 @@ class FakeLocalStore extends LocalStore {
     _controller.add(null);
   }
 
+  final Map<int, DateTime> fetchedAt = {};
+
+  @override
+  DateTime? readCatalogFetchedAt(int tvId) => fetchedAt[tvId];
+
+  @override
+  Future<void> saveCatalogFetchedAt(int tvId, DateTime at) async => fetchedAt[tvId] = at;
+
+  final Map<int, int> movieRuntimes = {};
+  final Map<int, int> tvRuntimes = {};
+
+  @override
+  int? readMovieRuntime(int id) => movieRuntimes[id];
+
+  @override
+  Future<void> saveMovieRuntime(int id, int minutes) async {
+    movieRuntimes[id] = minutes;
+    _controller.add(null);
+  }
+
+  @override
+  int? readTvFallbackRuntime(int id) => tvRuntimes[id];
+
+  @override
+  Future<void> saveTvFallbackRuntime(int id, int minutes) async {
+    tvRuntimes[id] = minutes;
+    _controller.add(null);
+  }
+
   @override
   Stream<void> watchSeasonCatalog() => _controller.stream;
 }
@@ -68,19 +97,42 @@ class FakeTmdbApiClient extends TmdbApiClient {
     return movieDetails;
   }
 
+  /// Per-season answers (take precedence over [seasonResult]).
+  final Map<int, SeasonCache> seasonsByNumber = {};
+
+  /// Errors thrown (one per call, in order) before answers start.
+  final List<Object> seasonErrorQueue = [];
+
+  /// When set, season calls wait for it (simulates a slow TMDB).
+  Completer<void>? seasonGate;
+  int inFlight = 0;
+  int maxInFlight = 0;
+
   @override
   Future<SeasonCache> getSeasonEpisodes(int tvId, int seasonNumber) async {
     seasonCalls++;
-    final error = seasonError;
-    if (error != null) throw error;
-    final result = seasonResult;
-    if (result == null) throw StateError('no seasonResult configured');
-    return result;
+    inFlight++;
+    if (inFlight > maxInFlight) maxInFlight = inFlight;
+    try {
+      await seasonGate?.future;
+      if (seasonErrorQueue.isNotEmpty) throw seasonErrorQueue.removeAt(0);
+      final error = seasonError;
+      if (error != null) throw error;
+      final result = seasonsByNumber[seasonNumber] ?? seasonResult;
+      if (result == null) throw StateError('no seasonResult configured');
+      return result;
+    } finally {
+      inFlight--;
+    }
   }
+
+  /// Runs when a `/tv/{id}` request starts (to flip flags mid-run).
+  void Function()? onTvDetails;
 
   @override
   Future<Map<String, dynamic>> getTvDetails(int id) async {
     tvDetailsCalls++;
+    onTvDetails?.call();
     final error = tvDetailsError;
     if (error != null) throw error;
     return tvDetails;

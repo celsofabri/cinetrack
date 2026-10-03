@@ -7,6 +7,7 @@ import '../models/media_type.dart';
 import '../models/search_result.dart';
 import '../models/season_cache.dart';
 import '../models/tv_season_summary.dart';
+import '../services/catalog_reconciler.dart';
 import '../services/favorite_mapper.dart';
 import '../services/local_store.dart';
 import '../services/tmdb_api_client.dart';
@@ -25,6 +26,12 @@ class FavoritesRepository {
   final LocalStore _store;
   final FavoritesDataSource _data;
 
+  /// Season-catalog events inside this window collapse into one re-hydration
+  /// of the whole list (leading + trailing edge): a first-login download of
+  /// ~100 series would otherwise re-decode every show once per season saved.
+  final Duration catalogDebounce;
+  final DateTime Function()? _now;
+
   /// [dataSource] defaults to the signed-out source (empty reads, writes
   /// throw [AuthRequiredException]); the app wires the real one through
   /// `favoritesDataSourceProvider`.
@@ -32,7 +39,10 @@ class FavoritesRepository {
     required TmdbApiClient api,
     required LocalStore store,
     FavoritesDataSource? dataSource,
-  })  : _api = api,
+    this.catalogDebounce = const Duration(milliseconds: 300),
+    DateTime Function()? now,
+  })  : _now = now,
+        _api = api,
         _store = store,
         _data = dataSource ?? const SignedOutFavoritesDataSource();
 
@@ -43,6 +53,8 @@ class FavoritesRepository {
     StreamSubscription<List<FavoriteDoc>>? docsSub;
     StreamSubscription<void>? catalogSub;
     List<FavoriteDoc>? latest;
+    Timer? window;
+    var dirty = false;
 
     void emit() {
       final docs = latest;
@@ -65,15 +77,71 @@ class FavoritesRepository {
           },
           onError: controller.addError,
         );
-        catalogSub = _store.watchSeasonCatalog().listen((_) => emit());
+        catalogSub = _store.watchSeasonCatalog().listen((_) {
+          if (catalogDebounce == Duration.zero) return emit();
+          if (window != null) {
+            dirty = true; // inside the window: emitted once when it closes
+            return;
+          }
+          emit();
+          void close() {
+            window = null;
+            if (dirty) {
+              dirty = false;
+              emit();
+              window = Timer(catalogDebounce, close);
+            }
+          }
+
+          window = Timer(catalogDebounce, close);
+        });
       },
       onCancel: () async {
+        window?.cancel();
         await docsSub?.cancel();
         await catalogSub?.cancel();
       },
     );
     return controller.stream;
   }
+
+  /// Series whose local season catalog is incomplete for [docs] (new
+  /// device / fresh login), most recent first. See [reconcileCatalog].
+  List<FavoriteDoc> docsNeedingCatalog(List<FavoriteDoc> docs) => _reconciler().pending(docs);
+
+  /// Downloads the missing seasons of [targets] in the background (limited
+  /// concurrency, backoff on 429/5xx/network). Each saved season re-emits
+  /// [watchAll], so progress appears without any interaction.
+  Future<void> reconcileCatalog(
+    List<FavoriteDoc> targets, {
+    bool Function()? isCancelled,
+    bool Function(int tvId)? isStale,
+    void Function(int tvId, bool ok)? onDone,
+    Future<void> Function(Duration)? delay,
+  }) =>
+      _reconciler(delay: delay)
+          .run(targets, isCancelled: isCancelled, isStale: isStale, onDone: onDone);
+
+  List<String> pendingRuntimes(List<FavoriteDoc> docs) => _reconciler().pendingRuntimes(docs);
+
+  Future<void> reconcileRuntimes(
+    List<String> keys, {
+    List<FavoriteDoc> docs = const [],
+    bool Function()? isCancelled,
+    void Function(String key, bool ok)? onDone,
+    Future<void> Function(Duration)? delay,
+  }) =>
+      _reconciler(delay: delay)
+          .runRuntimes(keys, docs: docs, isCancelled: isCancelled, onDone: onDone);
+
+  CatalogReconciler _reconciler({Future<void> Function(Duration)? delay}) => CatalogReconciler(
+        api: _api,
+        store: _store,
+        delay: delay,
+        now: _now,
+        saveSummaries: (tvId, summaries) =>
+            _data.setSeasonSummaries('$tvId-${MediaType.tv.jsonValue}', summaries),
+      );
 
   /// The raw cloud documents (no catalog hydration), for statistics.
   Stream<List<FavoriteDoc>> watchDocs() => _data.watchAll();

@@ -40,6 +40,25 @@ class FavoriteItem {
     this.lastWatchedAt,
   });
 
+  /// Most recent interaction with this title: the last time something was
+  /// marked/unmarked as watched, or when it was favorited if that is more
+  /// recent or there was no watch yet. Orders "Meus favoritos" and "Continue
+  /// assistindo". Never null, so a pending server timestamp (read as null
+  /// before the server acknowledges it) cannot sink the item.
+  DateTime get lastActivityAt {
+    final watched = lastWatchedAt;
+    return watched != null && watched.isAfter(addedAt) ? watched : addedAt;
+  }
+
+  /// Most recent activity first; ties broken by newest favorite, then title.
+  static int byRecentActivity(FavoriteItem a, FavoriteItem b) {
+    final byActivity = b.lastActivityAt.compareTo(a.lastActivityAt);
+    if (byActivity != 0) return byActivity;
+    final byAdded = b.addedAt.compareTo(a.addedAt);
+    if (byAdded != 0) return byAdded;
+    return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+  }
+
   /// Composite key used in local storage — avoids collisions between a
   /// movie and a TV show that happen to share the same TMDB numeric id.
   String get storageKey => '$id-${mediaType.jsonValue}';

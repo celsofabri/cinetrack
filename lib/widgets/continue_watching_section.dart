@@ -4,7 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../models/favorite_item.dart';
 import '../providers/providers.dart';
-import '../services/progress_calculator.dart';
+import '../providers/catalog_sync_providers.dart';
+import '../services/favorite_status.dart';
 import '../providers/sync_providers.dart';
 import 'poster_image.dart';
 import 'sync_widgets.dart';
@@ -23,7 +24,20 @@ class ContinueWatchingSection extends ConsumerWidget {
     if (items.isEmpty && ref.watch(favoritesGateProvider) == FavoritesGate.unconfirmed) {
       return const FavoritesLoadError(compact: true);
     }
-    if (items.isEmpty) return const SizedBox.shrink();
+    if (items.isEmpty) {
+      // New login/device: the series' seasons are being downloaded.
+      if (!ref.watch(catalogSyncProvider).isRunning) return const SizedBox.shrink();
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(width: 8),
+            Flexible(child: Text('Calculando seu progresso…')),
+          ],
+        ),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -56,7 +70,7 @@ class _ContinueWatchingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = ProgressCalculator.compute(item.seasons ?? const []);
+    final status = FavoriteStatus.of(item);
 
     return Semantics(
       label: item.title,
@@ -79,7 +93,7 @@ class _ContinueWatchingCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 4),
-                ProgressBadge(watched: progress.watchedCount, total: progress.totalCount),
+                SeriesStatusBadge(status: status),
               ],
             ),
           ),

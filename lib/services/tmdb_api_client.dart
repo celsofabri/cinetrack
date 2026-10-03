@@ -143,8 +143,7 @@ class TmdbApiClient {
     );
   }
 
-  Future<Map<String, dynamic>> getMovieDetails(int id) =>
-      _get(_uri('/movie/$id'));
+  Future<Map<String, dynamic>> getMovieDetails(int id) => _get(_uri('/movie/$id'));
 
   Future<Map<String, dynamic>> getTvDetails(int id) => _get(_uri('/tv/$id'));
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../providers/catalog_sync_providers.dart';
 import '../providers/providers.dart';
 import 'auth_gate.dart';
 import 'sync_widgets.dart';
@@ -159,6 +160,10 @@ class AppShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Starts the background download of the favorite series' seasons (new
+    // login/device) for every main screen, desktop included. read, not
+    // watch: its progress must not rebuild the shell.
+    ref.read(catalogSyncProvider);
     if (!isMobileWidth(context)) return child;
 
     final user = ref.watch(currentUserProvider);

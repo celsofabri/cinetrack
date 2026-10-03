@@ -44,7 +44,12 @@ final profileStatsProvider = Provider<ProfileStats>((ref) {
   ref.watch(favoritesListProvider);
   final docs = ref.watch(favoriteDocsProvider).valueOrNull ?? const [];
   final store = ref.watch(localStoreProvider);
-  return ProfileStats.fromDocs(docs, catalog: store.readSeasonCatalog);
+  return ProfileStats.fromDocs(
+    docs,
+    catalog: store.readSeasonCatalog,
+    movieRuntime: store.readMovieRuntime,
+    tvFallbackRuntime: store.readTvFallbackRuntime,
+  );
 });
 
 class AccountDeletionState {
