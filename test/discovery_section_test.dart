@@ -217,16 +217,14 @@ void main() {
     expect(find.byIcon(Icons.favorite_border), findsNothing);
 
     // Once favorited, the icon reflects favoritesListProvider (source of
-    // truth) and its button becomes non-interactive — a second tap has
-    // nothing left to trigger addMovie again.
+    // truth); a second tap toggles (removes) and never calls addMovie again.
     await tester.tap(find.byIcon(Icons.favorite), warnIfMissed: false);
     await tester.pump();
 
     expect(repo.addMovieCalls, 1);
   });
 
-  testWidgets('tapping the poster of a movie card navigates to /movie/:id',
-      (tester) async {
+  testWidgets('tapping the poster of a movie card navigates to /movie/:id', (tester) async {
     final items = [
       const SearchResult(
         id: 42,

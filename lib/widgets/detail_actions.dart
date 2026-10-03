@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../models/favorite_item.dart';
+import '../models/media_type.dart';
 import '../models/search_result.dart';
+import '../providers/providers.dart';
+import '../services/progress_calculator.dart';
 import '../models/title_details.dart';
 import '../repositories/favorites_repository.dart';
 import '../services/tmdb_exception.dart';
-import 'app_shell.dart';
 import 'auth_gate.dart';
 
 /// The title got favorited but the second step (the watched mark) failed.
@@ -54,11 +59,148 @@ Future<void> runDetailWrite(
   }
 }
 
-/// Favorite / unfavorite control of a details screen. Shows the real state
-/// (filled heart = favorite) and a spinner while the write is in flight, so a
-/// double tap cannot fire twice. Removing a title that has progress asks for
-/// confirmation first, because the progress lives in the favorite document and
-/// is deleted with it.
+/// Asks before removing a favorite that has progress (the progress lives in the
+/// favorite document and is deleted with it). Returns true when confirmed.
+Future<bool> confirmRemoveFavorite(BuildContext context) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Remover dos favoritos?'),
+      content: const Text(
+        'Seu progresso (itens assistidos) deste título também será apagado.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Remover'),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
+}
+
+/// Whether removing the favorite [id] would delete progress (watched movie, or
+/// watched episodes in the document or the local cache). When the raw
+/// documents cannot be read (loading too long, or failed) we cannot rule
+/// progress out, so it says true and the caller asks for confirmation.
+Future<bool> favoriteHasProgress(ProviderContainer container, int id, MediaType type) async {
+  final items = container.read(favoritesListProvider).value ?? const <FavoriteItem>[];
+  final matches = items.where((f) => f.id == id && f.mediaType == type);
+  if (matches.isEmpty) return false;
+  final item = matches.first;
+  if (type == MediaType.movie) return item.watchedMovie;
+  if (ProgressCalculator.compute(item.seasons ?? const []).isStarted) return true;
+  try {
+    // Not watched by the list screens, so it may still be loading.
+    final docs =
+        await container.read(favoriteDocsProvider.future).timeout(const Duration(seconds: 3));
+    return docs.any((d) => d.id == id && d.mediaType == type && d.watchedEpisodes.isNotEmpty);
+  } catch (_) {
+    return true;
+  }
+}
+
+/// Heart on a poster (Explorar, Busca, Descoberta, Início): toggles. Removing
+/// asks for confirmation when there is progress. [setPending] is called with
+/// true once the write really starts (after any confirmation) and false when
+/// it ends. The add path calls straight into the write/login flow with no
+/// await before it, so the Google popup is still opened by the user gesture.
+Future<void> toggleFavoriteFromList(
+  BuildContext context,
+  SearchResult result, {
+  required bool isFavorite,
+  required void Function(bool pending) setPending,
+}) async {
+  if (!isFavorite) {
+    setPending(true);
+    try {
+      await runWrite(context, (repo) => repo.addResult(result));
+    } finally {
+      setPending(false);
+    }
+    return;
+  }
+  final container = ProviderScope.containerOf(context);
+  if (await favoriteHasProgress(container, result.id, result.mediaType)) {
+    if (!context.mounted || !await confirmRemoveFavorite(context) || !context.mounted) return;
+  } else if (!context.mounted) {
+    return;
+  }
+  setPending(true);
+  try {
+    await runWrite(context, (repo) => repo.remove(result.id, result.mediaType));
+  } finally {
+    setPending(false);
+  }
+}
+
+/// The one chip used by both detail actions (favorite and watched), so they
+/// share shape, height, typography, icon size, spacing and states. [accent]
+/// only changes the selected color (purple primary for the favorite).
+class DetailToggleChip extends StatelessWidget {
+  final String label;
+  final String semanticsLabel;
+  final IconData icon;
+  final IconData selectedIcon;
+  final bool selected;
+  final bool pending;
+  final bool accent;
+  final VoidCallback onPressed;
+
+  const DetailToggleChip({
+    super.key,
+    required this.label,
+    required this.semanticsLabel,
+    required this.icon,
+    required this.selectedIcon,
+    required this.selected,
+    required this.pending,
+    required this.onPressed,
+    this.accent = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fg = selected && accent ? scheme.onPrimaryContainer : null;
+    return Semantics(
+      button: true,
+      selected: selected,
+      enabled: !pending,
+      label: semanticsLabel,
+      excludeSemantics: true,
+      onTap: pending ? null : onPressed,
+      child: FilterChip(
+        label: Text(label),
+        labelStyle: fg == null ? null : TextStyle(color: fg),
+        selected: selected,
+        showCheckmark: false,
+        selectedColor: selected && accent ? scheme.primaryContainer : null,
+        avatar: pending
+            ? SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: fg),
+              )
+            : Icon(selected ? selectedIcon : icon, size: 18, color: fg),
+        // Padded tap target: 48 px high on mobile, the M3 default elsewhere.
+        materialTapTargetSize: MaterialTapTargetSize.padded,
+        // The tap handler calls straight into the write/login flow: no await
+        // before it, so the Google popup is still opened by the user gesture.
+        onSelected: pending ? null : (_) => onPressed(),
+      ),
+    );
+  }
+}
+
+/// Favorite / unfavorite control of a details screen. Same chip as the watched
+/// control, purple when favorite, with a spinner while the write is in flight
+/// (no double tap). Removing a title that has progress asks for confirmation.
 class FavoriteToggleButton extends StatefulWidget {
   final bool isFavorite;
   final bool hasProgress;
@@ -93,76 +235,69 @@ class _FavoriteToggleButtonState extends State<FavoriteToggleButton> {
 
   Future<void> _remove() async {
     if (widget.hasProgress) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Remover dos favoritos?'),
-          content: const Text(
-            'Seu progresso (itens assistidos) deste título também será apagado.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Remover'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true || !mounted) return;
+      if (!await confirmRemoveFavorite(context) || !mounted) return;
     }
     await _run(widget.onRemove);
   }
 
   @override
   Widget build(BuildContext context) {
-    // Same Material 3 button family as the rest of the app (stadium shape,
-    // 18 px icon, labelLarge): filled primary (the purple accent) to
-    // favorite, tonal (same family, calmer) to remove. 48 px high on mobile
-    // for the touch target, the M3 default 40 px on desktop.
-    final minimumSize = Size(0, isMobileWidth(context) ? 48 : 40);
-    final icon = _pending
-        ? Builder(
-            builder: (context) => SizedBox(
-              width: 18,
-              height: 18,
-              // Same color as the button's foreground, never a stray accent.
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: IconTheme.of(context).color,
-              ),
-            ),
-          )
-        : Icon(widget.isFavorite ? Icons.favorite : Icons.favorite_border);
+    return DetailToggleChip(
+      label: widget.isFavorite ? 'Remover dos favoritos' : 'Favoritar',
+      semanticsLabel:
+          widget.isFavorite ? 'Remover ${widget.title} dos favoritos' : 'Favoritar ${widget.title}',
+      icon: Icons.favorite_border,
+      selectedIcon: Icons.favorite,
+      selected: widget.isFavorite,
+      accent: true,
+      pending: _pending,
+      onPressed: widget.isFavorite ? _remove : () => _run(widget.onAdd),
+    );
+  }
+}
 
-    if (widget.isFavorite) {
-      return Semantics(
-        button: true,
-        label: 'Remover ${widget.title} dos favoritos',
-        excludeSemantics: true,
-        child: FilledButton.tonalIcon(
-          style: FilledButton.styleFrom(minimumSize: minimumSize),
-          onPressed: _pending ? null : _remove,
-          icon: icon,
-          label: const Text('Remover dos favoritos'),
-        ),
-      );
+/// "Marcar como assistido" control (movie details): the same chip as the
+/// favorite, with its own pending state.
+class WatchedToggleChip extends StatefulWidget {
+  final bool watched;
+  final String title;
+  final Future<void> Function() onToggle;
+
+  const WatchedToggleChip({
+    super.key,
+    required this.watched,
+    required this.title,
+    required this.onToggle,
+  });
+
+  @override
+  State<WatchedToggleChip> createState() => _WatchedToggleChipState();
+}
+
+class _WatchedToggleChipState extends State<WatchedToggleChip> {
+  bool _pending = false;
+
+  Future<void> _run() async {
+    setState(() => _pending = true);
+    try {
+      await widget.onToggle();
+    } finally {
+      if (mounted) setState(() => _pending = false);
     }
-    return Semantics(
-      button: true,
-      label: 'Favoritar ${widget.title}',
-      excludeSemantics: true,
-      child: FilledButton.icon(
-        style: FilledButton.styleFrom(minimumSize: minimumSize),
-        // The tap handler calls straight into the write/login flow: no await
-        // before it, so the Google popup is still opened by the user gesture.
-        onPressed: _pending ? null : () => _run(widget.onAdd),
-        icon: icon,
-        label: const Text('Favoritar'),
-      ),
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DetailToggleChip(
+      label: widget.watched ? 'Assistido' : 'Marcar como assistido',
+      semanticsLabel: widget.watched
+          ? 'Desmarcar ${widget.title} como assistido'
+          : 'Marcar ${widget.title} como assistido',
+      icon: Icons.check_circle_outline,
+      selectedIcon: Icons.check_circle,
+      selected: widget.watched,
+      pending: _pending,
+      onPressed: _run,
     );
   }
 }

@@ -7,7 +7,7 @@ import '../models/media_type.dart';
 import '../models/search_result.dart';
 import '../providers/providers.dart';
 import '../services/tmdb_exception.dart';
-import '../widgets/auth_gate.dart';
+import 'detail_actions.dart';
 import '../widgets/error_state.dart';
 import '../widgets/poster_image.dart';
 
@@ -95,21 +95,25 @@ class _DiscoverySectionState extends ConsumerState<DiscoverySection> {
             result: result,
             isFavorite: favoriteKeys.contains(result.storageKey),
             isPending: _pendingKeys.contains(result.storageKey),
-            onToggleFavorite: () => _addFavorite(result),
+            onToggleFavorite: () =>
+                _toggleFavorite(result, favoriteKeys.contains(result.storageKey)),
           );
         },
       ),
     );
   }
 
-  Future<void> _addFavorite(SearchResult result) async {
+  Future<void> _toggleFavorite(SearchResult result, bool isFavorite) {
     final key = result.storageKey;
-    setState(() => _pendingKeys.add(key));
-    try {
-      await runWrite(context, (repo) => repo.addResult(result));
-    } finally {
-      if (mounted) setState(() => _pendingKeys.remove(key));
-    }
+    return toggleFavoriteFromList(
+      context,
+      result,
+      isFavorite: isFavorite,
+      setPending: (p) {
+        if (!mounted) return;
+        setState(() => p ? _pendingKeys.add(key) : _pendingKeys.remove(key));
+      },
+    );
   }
 }
 
@@ -149,7 +153,8 @@ class _DiscoveryCard extends StatelessWidget {
                       child: FavoriteButton(
                         isFavorite: isFavorite,
                         isPending: isPending,
-                        onPressed: isFavorite ? null : onToggleFavorite,
+                        title: result.title,
+                        onPressed: onToggleFavorite,
                       ),
                     ),
                   ],
@@ -181,12 +186,14 @@ class _DiscoveryCard extends StatelessWidget {
 class FavoriteButton extends StatelessWidget {
   final bool isFavorite;
   final bool isPending;
-  final VoidCallback? onPressed;
+  final String title;
+  final VoidCallback onPressed;
 
   const FavoriteButton({
     super.key,
     required this.isFavorite,
     required this.isPending,
+    required this.title,
     required this.onPressed,
   });
 
@@ -198,10 +205,9 @@ class FavoriteButton extends StatelessWidget {
       shape: BoxShape.circle,
     );
 
-    // The heart is a quick-favorite shortcut: whatever its state, a tap on it
-    // must never fall through to the card underneath (which opens details).
-    // An enabled IconButton wins the gesture arena on its own; this absorbs
-    // the taps of the disabled/pending states.
+    // The heart toggles the favorite: a tap on it must never fall through to
+    // the card underneath (which opens details). The active IconButton wins
+    // the gesture arena on its own; this absorbs the taps while pending.
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       excludeFromSemantics: true,
@@ -233,7 +239,7 @@ class FavoriteButton extends StatelessWidget {
         // Desktop keeps the original compact 40px target; mobile uses 48px.
         visualDensity: isMobileWidth(context) ? null : VisualDensity.compact,
         onPressed: onPressed,
-        tooltip: isFavorite ? 'Já é favorito' : 'Favoritar',
+        tooltip: isFavorite ? 'Remover $title dos favoritos' : 'Adicionar $title aos favoritos',
       ),
     );
   }

@@ -9,7 +9,7 @@ import '../services/tmdb_exception.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/discovery_section.dart' show FavoriteButton;
 import '../widgets/empty_state.dart';
-import '../widgets/auth_gate.dart';
+import '../widgets/detail_actions.dart';
 import '../widgets/error_state.dart';
 import '../widgets/poster_image.dart';
 
@@ -115,14 +115,17 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
     }
   }
 
-  Future<void> _addFavorite(SearchResult result) async {
+  Future<void> _toggleFavorite(SearchResult result, bool isFavorite) {
     final key = result.storageKey;
-    setState(() => _pendingKeys.add(key));
-    try {
-      await runWrite(context, (repo) => repo.addResult(result));
-    } finally {
-      if (mounted) setState(() => _pendingKeys.remove(key));
-    }
+    return toggleFavoriteFromList(
+      context,
+      result,
+      isFavorite: isFavorite,
+      setPending: (p) {
+        if (!mounted) return;
+        setState(() => p ? _pendingKeys.add(key) : _pendingKeys.remove(key));
+      },
+    );
   }
 
   @override
@@ -232,7 +235,8 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
               result: _items[i],
               isFavorite: favoriteKeys.contains(_items[i].storageKey),
               isPending: _pendingKeys.contains(_items[i].storageKey),
-              onFavorite: () => _addFavorite(_items[i]),
+              onFavorite: () =>
+                  _toggleFavorite(_items[i], favoriteKeys.contains(_items[i].storageKey)),
             ),
           ),
         ),
@@ -298,7 +302,8 @@ class _CatalogTile extends StatelessWidget {
                       child: FavoriteButton(
                         isFavorite: isFavorite,
                         isPending: isPending,
-                        onPressed: isFavorite ? null : onFavorite,
+                        title: result.title,
+                        onPressed: onFavorite,
                       ),
                     ),
                   ],

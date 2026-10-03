@@ -112,7 +112,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(MovieDetailsScreen), findsNothing);
     expect(cloud.view('uid-ana').keys, ['11-movie']);
-    // A tap on the (now disabled) filled heart must not navigate either.
+    // A tap on the filled heart un-favorites (no progress: no dialog) and must not navigate.
     await tester.tap(find.byIcon(Icons.favorite), warnIfMissed: false);
     await tester.pumpAndSettle();
     expect(find.byType(MovieDetailsScreen), findsNothing);
@@ -333,7 +333,7 @@ void main() {
     expect(episodeChecked(tester, 'E2 · Segundo'), isTrue);
   });
 
-  testWidgets('disabled heart is not announced as actionable and does not navigate',
+  testWidgets('favorited heart is announced as actionable ("Remover ... dos favoritos")',
       (tester) async {
     final handle = tester.ensureSemantics();
     final cloud = FakeCloud();
@@ -341,8 +341,8 @@ void main() {
     await tester.tap(find.byIcon(Icons.favorite_border).first);
     await tester.pumpAndSettle();
 
-    final node = tester.getSemantics(find.byTooltip('Já é favorito'));
-    expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isFalse);
+    final node = tester.getSemantics(find.byTooltip('Remover Filme X dos favoritos'));
+    expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
     handle.dispose();
   });
 
@@ -413,7 +413,7 @@ void main() {
     await tester.tap(find.text('Serie Y'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    expect(tester.getSize(find.widgetWithText(FilledButton, 'Favoritar')).height,
+    expect(tester.getSize(find.widgetWithText(FilterChip, 'Favoritar')).height,
         greaterThanOrEqualTo(48));
   });
 }

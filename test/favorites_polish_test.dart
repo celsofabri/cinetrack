@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -479,75 +480,102 @@ void main() {
     });
   });
 
-  group('item 1: favorite button follows the app button pattern', () {
-    Future<void> pumpButton(WidgetTester tester, {required bool fav, double width = 400}) async {
+  group('item 1: favorite and watched share one chip pattern (docs/28)', () {
+    Future<void> pumpPair(WidgetTester tester,
+        {required bool fav, required bool watched, double width = 400, Brightness? dark}) async {
       tester.view.physicalSize = Size(width, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(MaterialApp(
-        theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple)),
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.deepPurple, brightness: dark ?? Brightness.light),
+        ),
         home: Scaffold(
-          body: Center(
-            child: FavoriteToggleButton(
+          body: Wrap(spacing: 12, runSpacing: 8, children: [
+            FavoriteToggleButton(
               isFavorite: fav,
               hasProgress: false,
               title: 'X',
               onAdd: () async {},
               onRemove: () async {},
             ),
-          ),
+            WatchedToggleChip(watched: watched, title: 'X', onToggle: () async {}),
+          ]),
         ),
       ));
     }
 
-    testWidgets('Favoritar is the filled purple M3 button, 48 px on mobile, default shape',
-        (tester) async {
-      await pumpButton(tester, fav: false);
-      expect(find.byType(OutlinedButton), findsNothing);
-      final button = find.byType(FilledButton);
-      expect(button, findsOneWidget);
-      expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
-      final style = tester.widget<FilledButton>(button).style!;
-      expect(style.shape, isNull, reason: 'theme (stadium) shape, no custom radius');
-      expect(style.backgroundColor, isNull, reason: 'theme primary (purple), no hard-coded color');
+    for (final width in [320.0, 1024.0]) {
+      for (final fav in [false, true]) {
+        testWidgets('same height, shape and no overflow at ${width.toInt()} px (fav=$fav)',
+            (tester) async {
+          await pumpPair(tester, fav: fav, watched: !fav, width: width);
+          expect(tester.takeException(), isNull);
+          final chips = find.byType(FilterChip);
+          expect(chips, findsNWidgets(2));
+          final a = tester.getSize(chips.at(0));
+          final b = tester.getSize(chips.at(1));
+          expect(a.height, b.height);
+          expect(a.height, width < 600 ? 48 : greaterThanOrEqualTo(32));
+          final chipA = tester.widget<FilterChip>(chips.at(0));
+          final chipB = tester.widget<FilterChip>(chips.at(1));
+          expect(chipA.shape, chipB.shape);
+          expect(chipA.showCheckmark, chipB.showCheckmark);
+          expect(find.byType(FilledButton), findsNothing);
+        });
+      }
+    }
+
+    testWidgets('favorite is purple when selected, in light and dark', (tester) async {
+      for (final b in [Brightness.light, Brightness.dark]) {
+        await pumpPair(tester, fav: true, watched: false, dark: b);
+        final scheme = Theme.of(tester.element(find.byType(FilterChip).first)).colorScheme;
+        expect(tester.widget<FilterChip>(find.byType(FilterChip).first).selectedColor,
+            scheme.primaryContainer);
+        expect(find.byIcon(Icons.favorite), findsOneWidget);
+      }
     });
 
-    testWidgets('Remover is the tonal variant of the same family (not outlined)', (tester) async {
-      await pumpButton(tester, fav: true);
-      expect(find.byType(OutlinedButton), findsNothing);
-      expect(find.byType(FilledButton), findsOneWidget);
-      expect(find.text('Remover dos favoritos'), findsOneWidget);
-      expect(find.bySemanticsLabel('Remover X dos favoritos'), findsOneWidget);
+    testWidgets('semantics: label and selected flag', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpPair(tester, fav: true, watched: false);
+      final fav = tester.getSemantics(find.bySemanticsLabel('Remover X dos favoritos'));
+      expect(fav.flagsCollection.isSelected, Tristate.isTrue);
+      final w = tester.getSemantics(find.bySemanticsLabel('Marcar X como assistido'));
+      expect(w.flagsCollection.isSelected, Tristate.isFalse);
+      handle.dispose();
     });
 
-    testWidgets('desktop keeps the 40 px M3 height', (tester) async {
-      await pumpButton(tester, fav: false, width: 1200);
-      final style = tester.widget<FilledButton>(find.byType(FilledButton)).style!;
-      expect(style.minimumSize!.resolve({})!.height, 40);
-    });
-
-    testWidgets('pending spinner uses the button foreground color and the 18 px icon size',
+    testWidgets('pending spinner is 18 px, same on both chips, and blocks a second tap',
         (tester) async {
       final done = Completer<void>();
+      var calls = 0;
       tester.view.physicalSize = const Size(400, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
-          body: FavoriteToggleButton(
-            isFavorite: false,
-            hasProgress: false,
-            title: 'X',
-            onAdd: () => done.future,
-            onRemove: () async {},
-          ),
+          body: Wrap(children: [
+            FavoriteToggleButton(
+              isFavorite: false,
+              hasProgress: false,
+              title: 'X',
+              onAdd: () {
+                calls++;
+                return done.future;
+              },
+              onRemove: () async {},
+            ),
+            WatchedToggleChip(watched: false, title: 'X', onToggle: () => done.future),
+          ]),
         ),
       ));
-      await tester.tap(find.byType(FilledButton));
+      await tester.tap(find.text('Favoritar'));
       await tester.pump();
-      final spinner =
-          tester.widget<CircularProgressIndicator>(find.byType(CircularProgressIndicator));
-      expect(spinner.color, isNotNull);
+      await tester.tap(find.byType(FilterChip).first, warnIfMissed: false);
+      await tester.pump();
+      expect(calls, 1);
       expect(tester.getSize(find.byType(CircularProgressIndicator)), const Size(18, 18));
       done.complete();
       await tester.pumpAndSettle();

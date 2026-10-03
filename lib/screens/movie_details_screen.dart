@@ -143,10 +143,10 @@ class _Actions extends ConsumerWidget {
           onRemove: () =>
               runDetailWrite(context, (repo) => repo.remove(result.id, MediaType.movie)),
         ),
-        FilterChip(
-          label: Text(watched ? 'Assistido' : 'Marcar como assistido'),
-          selected: watched,
-          onSelected: (_) => runDetailWrite(
+        WatchedToggleChip(
+          watched: watched,
+          title: result.title,
+          onToggle: () => runDetailWrite(
               context,
               // Not a favorite yet: progress lives in the favorite, so this
               // favorites it first and then marks it (see docs/15).

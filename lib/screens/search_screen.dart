@@ -10,7 +10,7 @@ import '../providers/providers.dart';
 import '../services/tmdb_exception.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/empty_state.dart';
-import '../widgets/auth_gate.dart';
+import '../widgets/detail_actions.dart';
 import '../widgets/error_state.dart';
 import '../widgets/poster_image.dart';
 
@@ -136,9 +136,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : IconButton(
-                      icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border),
-                      tooltip: isFavorite ? 'Já é favorito' : 'Favoritar ${result.title}',
-                      onPressed: isFavorite ? null : () => _addFavorite(result, key),
+                      icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border,
+                          color: isFavorite ? Theme.of(context).colorScheme.primary : null),
+                      tooltip: isFavorite
+                          ? 'Remover ${result.title} dos favoritos'
+                          : 'Favoritar ${result.title}',
+                      onPressed: () => _toggleFavorite(result, key, isFavorite),
                     ),
               // Tapping the row opens the details (favorite or not); the
               // heart is the quick-favorite shortcut.
@@ -150,13 +153,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  Future<void> _addFavorite(SearchResult result, String key) async {
-    setState(() => _pendingKeys.add(key));
-    try {
-      await runWrite(context, (repo) => repo.addResult(result));
-    } finally {
-      if (mounted) setState(() => _pendingKeys.remove(key));
-    }
+  Future<void> _toggleFavorite(SearchResult result, String key, bool isFavorite) {
+    return toggleFavoriteFromList(
+      context,
+      result,
+      isFavorite: isFavorite,
+      setPending: (p) {
+        if (!mounted) return;
+        setState(() => p ? _pendingKeys.add(key) : _pendingKeys.remove(key));
+      },
+    );
   }
 
   void _openDetails(SearchResult result) {

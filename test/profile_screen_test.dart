@@ -13,6 +13,7 @@ import 'package:cinetrack/models/tv_season_summary.dart';
 import 'package:cinetrack/providers/account_providers.dart';
 import 'package:cinetrack/screens/profile_screen.dart';
 import 'package:cinetrack/widgets/privacy_summary.dart';
+import 'package:cinetrack/widgets/profile_stats_card.dart';
 
 import 'support/cloud_overrides.dart';
 import 'support/fake_auth_repository.dart';
@@ -103,6 +104,60 @@ void main() {
       await tester.pumpAndSettle();
       await _scrollTo(tester, find.text('Suas estatísticas'));
       expect(find.bySemanticsLabel('Favoritos: 0'), findsOneWidget);
+    });
+  });
+
+  group('statistics grid fills the full width (docs/28)', () {
+    for (final width in [320.0, 360.0, 768.0, 1024.0, 1440.0]) {
+      testWidgets('grid width == "Tempo assistido" card width at ${width.toInt()} px, no overflow',
+          (tester) async {
+        tester.view.physicalSize = Size(width, 1400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final rig = _Rig();
+        rig.ana['1-movie'] = _movie(1, watched: true);
+        await tester.pumpWidget(rig.app());
+        await tester.pumpAndSettle();
+        await _scrollTo(tester, find.text('Suas estatísticas'));
+
+        final grid = tester.getSize(find.byKey(kProfileStatsGridKey));
+        final card = tester.getSize(find.byKey(kProfileWatchTimeCardKey));
+        expect(grid.width, card.width);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('two equal columns, equal row heights, odd last tile spans the row, big font',
+        (tester) async {
+      tester.view.physicalSize = const Size(320, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(brightness: Brightness.dark),
+        home: const MediaQuery(
+          data: MediaQueryData(size: Size(320, 1400), textScaler: TextScaler.linear(2)),
+          child: Scaffold(
+            body: Padding(
+              padding: EdgeInsets.all(16),
+              child: ProfileStatsGrid(items: [
+                ('Favoritos', 1),
+                ('Episódios assistidos com nome comprido', 22),
+                ('Séries concluídas', 3),
+                ('Filmes', 4),
+                ('Último', 5),
+              ]),
+            ),
+          ),
+        ),
+      ));
+      expect(tester.takeException(), isNull);
+      final cards = find.byType(Card);
+      final w = [for (var i = 0; i < 5; i++) tester.getSize(cards.at(i))];
+      expect(w[0].width, w[1].width);
+      expect(w[0].height, w[1].height);
+      expect(w[2].height, w[3].height);
+      expect(w[4].width, closeTo(w[0].width * 2 + 12, 0.01));
+      expect(tester.getTopLeft(cards.at(4)).dx, tester.getTopLeft(cards.at(0)).dx);
     });
   });
 

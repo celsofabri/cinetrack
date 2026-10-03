@@ -21,23 +21,58 @@ class ProfileStatsCard extends ConsumerWidget {
       ('Séries concluídas', stats.completedSeries),
     ];
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Semantics(
           header: true,
           child: Text('Suas estatísticas', style: Theme.of(context).textTheme.titleMedium),
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [for (final (label, value) in items) _StatTile(label: label, value: value)],
-        ),
+        ProfileStatsGrid(key: kProfileStatsGridKey, items: items),
         const SizedBox(height: 12),
         _WatchTimeCard(
             time: stats.watchTime, calculating: ref.watch(catalogSyncProvider).isRunning),
       ],
     );
+  }
+}
+
+const kProfileStatsGridKey = Key('profile-stats-grid');
+const kProfileWatchTimeCardKey = Key('profile-watch-time-card');
+
+/// Two equal columns that fill the whole width (same as the "Tempo assistido"
+/// card below). Tiles of a row share the height of the tallest one, so large
+/// fonts or long labels never leave a crooked row; an odd last tile spans the
+/// full width instead of sitting alone in half of the row.
+class ProfileStatsGrid extends StatelessWidget {
+  final List<(String, int)> items;
+
+  const ProfileStatsGrid({super.key, required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    const gap = 12.0;
+    final rows = <Widget>[];
+    for (var i = 0; i < items.length; i += 2) {
+      final first = _StatTile(label: items[i].$1, value: items[i].$2);
+      final hasPair = i + 1 < items.length;
+      if (rows.isNotEmpty) rows.add(const SizedBox(height: gap));
+      rows.add(
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: first),
+              if (hasPair) ...[
+                const SizedBox(width: gap),
+                Expanded(child: _StatTile(label: items[i + 1].$1, value: items[i + 1].$2)),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: rows);
   }
 }
 
@@ -54,19 +89,16 @@ class _StatTile extends StatelessWidget {
       container: true,
       label: '$label: $value',
       child: ExcludeSemantics(
-        child: SizedBox(
-          width: 150,
-          child: Card(
-            margin: EdgeInsets.zero,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('$value', style: theme.textTheme.headlineSmall),
-                  Text(label, style: theme.textTheme.bodySmall),
-                ],
-              ),
+        child: Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('$value', style: theme.textTheme.headlineSmall),
+                Text(label, style: theme.textTheme.bodySmall),
+              ],
             ),
           ),
         ),
@@ -103,9 +135,10 @@ class _WatchTimeCard extends StatelessWidget {
       container: true,
       label: 'Tempo assistido: $headline. $accumulated.${note == null ? '' : ' $note'}',
       child: ExcludeSemantics(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 150, maxWidth: 480),
+        child: SizedBox(
+          width: double.infinity,
           child: Card(
+            key: kProfileWatchTimeCardKey,
             margin: EdgeInsets.zero,
             child: Padding(
               padding: const EdgeInsets.all(12),
