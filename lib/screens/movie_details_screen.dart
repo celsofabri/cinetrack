@@ -7,6 +7,7 @@ import '../models/search_result.dart';
 import '../providers/providers.dart';
 import '../services/tmdb_exception.dart';
 import '../widgets/app_shell.dart';
+import '../widgets/cast_widgets.dart';
 import '../widgets/detail_actions.dart';
 import '../widgets/error_state.dart';
 import '../widgets/poster_image.dart';
@@ -75,34 +76,44 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
       bottomNavigationBar: const DetailBottomBanner(),
       appBar: detailAppBar(context, title: title),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                PosterImage(posterPath: result.posterPath, width: 120, height: 180),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title, style: Theme.of(context).textTheme.titleLarge),
-                      const SizedBox(height: 8),
-                      TitleMeta(details: details),
+                      PosterImage(posterPath: result.posterPath, width: 120, height: 180),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(title, style: Theme.of(context).textTheme.titleLarge),
+                            const SizedBox(height: 8),
+                            TitleMeta(details: details),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  _Actions(item: item, result: result, watched: watched),
+                  const SizedBox(height: 16),
+                  Text(
+                    overview.isEmpty ? 'Sem sinopse disponível.' : overview,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
-            _Actions(item: item, result: result, watched: watched),
-            const SizedBox(height: 16),
-            Text(
-              overview.isEmpty ? 'Sem sinopse disponível.' : overview,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
+            // Own loading/error/empty: never replaces the rest of the screen.
+            // Full width: the carousel pads itself.
+            CastSection(titleKey: key),
+            const SizedBox(height: 24),
           ],
         ),
       ),

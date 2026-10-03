@@ -148,7 +148,7 @@ class _FavoritesSectionState extends ConsumerState<FavoritesSection> {
                 if (failedCount > 0)
                   _ProgressRetryBanner(
                     count: failedCount,
-                    onRetry: () => ref.read(catalogSyncProvider.notifier).retry(),
+                    onRetry: () => ref.read(catalogSyncProvider.notifier).retry(force: true),
                   ),
                 if (shown.isEmpty)
                   _emptyGroup(entries.isEmpty, _group)

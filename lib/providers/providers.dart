@@ -7,11 +7,13 @@ import '../auth/auth_repository.dart';
 import '../data/favorites_data_source.dart';
 import '../data/firestore_favorites_data_source.dart';
 import '../data/sync_status.dart';
+import '../models/cast_member.dart';
 import '../models/catalog.dart';
 import '../models/discovery_category.dart';
 import '../models/favorite_doc.dart';
 import '../models/favorite_item.dart';
 import '../models/media_type.dart';
+import '../models/person.dart';
 import '../models/search_result.dart';
 import '../models/title_details.dart';
 import '../models/season_cache.dart';
@@ -20,6 +22,7 @@ import '../repositories/favorites_repository.dart';
 import '../services/local_store.dart';
 import '../services/favorite_status.dart';
 import '../services/tmdb_api_client.dart';
+import '../services/tmdb_exception.dart';
 
 /// Overridden in main() with the instance created (and initialized)
 /// before runApp, since opening the Hive box is async.
@@ -230,4 +233,55 @@ final titleDetailsProvider =
       ? await api.getMovieDetails(key.id)
       : await api.getTvDetails(key.id);
   return TitleDetails.fromTmdb(json, key.type);
+});
+
+/// Keeps a successful result for the whole session (back navigation and
+/// reopening reuse it without a TMDB call); a failure is dropped at once so
+/// the next read, or "Tentar novamente", asks again.
+Future<T> _cacheOnSuccess<T>(Ref ref, Future<T> Function() load) async {
+  final link = ref.keepAlive();
+  try {
+    return await load();
+  } catch (_) {
+    link.close();
+    rethrow;
+  }
+}
+
+/// Cast of a movie/show (docs/19): one call, session cache, independent of
+/// the title details so a failure never blocks the rest of the screen.
+final titleCastProvider = FutureProvider.autoDispose.family<List<CastMember>, TitleKey>((ref, key) {
+  final api = ref.watch(tmdbApiClientProvider);
+  return _cacheOnSuccess(ref, () => api.getTitleCast(key.type, key.id));
+});
+
+/// A person: pt-BR first; when the biography is empty, one more call in
+/// English. A missing English version means "no biography"; any other
+/// failure of that call is an error (never cached as an empty biography).
+final personProvider = FutureProvider.autoDispose.family<PersonProfile, int>((ref, id) {
+  final api = ref.watch(tmdbApiClientProvider);
+  return _cacheOnSuccess(ref, () async {
+    final json = await api.getPerson(id);
+    // Same adult filter as the credits: such a profile is not shown.
+    if (json['adult'] == true) throw TmdbException.notFound();
+    String? fallback;
+    if (((json['biography'] as String?) ?? '').trim().isEmpty) {
+      try {
+        final en = await api.getPerson(id, language: 'en-US');
+        fallback = en['biography'] as String?;
+      } on TmdbException catch (e) {
+        // "No English version" is a real answer (cached); a network/429/5xx
+        // failure is not, so it surfaces as an error the user can retry.
+        if (e.type != TmdbErrorType.notFound) rethrow;
+      }
+    }
+    return PersonProfile.fromTmdb({...json, 'id': id}, fallbackBiography: fallback);
+  });
+});
+
+/// Filmography of a person, fetched apart from [personProvider] so a failure
+/// here leaves the profile visible.
+final personFilmographyProvider = FutureProvider.autoDispose.family<Filmography, int>((ref, id) {
+  final api = ref.watch(tmdbApiClientProvider);
+  return _cacheOnSuccess(ref, () async => Filmography.fromCredits(await api.getPersonCredits(id)));
 });

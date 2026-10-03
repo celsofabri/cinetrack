@@ -9,6 +9,7 @@ import '../widgets/app_shell.dart';
 import '../widgets/delete_account_dialog.dart';
 import '../widgets/nickname_dialog.dart';
 import '../widgets/privacy_summary.dart';
+import '../widgets/tmdb_attribution.dart';
 import '../widgets/profile_stats_card.dart';
 
 /// Profile: who is signed in, nickname, statistics, privacy, sign out and
@@ -67,6 +68,8 @@ class ProfileScreen extends ConsumerWidget {
                 const ProfileStatsCard(),
                 const SizedBox(height: 24),
                 const PrivacySummary(),
+                const SizedBox(height: 24),
+                const TmdbAttribution(),
                 const SizedBox(height: 24),
                 Wrap(
                   alignment: WrapAlignment.center,

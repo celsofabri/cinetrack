@@ -6,6 +6,7 @@ import 'package:cinetrack/data/firestore_favorites_data_source.dart';
 import 'package:cinetrack/models/episode_cache.dart';
 import 'package:cinetrack/models/favorite_doc.dart';
 import 'package:cinetrack/models/media_type.dart';
+import 'package:cinetrack/models/search_result.dart';
 import 'package:cinetrack/models/season_cache.dart';
 import 'package:cinetrack/models/tv_season_summary.dart';
 import 'package:cinetrack/providers/catalog_sync_providers.dart';
@@ -225,6 +226,156 @@ void main() {
       expect(h.api.movieDetailsCalls, 2);
       expect(c.read(catalogSyncProvider).runtimesLoading, isFalse);
     });
+  });
+
+  group('opening Favoritos does not repeat the network round (ressalvas A and B)', () {
+    FavoriteDoc watchedMovie() => FavoriteDoc(
+        id: 3,
+        mediaType: MediaType.movie,
+        title: 'M',
+        posterPath: null,
+        overview: '',
+        addedAt: DateTime(2024),
+        watchedMovie: true);
+
+    Future<ProviderContainer> start({required DateTime Function() clockNow}) async {
+      final c = ProviderContainer(overrides: [
+        ...cloudOverrides(
+            auth: FakeAuthRepository(initialUser: kAna),
+            cloud: h.cloud,
+            store: h.store,
+            api: h.api),
+        catalogSyncDelayProvider.overrideWithValue((_) async {}),
+        catalogClockProvider.overrideWithValue(clockNow),
+      ]);
+      addTearDown(c.dispose);
+      c.listen(catalogSyncProvider, (_, __) {});
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      return c;
+    }
+
+    Future<void> settle() => Future<void>.delayed(const Duration(milliseconds: 100));
+
+    test(
+        'A: a series that failed is not retried on every open, only after the interval or by '
+        'the explicit button', () async {
+      h.cloud.server['uid-ana'] = {
+        '7-tv': _tvDoc(7, summaries: const [
+          _s1,
+          TvSeasonSummary(seasonNumber: 2, name: 'T2', episodeCount: 5),
+        ]),
+      };
+      h.api.seasonError = Exception('offline');
+      final c = await start(clockNow: () => now);
+      final notifier = c.read(catalogSyncProvider.notifier);
+      expect(c.read(catalogSyncProvider).failed, {7});
+      final afterFirstRound = h.api.seasonCalls;
+      expect(afterFirstRound, greaterThan(0));
+
+      // Screen opened again right away (and again 4 min later): no new round.
+      notifier.retry();
+      await settle();
+      now = clock.add(const Duration(minutes: 4));
+      notifier.retry();
+      await settle();
+      expect(h.api.seasonCalls, afterFirstRound);
+      expect(c.read(catalogSyncProvider).failed, {7}, reason: 'the banner keeps showing it');
+
+      // The button always tries, whatever the interval.
+      notifier.retry(force: true);
+      await settle();
+      expect(h.api.seasonCalls, greaterThan(afterFirstRound));
+      final afterButton = h.api.seasonCalls;
+
+      // After the interval an automatic open tries again.
+      now = clock.add(const Duration(minutes: 20));
+      notifier.retry();
+      await settle();
+      expect(h.api.seasonCalls, greaterThan(afterButton));
+    });
+
+    test('B: a title TMDB has no runtime for is asked once per session, not on every open',
+        () async {
+      h.cloud.server['uid-ana'] = {'3-movie': watchedMovie()};
+      h.api.movieDetails = {}; // no runtime: stays pending forever
+      final c = await start(clockNow: () => now);
+      final notifier = c.read(catalogSyncProvider.notifier);
+      expect(h.api.movieDetailsCalls, 1);
+
+      for (var i = 0; i < 3; i++) {
+        notifier.retry();
+        await settle();
+      }
+      now = clock.add(const Duration(days: 1));
+      notifier.retry();
+      await settle();
+      expect(h.api.movieDetailsCalls, 1, reason: 'automatic opens never ask again');
+
+      notifier.retry(force: true);
+      await settle();
+      expect(h.api.movieDetailsCalls, 2, reason: 'the explicit button does');
+    });
+
+    test('a runtime loop of the previous account does not clear the flag of the new one', () async {
+      final doc = watchedMovie();
+      h.cloud.server['uid-ana'] = {'3-movie': doc};
+      h.cloud.server['uid-bruno'] = {'3-movie': doc};
+      h.api.movieDetails = {};
+      h.api.holdMovieDetails = true;
+      final auth = FakeAuthRepository(initialUser: kAna);
+      final c = ProviderContainer(overrides: [
+        ...cloudOverrides(auth: auth, cloud: h.cloud, store: h.store, api: h.api),
+        catalogSyncDelayProvider.overrideWithValue((_) async {}),
+      ]);
+      addTearDown(c.dispose);
+      c.listen(catalogSyncProvider, (_, __) {});
+      await settle();
+      expect(h.api.movieGates, hasLength(1)); // Ana's loop is in flight
+
+      auth.nextUser = kBruno;
+      await auth.signInWithGoogle();
+      await settle();
+      expect(h.api.movieGates, hasLength(2)); // Bruno's loop is in flight too
+
+      h.api.movieGates[0].complete(); // Ana's loop ends
+      await settle();
+      expect(c.read(catalogSyncProvider).runtimesLoading, isTrue, reason: 'Bruno is still loading');
+      // A new trigger while Bruno's loop runs must not start a second loop
+      // (whose end would flip runtimesLoading off under the first one).
+      c.read(catalogSyncProvider.notifier).retry();
+      await settle();
+      expect(c.read(catalogSyncProvider).runtimesLoading, isTrue);
+
+      h.api.movieGates[1].complete();
+      await settle();
+      expect(c.read(catalogSyncProvider).runtimesLoading, isFalse);
+    });
+  });
+
+  test('debounce: a document arriving inside the window is emitted at once', () async {
+    final r = FavoritesRepository(
+        api: h.api,
+        store: h.store,
+        dataSource: h.dataSource,
+        catalogDebounce: const Duration(milliseconds: 400));
+    final lists = <int>[];
+    final sub = r.watchAll().listen((items) => lists.add(items.length));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    lists.clear();
+
+    await h.store.saveCatalogSeason(1, _season(1, [DateTime(2020)])); // leading edge
+    await h.store.saveCatalogSeason(2, _season(1, [DateTime(2020)])); // swallowed: dirty
+    final emittedBefore = lists.length;
+    expect(emittedBefore, 1, reason: 'the second save waits for the window to close');
+
+    await r.addResult(const SearchResult(
+        id: 5, mediaType: MediaType.movie, title: 'Novo', posterPath: null, overview: ''));
+    await Future<void>.delayed(const Duration(milliseconds: 50)); // far less than 400 ms
+    expect(lists.length, greaterThan(emittedBefore), reason: 'not held by the window');
+    expect(lists.last, 1, reason: 'the new favorite is already in the list');
+
+    await Future<void>.delayed(const Duration(milliseconds: 500)); // let the window close
+    await sub.cancel();
   });
 
   group('runtimes missing in catalogs saved by an older version', () {

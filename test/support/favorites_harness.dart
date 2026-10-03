@@ -1,14 +1,17 @@
 import 'dart:async';
 
+import 'package:cinetrack/models/cast_member.dart';
 import 'package:cinetrack/models/episode_cache.dart';
 import 'package:cinetrack/models/favorite_doc.dart';
 import 'package:cinetrack/models/favorite_item.dart';
 import 'package:cinetrack/models/media_type.dart';
+import 'package:cinetrack/models/person.dart';
 import 'package:cinetrack/models/season_cache.dart';
 import 'package:cinetrack/repositories/favorites_repository.dart';
 import 'package:cinetrack/services/favorite_mapper.dart';
 import 'package:cinetrack/services/local_store.dart';
 import 'package:cinetrack/services/tmdb_api_client.dart';
+import 'package:cinetrack/services/tmdb_exception.dart';
 
 import 'in_memory_favorites_data_source.dart';
 
@@ -86,12 +89,21 @@ class FakeTmdbApiClient extends TmdbApiClient {
   Object? tvDetailsError;
 
   int movieDetailsCalls = 0;
+
+  /// When true every `/movie/{id}` call waits for its own gate in [movieGates].
+  bool holdMovieDetails = false;
+  final List<Completer<void>> movieGates = [];
   Map<String, dynamic> movieDetails = {};
   Object? movieDetailsError;
 
   @override
   Future<Map<String, dynamic>> getMovieDetails(int id) async {
     movieDetailsCalls++;
+    if (holdMovieDetails) {
+      final gate = Completer<void>();
+      movieGates.add(gate);
+      await gate.future;
+    }
     final error = movieDetailsError;
     if (error != null) throw error;
     return movieDetails;
@@ -124,6 +136,54 @@ class FakeTmdbApiClient extends TmdbApiClient {
     } finally {
       inFlight--;
     }
+  }
+
+  // --- cast and people (docs/19) ---
+  List<CastMember> cast = const [];
+  Object? castError;
+  Completer<void>? castGate;
+  int castCalls = 0;
+
+  @override
+  Future<List<CastMember>> getTitleCast(MediaType type, int id) async {
+    castCalls++;
+    await castGate?.future;
+    final error = castError;
+    if (error != null) throw error;
+    return cast;
+  }
+
+  /// `/person/{id}` answers by id and language ('pt-BR' default, 'en-US').
+  final Map<int, Map<String, dynamic>> people = {};
+  final Map<int, Map<String, dynamic>> peopleEn = {};
+  Object? personError;
+  Object? personEnError;
+  Completer<void>? personGate;
+  int personCalls = 0;
+  final List<String?> personLanguages = [];
+
+  @override
+  Future<Map<String, dynamic>> getPerson(int id, {String? language}) async {
+    personCalls++;
+    personLanguages.add(language);
+    await personGate?.future;
+    final error = language == 'en-US' ? personEnError ?? personError : personError;
+    if (error != null) throw error;
+    final json = (language == 'en-US' ? peopleEn[id] : people[id]);
+    if (json == null) throw TmdbException.notFound();
+    return json;
+  }
+
+  List<PersonCredit> credits = const [];
+  Object? creditsError;
+  int creditsCalls = 0;
+
+  @override
+  Future<List<PersonCredit>> getPersonCredits(int id) async {
+    creditsCalls++;
+    final error = creditsError;
+    if (error != null) throw error;
+    return credits;
   }
 
   /// Runs when a `/tv/{id}` request starts (to flip flags mid-run).

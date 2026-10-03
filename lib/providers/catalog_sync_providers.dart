@@ -44,6 +44,11 @@ class CatalogSyncState {
 /// Overridden in tests so no real timer is left pending.
 final catalogSyncDelayProvider = Provider<Future<void> Function(Duration)>((ref) => Future.delayed);
 
+/// Minimum time between automatic re-attempts of series that failed (offline,
+/// missing season...). The explicit "Tentar de novo" button ignores it.
+/// Overridden in tests.
+final catalogRetryIntervalProvider = Provider<Duration>((ref) => const Duration(minutes: 5));
+
 /// Keeps the local season catalog of the favorite series complete, so the
 /// progress badge and the "Concluídos" group are right right after a login or
 /// on a new device, without the user opening each series. Started by the app
@@ -52,14 +57,22 @@ final catalogSyncDelayProvider = Provider<Future<void> Function(Duration)>((ref)
 class CatalogSyncNotifier extends Notifier<CatalogSyncState> {
   int _generation = 0;
   final Set<String> _runtimeTried = {};
-  bool _runtimeRunning = false;
+
+  /// Generation of the runtime loop currently running (null = none). A
+  /// generation, not a bool: a loop left over from a previous account must
+  /// not clear the flag of the new one.
+  int? _runtimeRunningGeneration;
+
+  /// When the last series failed; gates the automatic re-attempts.
+  DateTime? _lastFailureAt;
 
   @override
   CatalogSyncState build() {
     final generation = ++_generation;
     // Per-account bookkeeping: nothing of the previous account survives.
     _runtimeTried.clear();
-    _runtimeRunning = false;
+    _runtimeRunningGeneration = null;
+    _lastFailureAt = null;
     final uid = ref.watch(currentUidProvider);
     if (uid == null) return const CatalogSyncState();
     ref.watch(favoritesRepositoryProvider);
@@ -73,14 +86,24 @@ class CatalogSyncNotifier extends Notifier<CatalogSyncState> {
     return const CatalogSyncState();
   }
 
-  /// Forgets previous failures and tries again for what is still incomplete
-  /// (called when the favorites screen opens and by the "Tentar de novo"
-  /// action).
-  void retry() {
+  /// Looks again at what is still incomplete. Called when the favorites
+  /// screen opens (`force: false`) and by the "Tentar de novo" button
+  /// (`force: true`).
+  ///
+  /// Automatic call: stale catalogs (TTL) are re-checked, but series that
+  /// FAILED are only retried after [catalogRetryIntervalProvider] since the
+  /// last failure, and runtimes already tried this session (including titles
+  /// TMDB has no runtime for) are not asked again. Forced call: forgets all
+  /// failures and attempts.
+  void retry({bool force = false}) {
     // `settled` is cleared too so shows whose catalog went stale (TTL) or whose
     // season list changed are looked at again.
-    state = state.copyWith(failed: const {}, settled: const {});
-    _runtimeTried.clear();
+    final last = _lastFailureAt;
+    final cooledDown = force ||
+        last == null ||
+        ref.read(catalogClockProvider)().difference(last) >= ref.read(catalogRetryIntervalProvider);
+    state = state.copyWith(failed: cooledDown ? const {} : null, settled: const {});
+    if (force) _runtimeTried.clear();
     final docs = ref.read(favoriteDocsProvider).valueOrNull;
     if (docs != null) _start(docs, _generation);
   }
@@ -118,6 +141,7 @@ class CatalogSyncNotifier extends Notifier<CatalogSyncState> {
             .any((d) => d.id == id && d.mediaType == MediaType.tv),
         onDone: (id, ok) {
           if (generation != _generation) return;
+          if (!ok) _lastFailureAt = ref.read(catalogClockProvider)();
           state = state.copyWith(
             loading: {...state.loading}..remove(id),
             failed: ok ? null : {...state.failed, id},
@@ -139,11 +163,11 @@ class CatalogSyncNotifier extends Notifier<CatalogSyncState> {
   }
 
   /// Fetches the runtimes still unknown for what the user watched. Each key
-  /// is tried once per session (until [retry]); loops because the catalog
+  /// is tried once per session (until a forced [retry]); loops because the catalog
   /// pass can add titles that now need a runtime.
   Future<void> _reconcileRuntimes(int generation) async {
-    if (_runtimeRunning) return;
-    _runtimeRunning = true;
+    if (_runtimeRunningGeneration == generation) return;
+    _runtimeRunningGeneration = generation;
     try {
       while (generation == _generation) {
         final repo = ref.read(favoritesRepositoryProvider);
@@ -163,7 +187,7 @@ class CatalogSyncNotifier extends Notifier<CatalogSyncState> {
         );
       }
     } finally {
-      _runtimeRunning = false;
+      if (_runtimeRunningGeneration == generation) _runtimeRunningGeneration = null;
       if (generation == _generation) state = state.copyWith(runtimesLoading: false);
     }
   }

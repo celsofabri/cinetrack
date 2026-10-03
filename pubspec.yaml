@@ -35,3 +35,4 @@ flutter:
     - .env
     - assets/logo.png
     - assets/splash_logo.png
+    - assets/tmdb_logo.png

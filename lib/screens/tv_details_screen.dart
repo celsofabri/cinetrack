@@ -18,6 +18,7 @@ import '../widgets/poster_image.dart';
 import '../widgets/progress_badge.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/auth_gate.dart';
+import '../widgets/cast_widgets.dart';
 import '../widgets/detail_actions.dart';
 import 'movie_details_screen.dart' show detailsErrorMessage;
 
@@ -108,6 +109,7 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
               hasProgress: hasProgress,
             ),
           ),
+          SliverToBoxAdapter(child: CastSection(titleKey: key)),
           if (summaries.isEmpty)
             SliverToBoxAdapter(
               child: item == null

@@ -14,12 +14,21 @@ class PosterImage extends StatelessWidget {
   /// `contain` inside a 2:3 box.
   final BoxFit fit;
 
+  /// Shown when there is no image or it fails (people use a person icon).
+  final IconData placeholderIcon;
+
+  /// TMDB image size segment: posters use w342; profile photos only come in
+  /// w45 / w185 / h632 / original.
+  final String imageSize;
+
   const PosterImage({
     super.key,
     required this.posterPath,
     this.width = 92,
     this.height = 138,
     this.fit = BoxFit.cover,
+    this.placeholderIcon = Icons.movie_outlined,
+    this.imageSize = 'w342',
   });
 
   @override
@@ -30,14 +39,14 @@ class PosterImage extends StatelessWidget {
       height: height,
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: Icon(
-        Icons.movie_outlined,
+        placeholderIcon,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
     );
 
     if (path == null || path.isEmpty) return placeholder;
 
-    final url = '${TmdbApiClient.imageBaseUrl}/w342$path';
+    final url = '${TmdbApiClient.imageBaseUrl}/$imageSize$path';
 
     // On web, cached_network_image re-fetches through its own XHR cache each
     // time a scrolled-off tile is rebuilt, and a failed/throttled request

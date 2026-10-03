@@ -117,6 +117,15 @@ AppBar detailAppBar(
 }) {
   final mobile = isMobileWidth(context);
   return AppBar(
+    // A deep link has no history: the usual back button would not appear, so
+    // offer one that goes home (docs/19 ❓14).
+    leading: Navigator.canPop(context)
+        ? null
+        : IconButton(
+            icon: const Icon(Icons.arrow_back),
+            tooltip: 'Ir para o início',
+            onPressed: () => GoRouter.of(context).go('/'),
+          ),
     titleSpacing: mobile ? 0 : null,
     title: mobile
         ? Row(

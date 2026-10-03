@@ -3,8 +3,10 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../models/cast_member.dart';
 import '../models/catalog.dart';
 import '../models/media_type.dart';
+import '../models/person.dart';
 import '../models/search_result.dart';
 import '../models/season_cache.dart';
 import 'tmdb_exception.dart';
@@ -31,6 +33,9 @@ class TmdbApiClient {
     try {
       response = await _http.get(uri);
     } on SocketException {
+      throw TmdbException.network();
+    } on http.ClientException {
+      // What the browser (web) throws when offline or blocked.
       throw TmdbException.network();
     }
 
@@ -150,6 +155,34 @@ class TmdbApiClient {
   Future<SeasonCache> getSeasonEpisodes(int tvId, int seasonNumber) async {
     final json = await _get(_uri('/tv/$tvId/season/$seasonNumber'));
     return SeasonCache.fromTmdb(json);
+  }
+
+  /// Cast of a title, TMDB order, one entry per person. Movies use
+  /// `/movie/{id}/credits`; shows use `/tv/{id}/aggregate_credits` (whole run,
+  /// with `roles`) instead of `/tv/{id}/credits` (latest season only).
+  Future<List<CastMember>> getTitleCast(MediaType type, int id) async {
+    final isMovie = type == MediaType.movie;
+    final json = await _get(_uri(isMovie ? '/movie/$id/credits' : '/tv/$id/aggregate_credits'));
+    final cast = (json['cast'] as List? ?? const []).whereType<Map<String, dynamic>>();
+    return CastMember.dedupe([
+      for (final c in cast)
+        if (isMovie) CastMember.fromMovieCredit(c) else CastMember.fromAggregateCredit(c),
+    ].whereType<CastMember>());
+  }
+
+  /// `/person/{id}`; [language] overrides the default pt-BR (used to fetch
+  /// the English biography when the Portuguese one is empty).
+  Future<Map<String, dynamic>> getPerson(int id, {String? language}) =>
+      _get(_uri('/person/$id', {if (language != null) 'language': language}));
+
+  /// Acting credits (movies and shows) of a person, adult ones removed.
+  Future<List<PersonCredit>> getPersonCredits(int id) async {
+    final json = await _get(_uri('/person/$id/combined_credits'));
+    return (json['cast'] as List? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(PersonCredit.fromTmdb)
+        .whereType<PersonCredit>()
+        .toList();
   }
 
   void dispose() => _http.close();
