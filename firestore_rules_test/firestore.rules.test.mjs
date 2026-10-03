@@ -147,6 +147,20 @@ describe('favorite schema validation: eps, seasonSummaries, updatedAt, sizes', (
   });
 });
 
+describe('bulk series mark (docs/30)', () => {
+  const bigEps = (n) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`1_${i}`, true]));
+  const bulk = (n, from = 0) =>
+    Object.fromEntries(Array.from({ length: n }, (_, i) => [`eps.${100 + Math.floor((from + i) / 100)}_${((from + i) % 100) + 1}`, true]));
+
+  it('one update adding many episodes up to 5000 total is accepted; past 5000 is rejected', async () => {
+    await seed('uid-ana', '42-tv', validFavorite({ eps: bigEps(100) }));
+    const k = fav(ana(), 'uid-ana', '42-tv');
+    // bulk keys (season 100+) never collide with bigEps (season 1): final size 100 + n
+    await assertSucceeds(updateDoc(k, { ...bulk(4900), lastWatchedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(k, { 'eps.999_1': true }));
+  });
+});
+
 describe('progress updates (merge by field)', () => {
   it('marks and unmarks an episode by field path', async () => {
     await seed('uid-ana', '42-tv', validFavorite());

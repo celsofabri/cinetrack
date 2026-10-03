@@ -26,6 +26,7 @@ class _FakeFavoritesRepository extends FavoritesRepository {
 
   List<FavoriteItem> _items;
   int addMovieCalls = 0;
+  int removeCalls = 0;
   final _controller = StreamController<List<FavoriteItem>>.broadcast();
 
   @override
@@ -53,6 +54,16 @@ class _FakeFavoritesRepository extends FavoritesRepository {
         overview: overview,
         addedAt: DateTime.now(),
       ),
+    ];
+    _controller.add(_items);
+  }
+
+  @override
+  Future<void> remove(int id, MediaType mediaType) async {
+    removeCalls++;
+    _items = [
+      for (final i in _items)
+        if (!(i.id == id && i.mediaType == mediaType)) i,
     ];
     _controller.add(_items);
   }
@@ -220,8 +231,12 @@ void main() {
     // truth); a second tap toggles (removes) and never calls addMovie again.
     await tester.tap(find.byIcon(Icons.favorite), warnIfMissed: false);
     await tester.pump();
+    await tester.pump();
 
     expect(repo.addMovieCalls, 1);
+    expect(repo.removeCalls, 1);
+    expect(find.byIcon(Icons.favorite), findsNothing);
+    expect(find.byIcon(Icons.favorite_border), findsOneWidget);
   });
 
   testWidgets('tapping the poster of a movie card navigates to /movie/:id', (tester) async {

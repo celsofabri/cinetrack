@@ -116,6 +116,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.favorite), warnIfMissed: false);
     await tester.pumpAndSettle();
     expect(find.byType(MovieDetailsScreen), findsNothing);
+    expect(cloud.view('uid-ana'), isEmpty); // the second tap really removed it
 
     // Poster of the NON favorited show opens its details.
     await tester.tap(find.text('Serie Y'));

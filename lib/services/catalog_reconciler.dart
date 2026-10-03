@@ -300,6 +300,46 @@ class CatalogReconciler {
     return ok;
   }
 
+  /// Interactive use: the catalog of [doc] is past its TTL (see [_refreshDue]).
+  bool refreshDue(FavoriteDoc doc) => _refreshDue(doc);
+
+  /// Interactive use: the TTL refresh of ONE show (newest season, seasons with
+  /// unaired episodes, new seasons). Throws when it cannot finish.
+  Future<void> refresh(FavoriteDoc doc, {bool Function()? isCancelled}) async {
+    final ok = await _reconcile(doc, isCancelled ?? () => false);
+    if (!ok) throw TmdbException.network();
+  }
+
+  /// Interactive use (whole-series mark, docs/30): season list of [tvId].
+  Future<List<TvSeasonSummary>> fetchSummaries(int tvId) async =>
+      TvSeasonSummary.listFromTvDetails(await _withRetry(() => _api.getTvDetails(tvId)));
+
+  /// Interactive use: downloads the given seasons into the local catalog (same
+  /// concurrency/backoff). Throws the first failure so the caller never works
+  /// with a partial catalog.
+  Future<void> downloadSeasons(
+    int tvId,
+    List<int> numbers, {
+    bool Function()? isCancelled,
+  }) async {
+    var next = 0;
+    Object? failure;
+    Future<void> worker() async {
+      while (failure == null && next < numbers.length && !(isCancelled?.call() ?? false)) {
+        final number = numbers[next++];
+        try {
+          final season = await _withRetry(() => _api.getSeasonEpisodes(tvId, number));
+          await _store.saveCatalogSeason(tvId, season);
+        } catch (error) {
+          failure ??= error;
+        }
+      }
+    }
+
+    await Future.wait([for (var i = 0; i < concurrency; i++) worker()]);
+    if (failure != null) throw failure!;
+  }
+
   /// Retries transient failures (network, 429, 5xx) with 1 s, 2 s, 4 s
   /// backoff. Auth/not-found and programming errors are not retried.
   Future<T> _withRetry<T>(Future<T> Function() request) async {

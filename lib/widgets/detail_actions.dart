@@ -6,6 +6,7 @@ import '../models/favorite_item.dart';
 import '../models/media_type.dart';
 import '../models/search_result.dart';
 import '../providers/providers.dart';
+import '../services/bulk_watch.dart';
 import '../services/progress_calculator.dart';
 import '../models/title_details.dart';
 import '../repositories/favorites_repository.dart';
@@ -39,11 +40,18 @@ Future<void> favoriteThen(
   }
 }
 
+const kGoneMessage = 'Este título não está mais nos favoritos.';
+const kTooLargeMessage = 'Esta série tem episódios demais para marcar de uma só vez.';
+
 String writeErrorMessage(Object error) => error is PartialWriteException
     ? kPartialWriteMessage
     : error is TmdbException
         ? error.message
-        : kGenericWriteMessage;
+        : error is FavoriteGoneException
+            ? kGoneMessage
+            : error is BulkTooLargeException
+                ? kTooLargeMessage
+                : kGenericWriteMessage;
 
 /// [runWrite] plus a visible message for any failure it does not already
 /// handle (login and unavailability are handled by [runWrite] itself).
@@ -106,34 +114,50 @@ Future<bool> favoriteHasProgress(ProviderContainer container, int id, MediaType 
 }
 
 /// Heart on a poster (Explorar, Busca, Descoberta, Início): toggles. Removing
-/// asks for confirmation when there is progress. [setPending] is called with
-/// true once the write really starts (after any confirmation) and false when
-/// it ends. The add path calls straight into the write/login flow with no
-/// await before it, so the Google popup is still opened by the user gesture.
+/// asks for confirmation when there is progress. [setPending] is true from the
+/// tap (before any wait or dialog, so repeated taps do nothing) until the
+/// action ends or is cancelled. The add path calls straight into the
+/// write/login flow with no await before it, so the Google popup is still
+/// opened by the user gesture. Failures show a snackbar (never silent).
 Future<void> toggleFavoriteFromList(
   BuildContext context,
   SearchResult result, {
   required bool isFavorite,
   required void Function(bool pending) setPending,
 }) async {
-  if (!isFavorite) {
-    setPending(true);
-    try {
-      await runWrite(context, (repo) => repo.addResult(result));
-    } finally {
-      setPending(false);
-    }
-    return;
-  }
-  final container = ProviderScope.containerOf(context);
-  if (await favoriteHasProgress(container, result.id, result.mediaType)) {
-    if (!context.mounted || !await confirmRemoveFavorite(context) || !context.mounted) return;
-  } else if (!context.mounted) {
-    return;
-  }
   setPending(true);
   try {
-    await runWrite(context, (repo) => repo.remove(result.id, result.mediaType));
+    if (!isFavorite) {
+      await runDetailWrite(context, (repo) => repo.addResult(result));
+      return;
+    }
+    final container = ProviderScope.containerOf(context);
+    bool asked = false;
+    Future<bool> confirmed() async {
+      asked = true;
+      if (!context.mounted) return false;
+      // The dialog is modal (no second tap can reach the heart), so the spinner
+      // is dropped while it is open and comes back for the write.
+      setPending(false);
+      final ok = await confirmRemoveFavorite(context) && context.mounted;
+      if (ok) setPending(true);
+      return ok;
+    }
+
+    if (await favoriteHasProgress(container, result.id, result.mediaType)) {
+      if (!await confirmed()) return;
+    }
+    if (!context.mounted) return;
+    // The state may have changed while we waited (other tab/device): read it
+    // again. Already gone: nothing to remove. Progress appeared and we had not
+    // asked yet: ask now.
+    final current = container.read(favoritesListProvider).value ?? const <FavoriteItem>[];
+    if (!current.any((f) => f.id == result.id && f.mediaType == result.mediaType)) return;
+    if (!asked && await favoriteHasProgress(container, result.id, result.mediaType)) {
+      if (!await confirmed()) return;
+    }
+    if (!context.mounted) return;
+    await runDetailWrite(context, (repo) => repo.remove(result.id, result.mediaType));
   } finally {
     setPending(false);
   }

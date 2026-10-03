@@ -7,6 +7,7 @@ import '../models/media_type.dart';
 import '../models/search_result.dart';
 import '../models/season_cache.dart';
 import '../models/tv_season_summary.dart';
+import '../services/bulk_watch.dart';
 import '../services/catalog_reconciler.dart';
 import '../services/favorite_mapper.dart';
 import '../services/local_store.dart';
@@ -131,10 +132,12 @@ class FavoritesRepository {
       _reconciler(delay: delay)
           .runRuntimes(keys, docs: docs, isCancelled: isCancelled, onDone: onDone);
 
-  CatalogReconciler _reconciler({Future<void> Function(Duration)? delay}) => CatalogReconciler(
+  CatalogReconciler _reconciler({Future<void> Function(Duration)? delay, int maxRetries = 3}) =>
+      CatalogReconciler(
         api: _api,
         store: _store,
         delay: delay,
+        maxRetries: maxRetries,
         now: _now,
         saveSummaries: (tvId, summaries) =>
             _data.setSeasonSummaries('$tvId-${MediaType.tv.jsonValue}', summaries),
@@ -221,6 +224,14 @@ class FavoritesRepository {
 
   Future<void> remove(int id, MediaType mediaType) => _data.remove('$id-${mediaType.jsonValue}');
 
+  /// Explicit (not toggle) movie state, for the quick control of the favorites
+  /// list. Does nothing when the favorite no longer exists.
+  Future<void> setMovieWatched(int id, bool watched) async {
+    final key = '$id-${MediaType.movie.jsonValue}';
+    if (await _data.get(key) == null) return;
+    await _data.setWatchedMovie(key, watched);
+  }
+
   Future<void> toggleMovieWatched(int id) async {
     final key = '$id-${MediaType.movie.jsonValue}';
     final doc = await _data.get(key);
@@ -294,5 +305,103 @@ class FavoritesRepository {
         if (episode.hasAired)
           FavoriteMapper.episodeKey(seasonNumber, episode.episodeNumber): watched,
     });
+  }
+
+  // --- whole-series mark / unmark (docs/30) ---
+
+  /// What marking ([watched] true) or clearing the whole series would change.
+  /// Marking needs every season in the local catalog: the missing ones (and the
+  /// season list itself, for a show favorited offline) are downloaded first
+  /// with the reconciler's backoff, and any failure is thrown, so the caller
+  /// never marks from a partial catalog.
+  Future<SeriesBulkPlan> planSeriesBulk(
+    int tvId, {
+    required bool watched,
+    Future<void> Function(Duration)? delay,
+    bool Function()? isCancelled,
+  }) async {
+    final key = '$tvId-${MediaType.tv.jsonValue}';
+    var doc = await _data.get(key);
+    if (doc == null) throw const FavoriteGoneException();
+    if (!watched) return _checked(BulkWatchRules.unmarkAll(key, doc.watchedEpisodes));
+
+    final reconciler = _reconciler(delay: delay, maxRetries: 2);
+    var summaries = doc.seasonSummaries;
+    if (summaries.isEmpty) {
+      summaries = await reconciler.fetchSummaries(tvId);
+      if (summaries.isNotEmpty && !(isCancelled?.call() ?? false)) {
+        try {
+          await _data.setSeasonSummaries(key, summaries);
+        } catch (_) {
+          // Best effort: the plan below does not depend on the saved copy.
+        }
+      }
+    }
+    final cached = {for (final s in _store.readSeasonCatalog(tvId)) s.seasonNumber};
+    final missing = [
+      for (final s in summaries)
+        if (!cached.contains(s.seasonNumber)) s.seasonNumber,
+    ];
+    if (missing.isNotEmpty) {
+      await reconciler.downloadSeasons(tvId, missing, isCancelled: isCancelled);
+    }
+    // A catalog past its TTL (airing shows: newest season, seasons with unaired
+    // episodes, new seasons) is refreshed first: the plan must not be built on
+    // an outdated episode list. A refresh that fails fails the plan.
+    final current = doc.copyWith(seasonSummaries: summaries);
+    if (reconciler.refreshDue(current)) {
+      await reconciler.refresh(current, isCancelled: isCancelled);
+    }
+    if (isCancelled?.call() ?? false) throw StateError('cancelled');
+    doc = await _data.get(key);
+    if (doc == null) throw const FavoriteGoneException();
+    return _checked(
+      BulkWatchRules.markAll(key, _store.readSeasonCatalog(tvId), doc.watchedEpisodes),
+    );
+  }
+
+  SeriesBulkPlan _checked(SeriesBulkPlan plan) {
+    if (plan.episodeCount > kMaxBulkEpisodes) throw const BulkTooLargeException();
+    return plan;
+  }
+
+  /// Applies [plan] in ONE atomic update (per-episode field paths, so it merges
+  /// with edits from other devices). The state is re-read right before, so
+  /// what is written is the effective difference. Returns the exact inverse
+  /// (for "Desfazer"), or null when nothing needed to change.
+  Future<SeriesBulkUndo?> applySeriesBulk(SeriesBulkPlan plan, {required String uid}) async {
+    final doc = await _data.get(plan.docKey);
+    if (doc == null) throw const FavoriteGoneException();
+    final before = doc.watchedEpisodes;
+    final changes = plan.watched
+        ? {
+            for (final k in plan.keys)
+              if (!before.contains(k)) k: true,
+          }
+        : {for (final k in before) k: false};
+    if (changes.isEmpty) return null;
+    final after = FavoriteMapper.applyEpisodeChanges(before, changes);
+    // The rules cap the whole `eps` map: validate the final size, not the diff.
+    if (after.length > kMaxBulkEpisodes) throw const BulkTooLargeException();
+    await _data.setEpisodes(plan.docKey, changes);
+    return SeriesBulkUndo(
+      docKey: plan.docKey,
+      uid: uid,
+      inverse: {for (final e in changes.entries) e.key: !e.value},
+      expected: after,
+    );
+  }
+
+  /// Restores the episodes as they were before [undo]'s change, only if the
+  /// document still holds exactly what that change produced.
+  Future<UndoOutcome> undoSeriesBulk(SeriesBulkUndo undo) async {
+    final doc = await _data.get(undo.docKey);
+    if (doc == null) return UndoOutcome.gone;
+    if (doc.watchedEpisodes.length != undo.expected.length ||
+        !doc.watchedEpisodes.containsAll(undo.expected)) {
+      return UndoOutcome.changed;
+    }
+    await _data.setEpisodes(undo.docKey, undo.inverse);
+    return UndoOutcome.restored;
   }
 }
