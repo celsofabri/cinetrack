@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
 import '../models/favorite_doc.dart';
 import '../models/favorite_item.dart';
@@ -9,7 +8,9 @@ import '../models/media_type.dart';
 import '../models/search_result.dart';
 import '../models/title_details.dart';
 import '../models/tv_season_summary.dart';
+import '../providers/catalog_sync_providers.dart';
 import '../providers/providers.dart';
+import '../services/favorite_status.dart';
 import '../services/progress_calculator.dart';
 import '../services/season_progress_calculator.dart';
 import '../services/tmdb_exception.dart';
@@ -20,6 +21,9 @@ import '../widgets/app_shell.dart';
 import '../widgets/auth_gate.dart';
 import '../widgets/cast_widgets.dart';
 import '../widgets/detail_actions.dart';
+import '../widgets/episode_tile.dart';
+import '../widgets/series_bulk_flow.dart';
+import '../widgets/trailer_dialog.dart';
 import 'movie_details_screen.dart' show detailsErrorMessage;
 
 /// Details of a TV show. Works for any TMDB show: a favorite shows its saved
@@ -35,13 +39,69 @@ class TvDetailsScreen extends ConsumerStatefulWidget {
   ConsumerState<TvDetailsScreen> createState() => _TvDetailsScreenState();
 }
 
-class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
+class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen>
+    with SeriesBulkFlow<TvDetailsScreen> {
   /// Last favorite seen: keeps the content if the user removes it while TMDB
   /// is unreachable (otherwise the screen would turn into an error page).
   FavoriteItem? _last;
 
+  /// The whole-series action is running / its confirmation is open (the
+  /// spinner of the chip is hidden while the modal is on screen).
+  bool _seriesBusy = false;
+  bool _dialogOpen = false;
+
+  @override
+  void dispose() {
+    disposeBulkFlow();
+    super.dispose();
+  }
+
+  /// "Marcar como assistido" of the whole series: the same flow as the quick
+  /// button of Favoritos (docs/30). Signed out: login first and the SAME flow
+  /// (confirmation included) resumes afterwards, always as a mark (never a
+  /// toggle), whatever the account being signed into already has.
+  Future<void> _toggleSeriesWatched(SearchResult result, {required bool completed}) async {
+    final key = '${result.id}-${MediaType.tv.jsonValue}';
+    if (bulkBusy.contains(key)) return;
+    bulkBusy.add(key);
+    setState(() => _seriesBusy = true);
+    try {
+      if (ref.read(currentUidProvider) == null) {
+        // Straight from the tap (no await before): the Google popup is still
+        // opened by the user gesture.
+        await signInWithFeedback(
+          ProviderScope.containerOf(context),
+          ScaffoldMessenger.maybeOf(context),
+          intent: PendingIntent((_) async {
+            if (mounted) await _runSeriesBulk(result, markAll: true);
+          }),
+        );
+        return;
+      }
+      await _runSeriesBulk(result, markAll: !completed);
+    } finally {
+      bulkBusy.remove(key);
+      if (mounted) setState(() => _seriesBusy = false);
+    }
+  }
+
+  Future<void> _runSeriesBulk(SearchResult result, {required bool markAll}) {
+    final favorites = ref.read(favoritesListProvider).value ?? const <FavoriteItem>[];
+    final isFavorite = favorites.any((f) => f.id == result.id && f.mediaType == MediaType.tv);
+    return toggleSeriesBulk(
+      series: result,
+      isFavorite: isFavorite,
+      markAll: markAll,
+      onDialog: (open) {
+        if (mounted) setState(() => _dialogOpen = open);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // A different account never sees (or undoes) the previous one's action.
+    ref.listen(currentUidProvider, (_, _) => discardBulkUndo());
     final tvId = widget.tvId;
     final favorites = ref.watch(favoritesListProvider).value ?? [];
     final matches = favorites.where((f) => f.id == tvId && f.mediaType == MediaType.tv);
@@ -90,6 +150,17 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
                 docsAsync.requireValue.any((d) =>
                     d.id == tvId && d.mediaType == MediaType.tv && d.watchedEpisodes.isNotEmpty)));
 
+    // Derived (not stored): the show is "concluída" when every episode already
+    // aired is watched, so it follows the per-episode and per-season checks.
+    final sync = ref.watch(catalogSyncProvider);
+    final completed =
+        item != null &&
+        FavoriteStatus.of(
+          item,
+          settled: sync.settled.contains(item.id),
+          failed: sync.failed.contains(item.id),
+        ).isCompleted;
+
     final savedSummaries = base?.seasonSummaries;
     final summaries = (savedSummaries != null && savedSummaries.isNotEmpty)
         ? savedSummaries
@@ -108,6 +179,10 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
               isFavorite: item != null,
               hasProgress: hasProgress,
               recommended: item?.recommended ?? false,
+              completed: completed,
+              watchedPending: _seriesBusy && !_dialogOpen,
+              onToggleWatched: () => _toggleSeriesWatched(result, completed: completed),
+              titleKey: key,
             ),
           ),
           SliverToBoxAdapter(child: CastSection(titleKey: key)),
@@ -143,6 +218,10 @@ class _Header extends ConsumerWidget {
   final bool isFavorite;
   final bool hasProgress;
   final bool recommended;
+  final bool completed;
+  final bool watchedPending;
+  final Future<void> Function() onToggleWatched;
+  final TitleKey titleKey;
 
   const _Header({
     required this.result,
@@ -151,6 +230,10 @@ class _Header extends ConsumerWidget {
     required this.isFavorite,
     required this.hasProgress,
     required this.recommended,
+    required this.completed,
+    required this.watchedPending,
+    required this.onToggleWatched,
+    required this.titleKey,
   });
 
   @override
@@ -215,6 +298,14 @@ class _Header extends ConsumerWidget {
                   recommended: target,
                 ),
               ),
+              WatchedToggleChip(
+                watched: completed,
+                title: result.title,
+                wholeSeries: true,
+                pending: watchedPending,
+                onToggle: onToggleWatched,
+              ),
+              TrailerButton(titleKey: titleKey, title: result.title),
             ],
           ),
           const SizedBox(height: 16),
@@ -228,6 +319,9 @@ class _Header extends ConsumerWidget {
     );
   }
 }
+
+/// How many episodes a season list builds at a time (docs/45).
+const kEpisodePage = 25;
 
 class _SeasonTile extends ConsumerStatefulWidget {
   final SearchResult result;
@@ -250,6 +344,10 @@ class _SeasonTileState extends ConsumerState<_SeasonTile> {
   /// Episodes whose write is in flight (a quick second tap must not repeat the
   /// same target state before the stream catches up).
   final Set<int> _busyEpisodes = {};
+
+  /// Episodes built so far: a long season (100+) shows [kEpisodePage] at a time,
+  /// so its images are only requested as the user asks for more.
+  int _shown = kEpisodePage;
 
   @override
   Widget build(BuildContext context) {
@@ -357,48 +455,51 @@ class _SeasonTileState extends ConsumerState<_SeasonTile> {
               ),
               data: (season) => Column(
                 children: [
-                  for (final episode in season.episodes)
-                    CheckboxListTile(
-                      controlAffinity: ListTileControlAffinity.leading,
-                      title: Text('E${episode.episodeNumber} · ${episode.name}'),
-                      subtitle: episode.airDate == null
-                          ? null
-                          : Text(DateFormat('dd/MM/yyyy').format(episode.airDate!)),
-                      value: episode.watched,
-                      onChanged: episode.hasAired && !_busyEpisodes.contains(episode.episodeNumber)
-                          ? (_) async {
-                              final number = episode.episodeNumber;
-                              setState(() => _busyEpisodes.add(number));
-                              try {
-                                await runDetailWrite(context, (repo) async {
-                                  if (item == null) {
-                                    await favoriteThen(
-                                      repo,
-                                      widget.result,
-                                      false,
-                                      () => repo.setEpisodeWatched(
-                                        tvId,
-                                        summary.seasonNumber,
-                                        number,
-                                        watched: !episode.watched,
-                                      ),
-                                    );
-                                  } else {
-                                    await repo.toggleEpisodeWatched(
-                                      tvId,
-                                      summary.seasonNumber,
-                                      number,
-                                    );
-                                  }
-                                });
-                                ref.invalidate(
-                                  seasonProvider((tvId: tvId, seasonNumber: summary.seasonNumber)),
-                                );
-                              } finally {
-                                if (mounted) setState(() => _busyEpisodes.remove(number));
-                              }
+                  for (final episode in season.episodes.take(_shown))
+                    EpisodeTile(
+                      key: ValueKey('episode-${summary.seasonNumber}-${episode.episodeNumber}'),
+                      episode: episode,
+                      busy: _busyEpisodes.contains(episode.episodeNumber),
+                      onToggle: () async {
+                        final number = episode.episodeNumber;
+                        setState(() => _busyEpisodes.add(number));
+                        try {
+                          await runDetailWrite(context, (repo) async {
+                            if (item == null) {
+                              await favoriteThen(
+                                repo,
+                                widget.result,
+                                false,
+                                () => repo.setEpisodeWatched(
+                                  tvId,
+                                  summary.seasonNumber,
+                                  number,
+                                  watched: !episode.watched,
+                                ),
+                              );
+                            } else {
+                              await repo.toggleEpisodeWatched(tvId, summary.seasonNumber, number);
                             }
-                          : null,
+                          });
+                          ref.invalidate(
+                            seasonProvider((tvId: tvId, seasonNumber: summary.seasonNumber)),
+                          );
+                        } finally {
+                          if (mounted) setState(() => _busyEpisodes.remove(number));
+                        }
+                      },
+                    ),
+                  if (season.episodes.length > _shown)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: TextButton(
+                        style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                        onPressed: () => setState(() => _shown += kEpisodePage),
+                        child: Text(
+                          'Mostrar mais episódios (${season.episodes.length - _shown} restantes)',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
                     ),
                 ],
               ),

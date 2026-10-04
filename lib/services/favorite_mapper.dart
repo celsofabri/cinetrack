@@ -148,6 +148,9 @@ class FavoriteMapper {
               airDate: ep.airDate,
               watched: false,
               runtime: ep.runtime,
+              stillPath: ep.stillPath,
+              overview: ep.overview,
+              detailed: ep.detailed,
             ),
         ],
       );

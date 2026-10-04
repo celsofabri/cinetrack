@@ -7,6 +7,7 @@ import 'package:cinetrack/models/favorite_item.dart';
 import 'package:cinetrack/models/media_type.dart';
 import 'package:cinetrack/models/person.dart';
 import 'package:cinetrack/models/season_cache.dart';
+import 'package:cinetrack/models/title_video.dart';
 import 'package:cinetrack/repositories/favorites_repository.dart';
 import 'package:cinetrack/services/favorite_mapper.dart';
 import 'package:cinetrack/services/local_store.dart';
@@ -138,6 +139,21 @@ class FakeTmdbApiClient extends TmdbApiClient {
     }
   }
 
+  // --- videos / trailer (docs/45) ---
+  List<TitleVideo> videos = const [];
+  Object? videosError;
+  Completer<void>? videosGate;
+  int videosCalls = 0;
+
+  @override
+  Future<List<TitleVideo>> getTitleVideos(MediaType type, int id) async {
+    videosCalls++;
+    await videosGate?.future;
+    final error = videosError;
+    if (error != null) throw error;
+    return videos;
+  }
+
   // --- cast and people (docs/19) ---
   List<CastMember> cast = const [];
   Object? castError;
@@ -211,11 +227,16 @@ class FavoritesHarness {
 
   Future<List<FavoriteItem>> items() => repo.watchAll().first;
 
-  EpisodeCache episode(int number, {bool watched = false, DateTime? airDate}) => EpisodeCache(
+  /// An episode as the current app caches it (image/description fields
+  /// present). Pass `detailed: false` for a catalog cached by an older version.
+  EpisodeCache episode(int number,
+          {bool watched = false, DateTime? airDate, bool detailed = true}) =>
+      EpisodeCache(
         episodeNumber: number,
         name: 'Episode $number',
         airDate: airDate,
         watched: watched,
+        detailed: detailed,
       );
 
   /// Puts a TV favorite (id 42) straight into storage: the document in the

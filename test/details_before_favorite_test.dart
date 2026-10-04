@@ -20,6 +20,7 @@ import 'package:cinetrack/services/tmdb_exception.dart';
 import 'package:cinetrack/widgets/auth_gate.dart';
 import 'package:cinetrack/widgets/detail_actions.dart';
 import 'package:cinetrack/widgets/discovery_section.dart';
+import 'package:cinetrack/widgets/episode_tile.dart';
 
 import 'support/cloud_overrides.dart';
 import 'support/fake_auth_repository.dart';
@@ -70,7 +71,7 @@ Future<void> _pump(
   required FakeCloud cloud,
   required FakeTmdbApiClient api,
   Widget? home,
-  Size size = const Size(390, 900),
+  Size size = const Size(390, 2400),
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -274,8 +275,10 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  bool episodeChecked(WidgetTester tester, String title) =>
-      tester.widget<CheckboxListTile>(find.widgetWithText(CheckboxListTile, title)).value!;
+  bool episodeChecked(WidgetTester tester, String title) => tester
+      .widget<EpisodeTile>(find.ancestor(of: find.text(title), matching: find.byType(EpisodeTile)))
+      .episode
+      .watched;
 
   testWidgets('removing a show clears the episode checks; marking again works', (tester) async {
     final cloud = FakeCloud();

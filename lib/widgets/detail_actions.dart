@@ -322,17 +322,25 @@ class _FavoriteToggleButtonState extends State<FavoriteToggleButton> {
   }
 }
 
-/// "Marcar como assistido" control (movie details): the same chip as the
-/// favorite, with its own pending state.
+/// "Marcar como assistido" control (movie and show details): the same chip as
+/// the favorite, with its own pending state. [wholeSeries] only changes the
+/// accessible name (it acts on every episode).
 class WatchedToggleChip extends StatefulWidget {
   final bool watched;
   final String title;
+  final bool wholeSeries;
+
+  /// When given, replaces the chip's own pending state (the show details keep
+  /// it themselves, so the spinner is hidden while the confirmation is open).
+  final bool? pending;
   final Future<void> Function() onToggle;
 
   const WatchedToggleChip({
     super.key,
     required this.watched,
     required this.title,
+    this.wholeSeries = false,
+    this.pending,
     required this.onToggle,
   });
 
@@ -354,15 +362,29 @@ class _WatchedToggleChipState extends State<WatchedToggleChip> {
 
   @override
   Widget build(BuildContext context) {
+    final pending = widget.pending ?? _pending;
+    final String label;
+    if (widget.wholeSeries) {
+      // Same names as the quick button of the favorites cards; they start with
+      // the visible text.
+      label = widget.watched
+          ? 'Assistido: desmarcar todos os episódios de ${widget.title}'
+          : 'Marcar como assistido: todos os episódios de ${widget.title}';
+    } else {
+      label = widget.watched
+          ? 'Desmarcar ${widget.title} como assistido'
+          : 'Marcar ${widget.title} como assistido';
+    }
     return DetailToggleChip(
       label: widget.watched ? 'Assistido' : 'Marcar como assistido',
-      semanticsLabel: widget.watched
-          ? 'Desmarcar ${widget.title} como assistido'
-          : 'Marcar ${widget.title} como assistido',
+      semanticsLabel: pending && widget.wholeSeries
+          ? '${widget.watched ? 'Assistido' : 'Marcar como assistido'}: atualizando ${widget.title}'
+          : label,
+      tooltip: widget.wholeSeries ? label : null,
       icon: Icons.check_circle_outline,
       selectedIcon: Icons.check_circle,
       selected: widget.watched,
-      pending: _pending,
+      pending: pending,
       onPressed: _run,
     );
   }

@@ -16,6 +16,7 @@ import '../models/media_type.dart';
 import '../models/person.dart';
 import '../models/search_result.dart';
 import '../models/title_details.dart';
+import '../models/title_video.dart';
 import '../models/season_cache.dart';
 import '../repositories/discovery_repository.dart';
 import '../repositories/favorites_repository.dart';
@@ -295,4 +296,15 @@ final personProvider = FutureProvider.autoDispose.family<PersonProfile, int>((re
 final personFilmographyProvider = FutureProvider.autoDispose.family<Filmography, int>((ref, id) {
   final api = ref.watch(tmdbApiClientProvider);
   return _cacheOnSuccess(ref, () async => Filmography.fromCredits(await api.getPersonCredits(id)));
+});
+
+/// The trailer TMDB lists for a title (null when it has none). Fetched only
+/// when a details screen is open; the video itself is never loaded here.
+/// Auto-disposed so reopening after an error asks again.
+final titleTrailerProvider = FutureProvider.autoDispose.family<TitleVideo?, TitleKey>((
+  ref,
+  key,
+) async {
+  final videos = await ref.watch(tmdbApiClientProvider).getTitleVideos(key.type, key.id);
+  return TrailerPicker.best(videos);
 });

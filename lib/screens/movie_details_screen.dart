@@ -11,6 +11,7 @@ import '../widgets/cast_widgets.dart';
 import '../widgets/detail_actions.dart';
 import '../widgets/error_state.dart';
 import '../widgets/poster_image.dart';
+import '../widgets/trailer_dialog.dart';
 
 /// Details of a movie. Works for any TMDB movie: when it is a favorite the
 /// saved data (and the watched flag) is shown; otherwise it is fetched from
@@ -101,7 +102,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  _Actions(item: item, result: result, watched: watched),
+                  _Actions(item: item, result: result, watched: watched, titleKey: key),
                   const SizedBox(height: 16),
                   Text(
                     overview.isEmpty ? 'Sem sinopse disponível.' : overview,
@@ -125,8 +126,14 @@ class _Actions extends ConsumerWidget {
   final FavoriteItem? item;
   final SearchResult result;
   final bool watched;
+  final TitleKey titleKey;
 
-  const _Actions({required this.item, required this.result, required this.watched});
+  const _Actions({
+    required this.item,
+    required this.result,
+    required this.watched,
+    required this.titleKey,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -165,6 +172,7 @@ class _Actions extends ConsumerWidget {
                   ? favoriteThen(repo, result, false, () => repo.markMovieWatched(result.id))
                   : repo.toggleMovieWatched(result.id)),
         ),
+        TrailerButton(titleKey: titleKey, title: result.title),
       ],
     );
   }

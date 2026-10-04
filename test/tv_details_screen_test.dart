@@ -15,6 +15,7 @@ import 'package:cinetrack/screens/tv_details_screen.dart';
 import 'package:cinetrack/services/local_store.dart';
 import 'package:cinetrack/services/tmdb_api_client.dart';
 import 'package:cinetrack/services/tmdb_exception.dart';
+import 'package:cinetrack/widgets/episode_tile.dart';
 
 /// Fake repository that mimics the real one closely enough to reproduce
 /// the bug: `loadSeason` reads from the in-memory item's cached seasons
@@ -153,19 +154,22 @@ void main() {
       await tester.tap(find.text('Temporada 1'));
       await tester.pumpAndSettle();
 
-      final checkboxFinder = find.byType(CheckboxListTile);
+      final checkboxFinder = find.byType(EpisodeTile);
       expect(checkboxFinder, findsOneWidget);
-      expect(tester.widget<CheckboxListTile>(checkboxFinder).value, isFalse);
+      expect(tester.widget<EpisodeTile>(checkboxFinder).episode.watched, isFalse);
 
       // Mark the episode as watched.
-      await tester.tap(checkboxFinder);
+      final episodeCheck = find.descendant(of: checkboxFinder, matching: find.byType(Checkbox));
+      await tester.ensureVisible(episodeCheck); // the richer tile is taller than before
+      await tester.pumpAndSettle();
+      await tester.tap(episodeCheck);
       await tester.pumpAndSettle();
 
       // Before the fix, seasonProvider kept serving the stale cached
       // SeasonCache from the first load, so this checkbox stayed
       // unchecked even though the repository/Hive already persisted the
       // toggle.
-      expect(tester.widget<CheckboxListTile>(checkboxFinder).value, isTrue);
+      expect(tester.widget<EpisodeTile>(checkboxFinder).episode.watched, isTrue);
     },
   );
 
@@ -248,8 +252,8 @@ void main() {
 
       expect(tester.widget<Checkbox>(seasonCheckboxFinder).value, isTrue);
       expect(find.text('2/2 episódios · 100%'), findsOneWidget);
-      final checkboxTiles = tester.widgetList<CheckboxListTile>(find.byType(CheckboxListTile));
-      expect(checkboxTiles.every((tile) => tile.value == true), isTrue);
+      final checkboxTiles = tester.widgetList<EpisodeTile>(find.byType(EpisodeTile));
+      expect(checkboxTiles.every((tile) => tile.episode.watched), isTrue);
 
       // Fully watched -> tap again clears everything.
       await tester.tap(seasonCheckboxFinder);
@@ -257,8 +261,8 @@ void main() {
 
       expect(tester.widget<Checkbox>(seasonCheckboxFinder).value, isFalse);
       expect(find.text('0/2 episódios · 0%'), findsOneWidget);
-      final clearedTiles = tester.widgetList<CheckboxListTile>(find.byType(CheckboxListTile));
-      expect(clearedTiles.every((tile) => tile.value == false), isTrue);
+      final clearedTiles = tester.widgetList<EpisodeTile>(find.byType(EpisodeTile));
+      expect(clearedTiles.every((tile) => !tile.episode.watched), isTrue);
     });
 
     testWidgets('unaired episodes are never marked as watched by the season checkbox',
@@ -296,11 +300,16 @@ void main() {
       // below 100 and its own checkbox unchecked/disabled.
       expect(tester.widget<Checkbox>(seasonCheckboxFinder).value, isTrue);
       expect(find.text('1/2 episódios · 50%'), findsOneWidget);
-      final tiles = tester.widgetList<CheckboxListTile>(find.byType(CheckboxListTile)).toList();
-      expect(tiles.firstWhere((t) => (t.title as Text).data!.startsWith('E1')).value, isTrue);
-      final unairedTile = tiles.firstWhere((t) => (t.title as Text).data!.startsWith('E2'));
-      expect(unairedTile.value, isFalse);
-      expect(unairedTile.onChanged, isNull); // disabled, same as before this feature
+      final tiles = tester.widgetList<EpisodeTile>(find.byType(EpisodeTile)).toList();
+      expect(tiles.firstWhere((t) => t.episode.episodeNumber == 1).episode.watched, isTrue);
+      final unairedTile = tiles.firstWhere((t) => t.episode.episodeNumber == 2);
+      expect(unairedTile.episode.watched, isFalse);
+      // Disabled, same as before this feature.
+      final unairedCheck = find.descendant(
+        of: find.byWidget(unairedTile),
+        matching: find.byType(Checkbox),
+      );
+      expect(tester.widget<Checkbox>(unairedCheck).onChanged, isNull);
     });
 
     testWidgets(

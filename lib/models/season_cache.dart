@@ -9,6 +9,10 @@ class SeasonCache {
     required this.episodes,
   });
 
+  /// Some episode comes from a catalog cached before the image/description
+  /// fields existed (docs/45): opening the season downloads it again once.
+  bool get needsDetails => episodes.any((e) => !e.detailed);
+
   SeasonCache copyWithEpisode(EpisodeCache updated) => SeasonCache(
         seasonNumber: seasonNumber,
         episodes: [

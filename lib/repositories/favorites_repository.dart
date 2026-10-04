@@ -116,9 +116,9 @@ class FavoritesRepository {
     bool Function(int tvId)? isStale,
     void Function(int tvId, bool ok)? onDone,
     Future<void> Function(Duration)? delay,
-  }) =>
-      _reconciler(delay: delay)
-          .run(targets, isCancelled: isCancelled, isStale: isStale, onDone: onDone);
+  }) => _reconciler(
+    delay: delay,
+  ).run(targets, isCancelled: isCancelled, isStale: isStale, onDone: onDone);
 
   List<String> pendingRuntimes(List<FavoriteDoc> docs) => _reconciler().pendingRuntimes(docs);
 
@@ -128,9 +128,9 @@ class FavoritesRepository {
     bool Function()? isCancelled,
     void Function(String key, bool ok)? onDone,
     Future<void> Function(Duration)? delay,
-  }) =>
-      _reconciler(delay: delay)
-          .runRuntimes(keys, docs: docs, isCancelled: isCancelled, onDone: onDone);
+  }) => _reconciler(
+    delay: delay,
+  ).runRuntimes(keys, docs: docs, isCancelled: isCancelled, onDone: onDone);
 
   CatalogReconciler _reconciler({Future<void> Function(Duration)? delay, int maxRetries = 3}) =>
       CatalogReconciler(
@@ -325,7 +325,22 @@ class FavoritesRepository {
 
     final cached = _store.readSeasonCatalog(tvId).where((s) => s.seasonNumber == seasonNumber);
     if (cached.isNotEmpty) {
-      return FavoriteMapper.overlayWatched(cached.first, watched);
+      final season = cached.first;
+      if (!season.needsDetails) return FavoriteMapper.overlayWatched(season, watched);
+      // Catalog cached before the episode image/description fields (docs/45):
+      // download THIS season once and keep it. The watched state is not part
+      // of the catalog (it comes from the user's document), so nothing the
+      // user marked is touched. Offline or failing: keep showing what we have.
+      try {
+        final fresh = await _api.getSeasonEpisodes(tvId, seasonNumber);
+        if (fresh.episodes.isNotEmpty) {
+          if (doc != null) await _store.saveCatalogSeason(tvId, fresh);
+          return FavoriteMapper.overlayWatched(fresh, watched);
+        }
+      } catch (_) {
+        // Fall through to the cached copy.
+      }
+      return FavoriteMapper.overlayWatched(season, watched);
     }
 
     final fetched = await _api.getSeasonEpisodes(tvId, seasonNumber);
@@ -415,6 +430,29 @@ class FavoritesRepository {
     return _checked(
       BulkWatchRules.markAll(key, _store.readSeasonCatalog(tvId), doc.watchedEpisodes),
     );
+  }
+
+  /// [planSeriesBulk] (marking) for a show that is NOT in Favoritos yet
+  /// (docs/45): everything comes from TMDB and stays in memory, so cancelling
+  /// the confirmation leaves no trace (no favorite, no local catalog). The
+  /// caller favorites the show together with the write.
+  Future<SeriesBulkPlan> planNewSeriesBulk(
+    int tvId, {
+    Future<void> Function(Duration)? delay,
+    bool Function()? isCancelled,
+  }) async {
+    // It may be a favorite after all (stale screen, or a login replay into an
+    // account that has it): then the normal plan counts only what is missing.
+    if (await _exists('$tvId-${MediaType.tv.jsonValue}')) {
+      return planSeriesBulk(tvId, watched: true, delay: delay, isCancelled: isCancelled);
+    }
+    final reconciler = _reconciler(delay: delay, maxRetries: 2);
+    final summaries = await reconciler.fetchSummaries(tvId);
+    final seasons = await reconciler.fetchSeasons(tvId, [
+      for (final s in summaries) s.seasonNumber,
+    ], isCancelled: isCancelled);
+    if (isCancelled?.call() ?? false) throw StateError('cancelled');
+    return _checked(BulkWatchRules.markAll('$tvId-${MediaType.tv.jsonValue}', seasons, const {}));
   }
 
   SeriesBulkPlan _checked(SeriesBulkPlan plan) {

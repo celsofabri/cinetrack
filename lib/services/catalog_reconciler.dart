@@ -3,6 +3,7 @@ import 'dart:async';
 import '../models/episode_cache.dart';
 import '../models/favorite_doc.dart';
 import '../models/media_type.dart';
+import '../models/season_cache.dart';
 import '../services/favorite_mapper.dart';
 import '../models/tv_season_summary.dart';
 import 'local_store.dart';
@@ -338,6 +339,33 @@ class CatalogReconciler {
 
     await Future.wait([for (var i = 0; i < concurrency; i++) worker()]);
     if (failure != null) throw failure!;
+  }
+
+  /// Interactive use (whole-series mark of a show that is NOT a favorite yet,
+  /// docs/45): the given seasons, downloaded in memory only (nothing is saved
+  /// to the local catalog), same concurrency/backoff. Throws the first failure.
+  Future<List<SeasonCache>> fetchSeasons(
+    int tvId,
+    List<int> numbers, {
+    bool Function()? isCancelled,
+  }) async {
+    final result = <SeasonCache>[];
+    var next = 0;
+    Object? failure;
+    Future<void> worker() async {
+      while (failure == null && next < numbers.length && !(isCancelled?.call() ?? false)) {
+        final number = numbers[next++];
+        try {
+          result.add(await _withRetry(() => _api.getSeasonEpisodes(tvId, number)));
+        } catch (error) {
+          failure ??= error;
+        }
+      }
+    }
+
+    await Future.wait([for (var i = 0; i < concurrency; i++) worker()]);
+    if (failure != null) throw failure!;
+    return result;
   }
 
   /// Retries transient failures (network, 429, 5xx) with 1 s, 2 s, 4 s

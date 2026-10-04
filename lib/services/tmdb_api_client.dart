@@ -9,6 +9,7 @@ import '../models/media_type.dart';
 import '../models/person.dart';
 import '../models/search_result.dart';
 import '../models/season_cache.dart';
+import '../models/title_video.dart';
 import 'tmdb_exception.dart';
 
 class TmdbApiClient {
@@ -155,6 +156,19 @@ class TmdbApiClient {
   Future<SeasonCache> getSeasonEpisodes(int tvId, int seasonNumber) async {
     final json = await _get(_uri('/tv/$tvId/season/$seasonNumber'));
     return SeasonCache.fromTmdb(json);
+  }
+
+  /// Videos of a title (`/movie/{id}/videos`, `/tv/{id}/videos`), YouTube ones
+  /// only. One request asks for Portuguese, English and language-less videos
+  /// (the default `language=pt-BR` alone would hide the English trailers).
+  Future<List<TitleVideo>> getTitleVideos(MediaType type, int id) async {
+    final json = await _get(_uri('/${type.jsonValue}/$id/videos', {
+      'include_video_language': 'pt,en,null',
+    }));
+    return [
+      for (final v in (json['results'] as List? ?? const []).whereType<Map<String, dynamic>>())
+        ?TitleVideo.fromTmdb(v),
+    ];
   }
 
   /// Cast of a title, TMDB order, one entry per person. Movies use
