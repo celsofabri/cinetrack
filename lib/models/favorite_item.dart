@@ -1,4 +1,5 @@
 import 'media_type.dart';
+import 'search_result.dart';
 import 'season_cache.dart';
 import 'tv_season_summary.dart';
 
@@ -27,6 +28,10 @@ class FavoriteItem {
   /// [addedAt] in that case.
   final DateTime? lastWatchedAt;
 
+  /// "Recomendo" mark (Minhas recomendações). Absent in older data = false.
+  /// Never changes the ordering ([lastActivityAt] ignores it).
+  final bool recommended;
+
   const FavoriteItem({
     required this.id,
     required this.mediaType,
@@ -38,6 +43,7 @@ class FavoriteItem {
     this.seasons,
     this.seasonSummaries,
     this.lastWatchedAt,
+    this.recommended = false,
   });
 
   /// Most recent interaction with this title: the last time something was
@@ -59,6 +65,15 @@ class FavoriteItem {
     return a.title.toLowerCase().compareTo(b.title.toLowerCase());
   }
 
+  /// The catalog-result shape of this title (what the write helpers take).
+  SearchResult toSearchResult() => SearchResult(
+        id: id,
+        mediaType: mediaType,
+        title: title,
+        posterPath: posterPath,
+        overview: overview,
+      );
+
   /// Composite key used in local storage — avoids collisions between a
   /// movie and a TV show that happen to share the same TMDB numeric id.
   String get storageKey => '$id-${mediaType.jsonValue}';
@@ -68,6 +83,7 @@ class FavoriteItem {
     List<SeasonCache>? seasons,
     List<TvSeasonSummary>? seasonSummaries,
     DateTime? lastWatchedAt,
+    bool? recommended,
   }) =>
       FavoriteItem(
         id: id,
@@ -80,6 +96,7 @@ class FavoriteItem {
         seasons: seasons ?? this.seasons,
         seasonSummaries: seasonSummaries ?? this.seasonSummaries,
         lastWatchedAt: lastWatchedAt ?? this.lastWatchedAt,
+        recommended: recommended ?? this.recommended,
       );
 
   Map<String, dynamic> toJson() => {
@@ -93,6 +110,7 @@ class FavoriteItem {
         'seasons': seasons?.map((s) => s.toJson()).toList(),
         'seasonSummaries': seasonSummaries?.map((s) => s.toJson()).toList(),
         'lastWatchedAt': lastWatchedAt?.toIso8601String(),
+        if (recommended) 'recommended': true,
       };
 
   factory FavoriteItem.fromJson(Map<dynamic, dynamic> json) => FavoriteItem(
@@ -112,5 +130,6 @@ class FavoriteItem {
         // null-safe: absent key (records saved before this field existed)
         // parses to null via DateTime.tryParse(null ?? '') — never throws.
         lastWatchedAt: DateTime.tryParse(json['lastWatchedAt'] as String? ?? ''),
+        recommended: json['recommended'] == true,
       );
 }

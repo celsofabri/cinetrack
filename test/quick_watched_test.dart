@@ -929,7 +929,9 @@ void main() {
                 expect(size.width, greaterThanOrEqualTo(48));
                 expect(size.height, greaterThanOrEqualTo(48));
               }
-              final chips = find.byType(FilterChip);
+              // The watched chips of two neighbouring cards (each card also has
+              // its own "Recomendo" chip, which may wrap to a second line).
+              final chips = find.widgetWithText(FilterChip, 'Marcar como assistido');
               if (width >= 768) {
                 // Neighbours in the same row: chips anchored at the same base.
                 expect(tester.getBottomLeft(chips.at(0)).dy, tester.getBottomLeft(chips.at(1)).dy);

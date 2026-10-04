@@ -43,11 +43,17 @@ void main() {
     expect(find.descendant(of: find.byType(MobileTopBar), matching: find.text('CineTrack')),
         findsOneWidget);
     expect(find.byType(AppBar), findsNothing);
-    for (final label in ['Início', 'Explorar', 'Busca', 'Favoritos', 'Entrar']) {
+    for (final label in ['Início', 'Explorar', 'Recomendo', 'Favoritos', 'Entrar']) {
       expect(find.descendant(of: find.byType(NavigationBar), matching: find.text(label)),
           findsOneWidget,
           reason: label);
     }
+    // Busca left the tab bar (5 destinations) and became the magnifier on top.
+    expect(find.descendant(of: find.byType(NavigationBar), matching: find.text('Busca')),
+        findsNothing);
+    expect(tester.widget<NavigationBar>(find.byType(NavigationBar)).destinations, hasLength(5));
+    expect(find.descendant(of: find.byType(MobileTopBar), matching: find.byIcon(Icons.search)),
+        findsOneWidget);
     final bar = tester.getRect(find.byType(NavigationBar));
     expect(bar.bottom, 800);
     expect(bar.height, greaterThanOrEqualTo(48));
@@ -134,7 +140,7 @@ void main() {
   });
 
   for (final w in [320.0, 360.0, 390.0, 768.0, 769.0]) {
-    for (final path in ['/', '/catalog', '/search', '/favorites']) {
+    for (final path in ['/', '/catalog', '/search', '/favorites', '/recommendations']) {
       testWidgets('no layout exceptions at ${w.toInt()}px on $path', (tester) async {
         final (c, _) = await pumpApp(tester, size: Size(w, 700));
         c.read(routerProvider).go(path);

@@ -12,6 +12,7 @@ import 'screens/movie_details_screen.dart';
 import 'screens/not_found_screen.dart';
 import 'screens/person_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/recommendations_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/tv_details_screen.dart';
 import 'widgets/app_shell.dart';
@@ -46,6 +47,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
           GoRoute(path: '/favorites', builder: (context, state) => const FavoritesScreen()),
+          GoRoute(
+            path: '/recommendations',
+            builder: (context, state) => const RecommendationsScreen(),
+          ),
           GoRoute(path: '/catalog', builder: (context, state) => const CatalogScreen()),
           GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
           GoRoute(path: '/profile', builder: (context, state) => const ProfileScreen()),

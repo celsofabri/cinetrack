@@ -107,6 +107,7 @@ class _TvDetailsScreenState extends ConsumerState<TvDetailsScreen> {
               progress: progress,
               isFavorite: item != null,
               hasProgress: hasProgress,
+              recommended: item?.recommended ?? false,
             ),
           ),
           SliverToBoxAdapter(child: CastSection(titleKey: key)),
@@ -141,6 +142,7 @@ class _Header extends ConsumerWidget {
   final SeriesProgress? progress;
   final bool isFavorite;
   final bool hasProgress;
+  final bool recommended;
 
   const _Header({
     required this.result,
@@ -148,6 +150,7 @@ class _Header extends ConsumerWidget {
     required this.progress,
     required this.isFavorite,
     required this.hasProgress,
+    required this.recommended,
   });
 
   @override
@@ -188,12 +191,31 @@ class _Header extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 16),
-          FavoriteToggleButton(
-            isFavorite: isFavorite,
-            hasProgress: hasProgress,
-            title: result.title,
-            onAdd: () => runDetailWrite(context, (repo) => repo.addResult(result)),
-            onRemove: () => runDetailWrite(context, (repo) => repo.remove(result.id, MediaType.tv)),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              FavoriteToggleButton(
+                isFavorite: isFavorite,
+                hasProgress: hasProgress,
+                recommended: recommended,
+                title: result.title,
+                onAdd: () => runDetailWrite(context, (repo) => repo.addResult(result)),
+                onRemove: () =>
+                    runDetailWrite(context, (repo) => repo.remove(result.id, MediaType.tv)),
+              ),
+              RecommendToggleChip(
+                recommended: recommended,
+                title: result.title,
+                onSet: (target) => setRecommendedFromUi(
+                  context,
+                  result,
+                  inFavorites: isFavorite,
+                  recommended: target,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           Text(

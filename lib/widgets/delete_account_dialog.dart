@@ -47,8 +47,8 @@ class DeleteAccountDialog extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Isso apaga para sempre seus favoritos, seu progresso e seu apelido, e exclui '
-                'sua conta do CineTrack. Não dá para desfazer.',
+                'Isso apaga para sempre seus favoritos, suas recomendações, seu progresso e seu '
+                'apelido, e exclui sua conta do CineTrack. Não dá para desfazer.',
               ),
               const SizedBox(height: 8),
               const Text(

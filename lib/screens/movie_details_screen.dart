@@ -138,10 +138,21 @@ class _Actions extends ConsumerWidget {
         FavoriteToggleButton(
           isFavorite: item != null,
           hasProgress: watched,
+          recommended: item?.recommended ?? false,
           title: result.title,
           onAdd: () => runDetailWrite(context, (repo) => repo.addResult(result)),
           onRemove: () =>
               runDetailWrite(context, (repo) => repo.remove(result.id, MediaType.movie)),
+        ),
+        RecommendToggleChip(
+          recommended: item?.recommended ?? false,
+          title: result.title,
+          onSet: (target) => setRecommendedFromUi(
+            context,
+            result,
+            inFavorites: item != null,
+            recommended: target,
+          ),
         ),
         WatchedToggleChip(
           watched: watched,

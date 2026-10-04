@@ -42,6 +42,10 @@ class FavoriteMapper {
   }
 
   /// Document body to create a favorite. Date values stay `DateTime`.
+  ///
+  /// `recommended` is written ONLY when true: a plain add stays bit-for-bit
+  /// what it always was (accepted even by the previous security rules), and
+  /// "not recommended" is the absence of the field, never `false`.
   static Map<String, dynamic> toMap(FavoriteDoc doc) => {
         'id': doc.id,
         'mediaType': doc.mediaType.jsonValue,
@@ -53,6 +57,7 @@ class FavoriteMapper {
         'watchedMovie': doc.watchedMovie,
         'seasonSummaries': doc.seasonSummaries.map((s) => s.toJson()).toList(),
         'eps': {for (final key in doc.watchedEpisodes) key: true},
+        if (doc.recommended) 'recommended': true,
       };
 
   /// Parses a stored document. Returns null (document ignored) when the
@@ -76,6 +81,7 @@ class FavoriteMapper {
         addedAt: _date(map['addedAt']) ?? DateTime.now(),
         lastWatchedAt: _date(map['lastWatchedAt']),
         watchedMovie: map['watchedMovie'] as bool? ?? false,
+        recommended: map['recommended'] == true,
         seasonSummaries: [
           for (final s in (map['seasonSummaries'] as List? ?? const []))
             TvSeasonSummary.fromJson(Map<dynamic, dynamic>.from(s as Map)),
@@ -111,6 +117,7 @@ class FavoriteMapper {
       addedAt: doc.addedAt,
       watchedMovie: doc.watchedMovie,
       lastWatchedAt: doc.lastWatchedAt,
+      recommended: doc.recommended,
       seasonSummaries: isTv ? doc.seasonSummaries : null,
       seasons:
           isTv ? [for (final season in catalog) overlayWatched(season, doc.watchedEpisodes)] : null,

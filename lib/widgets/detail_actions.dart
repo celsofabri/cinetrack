@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/favorites_data_source.dart';
 import '../models/favorite_item.dart';
 import '../models/media_type.dart';
 import '../models/search_result.dart';
@@ -67,18 +68,28 @@ Future<void> runDetailWrite(
   }
 }
 
-/// Asks before removing a favorite that has progress (the progress lives in the
-/// favorite document and is deleted with it). Returns true when confirmed.
-Future<bool> confirmRemoveFavorite(BuildContext context) async {
+/// Asks before removing a favorite that has progress and/or is recommended
+/// (both live in the favorite document and are deleted with it). Returns true
+/// when confirmed. "Cancelar" has the initial focus (the safe choice).
+Future<bool> confirmRemoveFavorite(
+  BuildContext context, {
+  bool hasProgress = true,
+  bool recommended = false,
+}) async {
+  final text = switch ((hasProgress, recommended)) {
+    (true, false) => 'Seu progresso (itens assistidos) deste título também será apagado.',
+    (true, true) => 'Seu progresso (itens assistidos) deste título também será apagado, '
+        'e ele deixa de estar nas suas recomendações.',
+    _ => 'Este título também deixa de estar nas suas recomendações.',
+  };
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
       title: const Text('Remover dos favoritos?'),
-      content: const Text(
-        'Seu progresso (itens assistidos) deste título também será apagado.',
-      ),
+      content: Text(text),
       actions: [
         TextButton(
+          autofocus: true,
           onPressed: () => Navigator.of(context).pop(false),
           child: const Text('Cancelar'),
         ),
@@ -113,6 +124,13 @@ Future<bool> favoriteHasProgress(ProviderContainer container, int id, MediaType 
   }
 }
 
+/// Whether the favorite [id] is marked "Recomendo" in the loaded list. Removing
+/// it deletes the mark with the document, so the caller must ask first.
+bool favoriteIsRecommended(ProviderContainer container, int id, MediaType type) {
+  final items = container.read(favoritesListProvider).value ?? const <FavoriteItem>[];
+  return items.any((f) => f.id == id && f.mediaType == type && f.recommended);
+}
+
 /// Heart on a poster (Explorar, Busca, Descoberta, Início): toggles. Removing
 /// asks for confirmation when there is progress. [setPending] is true from the
 /// tap (before any wait or dialog, so repeated taps do nothing) until the
@@ -133,19 +151,26 @@ Future<void> toggleFavoriteFromList(
     }
     final container = ProviderScope.containerOf(context);
     bool asked = false;
-    Future<bool> confirmed() async {
+    Future<bool> confirmed({required bool progress, required bool recommended}) async {
       asked = true;
       if (!context.mounted) return false;
       // The dialog is modal (no second tap can reach the heart), so the spinner
       // is dropped while it is open and comes back for the write.
       setPending(false);
-      final ok = await confirmRemoveFavorite(context) && context.mounted;
+      final ok = await confirmRemoveFavorite(
+            context,
+            hasProgress: progress,
+            recommended: recommended,
+          ) &&
+          context.mounted;
       if (ok) setPending(true);
       return ok;
     }
 
-    if (await favoriteHasProgress(container, result.id, result.mediaType)) {
-      if (!await confirmed()) return;
+    final progress = await favoriteHasProgress(container, result.id, result.mediaType);
+    final recommended = favoriteIsRecommended(container, result.id, result.mediaType);
+    if (progress || recommended) {
+      if (!await confirmed(progress: progress, recommended: recommended)) return;
     }
     if (!context.mounted) return;
     // The state may have changed while we waited (other tab/device): read it
@@ -153,8 +178,13 @@ Future<void> toggleFavoriteFromList(
     // asked yet: ask now.
     final current = container.read(favoritesListProvider).value ?? const <FavoriteItem>[];
     if (!current.any((f) => f.id == result.id && f.mediaType == result.mediaType)) return;
-    if (!asked && await favoriteHasProgress(container, result.id, result.mediaType)) {
-      if (!await confirmed()) return;
+    if (!asked) {
+      final nowProgress = await favoriteHasProgress(container, result.id, result.mediaType);
+      final nowRecommended = favoriteIsRecommended(container, result.id, result.mediaType);
+      if ((nowProgress || nowRecommended) &&
+          !await confirmed(progress: nowProgress, recommended: nowRecommended)) {
+        return;
+      }
     }
     if (!context.mounted) return;
     await runDetailWrite(context, (repo) => repo.remove(result.id, result.mediaType));
@@ -231,6 +261,9 @@ class DetailToggleChip extends StatelessWidget {
 class FavoriteToggleButton extends StatefulWidget {
   final bool isFavorite;
   final bool hasProgress;
+
+  /// The title is marked "Recomendo": removing it also removes that mark.
+  final bool recommended;
   final String title;
   final Future<void> Function() onAdd;
   final Future<void> Function() onRemove;
@@ -239,6 +272,7 @@ class FavoriteToggleButton extends StatefulWidget {
     super.key,
     required this.isFavorite,
     required this.hasProgress,
+    this.recommended = false,
     required this.title,
     required this.onAdd,
     required this.onRemove,
@@ -261,8 +295,13 @@ class _FavoriteToggleButtonState extends State<FavoriteToggleButton> {
   }
 
   Future<void> _remove() async {
-    if (widget.hasProgress) {
-      if (!await confirmRemoveFavorite(context) || !mounted) return;
+    if (widget.hasProgress || widget.recommended) {
+      final ok = await confirmRemoveFavorite(
+        context,
+        hasProgress: widget.hasProgress,
+        recommended: widget.recommended,
+      );
+      if (!ok || !mounted) return;
     }
     await _run(widget.onRemove);
   }
@@ -323,6 +362,154 @@ class _WatchedToggleChipState extends State<WatchedToggleChip> {
       icon: Icons.check_circle_outline,
       selectedIcon: Icons.check_circle,
       selected: widget.watched,
+      pending: _pending,
+      onPressed: _run,
+    );
+  }
+}
+
+const kRecommendAddedMessage = 'Adicionado aos favoritos e às suas recomendações.';
+const kRecommendedMessage = 'Adicionado às suas recomendações.';
+const kUnrecommendedMessage = 'Removido das suas recomendações.';
+
+/// [runDetailWrite] that also says whether [action] ran to completion (false
+/// when login was started instead, the title is gone, or it failed).
+Future<bool> runDetailWriteOk(
+  BuildContext context,
+  Future<void> Function(FavoritesRepository repo) action,
+) async {
+  var ok = false;
+  await runDetailWrite(context, (repo) async {
+    await action(repo);
+    ok = true;
+  });
+  return ok;
+}
+
+/// Sets "Recomendo" on [result]. In Favoritos (per the UI): one field-level
+/// update (`setRecommended`). Not in Favoritos: add + recommend in ONE write
+/// (`addAndRecommend`), which is also what runs after a login started from
+/// here (explicit intent, never a toggle). Unmarking never removes the title
+/// from Favoritos. A short confirmation is shown when it was saved locally.
+///
+/// [onUndoOffered] (unmarking only) receives the snackbar that carries
+/// "Desfazer", so the screen can discard it when it is left. "Desfazer" only
+/// sets the field back by field path (`setRecommended`): it does nothing if the
+/// account changed, and says so if the title left Favoritos meanwhile (nothing
+/// is recreated).
+Future<void> setRecommendedFromUi(
+  BuildContext context,
+  SearchResult result, {
+  required bool inFavorites,
+  required bool recommended,
+  void Function(ScaffoldFeatureController<SnackBar, SnackBarClosedReason> snack)? onUndoOffered,
+}) async {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final container = ProviderScope.containerOf(context);
+  final uid = container.read(currentUidProvider);
+  final ok = await runDetailWriteOk(
+    context,
+    (repo) => recommended
+        ? (inFavorites
+            ? repo.setRecommended(result.id, result.mediaType, true)
+            : repo.addAndRecommend(result))
+        : repo.setRecommended(result.id, result.mediaType, false),
+  );
+  if (!ok) return;
+  messenger?.hideCurrentSnackBar();
+  final undoable = !recommended && onUndoOffered != null && messenger != null;
+  final snack = messenger?.showSnackBar(SnackBar(
+    content: Text(
+      !recommended
+          ? kUnrecommendedMessage
+          : inFavorites
+              ? kRecommendedMessage
+              : kRecommendAddedMessage,
+    ),
+    duration: undoable ? kUndoWindow : const Duration(seconds: 4),
+    persist: false,
+    action: undoable
+        ? SnackBarAction(
+            label: 'Desfazer',
+            onPressed: () => _undoUnrecommend(container, messenger, result, uid),
+          )
+        : null,
+  ));
+  if (undoable && snack != null) onUndoOffered(snack);
+}
+
+Future<void> _undoUnrecommend(
+  ProviderContainer container,
+  ScaffoldMessengerState messenger,
+  SearchResult result,
+  String? uid,
+) async {
+  if (container.read(currentUidProvider) != uid) {
+    messenger.showSnackBar(const SnackBar(content: Text('A conta mudou. Nada foi alterado.')));
+    return;
+  }
+  String message;
+  try {
+    await container
+        .read(favoritesRepositoryProvider)
+        .setRecommended(result.id, result.mediaType, true);
+    message = 'Recomendação restaurada.';
+  } catch (error) {
+    message = error is AuthRequiredException || error is FavoritesUnavailableException
+        ? kFavoriteUnavailableMessage
+        : writeErrorMessage(error);
+  }
+  messenger.showSnackBar(SnackBar(content: Text(message)));
+}
+
+/// "Recomendo" control (thumb, not the heart): the same chip as the watched
+/// control, with its own pending state (no double tap, one write per tap).
+/// [onSet] receives the target state.
+class RecommendToggleChip extends StatefulWidget {
+  final bool recommended;
+  final String title;
+  final Future<void> Function(bool target) onSet;
+
+  const RecommendToggleChip({
+    super.key,
+    required this.recommended,
+    required this.title,
+    required this.onSet,
+  });
+
+  @override
+  State<RecommendToggleChip> createState() => _RecommendToggleChipState();
+}
+
+class _RecommendToggleChipState extends State<RecommendToggleChip> {
+  bool _pending = false;
+
+  Future<void> _run() async {
+    if (_pending) return;
+    setState(() => _pending = true);
+    try {
+      await widget.onSet(!widget.recommended);
+    } finally {
+      if (mounted) setState(() => _pending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = widget.recommended;
+    // The accessible name starts with the visible text.
+    final label = r
+        ? 'Recomendado: remover ${widget.title} das minhas recomendações'
+        : 'Recomendo: adicionar ${widget.title} às minhas recomendações';
+    return DetailToggleChip(
+      label: r ? 'Recomendado' : 'Recomendo',
+      semanticsLabel:
+          _pending ? '${r ? 'Recomendado' : 'Recomendo'}: atualizando ${widget.title}' : label,
+      tooltip: label,
+      icon: Icons.thumb_up_outlined,
+      selectedIcon: Icons.thumb_up,
+      selected: r,
+      accent: true,
       pending: _pending,
       onPressed: _run,
     );

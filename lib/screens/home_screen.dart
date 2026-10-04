@@ -48,6 +48,11 @@ class HomeScreen extends ConsumerWidget {
                   onPressed: () => context.push('/catalog'),
                 ),
                 _NavAction(
+                  label: 'Minhas recomendações',
+                  icon: Icons.thumb_up,
+                  onPressed: () => context.push('/recommendations'),
+                ),
+                _NavAction(
                   label: 'Meus favoritos',
                   icon: Icons.favorite,
                   onPressed: () => context.push('/favorites'),
@@ -70,8 +75,13 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
+/// Narrowest width (logical px) at which the top menu shows labels: with
+/// Explorar, Minhas recomendações and Meus favoritos spelled out the app bar
+/// needs about 940 px; below that the actions are icon-only.
+const double kTopMenuLabelsMinWidth = 960;
+
 /// Top-menu button: icon + label on wide screens, icon-only (with tooltip)
-/// on narrow ones so three actions never overflow the app bar.
+/// on narrow ones so the actions never overflow the app bar.
 class _NavAction extends StatelessWidget {
   final String label;
   final IconData icon;
@@ -81,7 +91,9 @@ class _NavAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= 640;
+    // Larger system fonts widen the labels: ask for proportionally more room.
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final wide = MediaQuery.sizeOf(context).width >= kTopMenuLabelsMinWidth * textScale;
     return Padding(
       padding: const EdgeInsets.only(left: 4),
       child: wide

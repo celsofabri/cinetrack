@@ -46,7 +46,8 @@ O projeto Firebase é criado pelo mantenedor (passo a passo em [`docs/08-design-
 - **Avisos** (faixa no rodapé): *sessão expirada* (as alterações pendentes ficam guardadas e seguem após entrar de novo **com a mesma conta**), *limite diário gratuito atingido* e *alteração recusada pelo servidor*. Na primeira carga, "não consegui carregar" nunca aparece como "você não tem favoritos": há um estado de erro com "Tentar novamente".
 - **Perfil:** apelido editável (1 a 40 caracteres), estatísticas (calculadas a partir dos dados, sem contadores guardados), "Membro desde", resumo de privacidade e link para a [política de privacidade](web/privacidade.html) (publicada como `privacidade.html` junto do app no GitHub Pages).
 - **Exportar meus dados (JSON):** no Perfil, seção "Seus dados". Baixa `cinetrack-export-AAAA-MM-DD.json` com todos os documentos de favoritos exatamente como estão no Firestore (inclusive campos que o app ainda não conhece), apelido e contadores; só leitura, do servidor e em páginas (sem limite de itens). Sem conexão, só exporta os dados do aparelho se o usuário escolher, avisando que podem estar incompletos. Entrega por download no navegador (web); em Android/iOS a seção explica que ainda não está disponível. Detalhes e formato em [docs/39](docs/39-exportar-meus-dados.md).
-- **Excluir conta e dados:** pede para entrar com o Google de novo, apaga favoritos, progresso e apelido em lotes e, por fim, a conta. É retomável: se for interrompida, o app oferece "Concluir exclusão". Exige estar online.
+- **Minhas recomendações:** além de favoritar, você marca com **Recomendo** (polegar para cima, no detalhe e nos cartões de Favoritos) os títulos que realmente curtiu; eles aparecem na aba **Minhas recomendações** (`/recommendations`; no celular, a aba "Recomendo" da barra inferior, e a Busca vira a lupa da barra superior). É um campo opcional `recommended` no documento do favorito (ausente = não; nada é migrado nem reescrito) e é **privado por enquanto**: só você vê. Recomendar um título que não está em Favoritos o adiciona (numa só escrita); remover de Favoritos apaga a recomendação (com confirmação). Pediremos seu consentimento antes de qualquer compartilhamento. **Rollout: publique `firestore.rules` antes do app** (detalhes em [`docs/40`](docs/40-minhas-recomendacoes-implementacao.md)); nunca volte as regras depois da primeira marcação.
+- **Excluir conta e dados:** pede para entrar com o Google de novo, apaga favoritos, recomendações, progresso e apelido em lotes e, por fim, a conta. É retomável: se for interrompida, o app oferece "Concluir exclusão". Exige estar online.
 
 Sem a chave configurada, o app abre normalmente mas a busca por novos filmes/séries mostra um erro de configuração (itens já favoritados continuam funcionando offline).
 
@@ -64,6 +65,7 @@ flutter test
 - `test/tmdb_api_client_test.dart` — parsing de busca e mapeamento de erros HTTP (401/429) do TMDB.
 - `test/catalog_screen_test.dart` — tela Explorar: filmes/séries, filtro por gênero e paginação ao rolar.
 - `test/search_screen_test.dart` — busca ao digitar (a partir de 2 caracteres, com debounce).
+- `test/recommended_data_test.dart`, `test/recommendations_ui_test.dart` — "Minhas recomendações": campo `recommended` (mapper/repositório, escrita por campo, provas de não perda de dados), botão "Recomendo", aba, navegação (tab bar de 5 itens + lupa), estados e layout.
 - `test/favorites_screen_test.dart` — estados vazio, filme, série e filtro na tela "Meus favoritos".
 - `test/home_screen_composition_test.dart` — composição da home e navegação pelo menu do topo até "Meus favoritos".
 - `test/favorites_repository_contract_test.dart` e `test/favorites_repository_test.dart` — contrato do `FavoritesRepository` (favoritar, `addTvShow`, assistido, temporada), independente do armazenamento.
@@ -82,7 +84,7 @@ npm install
 npm test          # sobe o emulator, roda os testes e encerra (projeto "demo-cinetrack", sem rede)
 ```
 
-Na máquina de desenvolvimento o `java` padrão é o 11 (recusado pelo firebase-tools): use `JAVA_HOME=/opt/homebrew/opt/openjdk@24 PATH=/opt/homebrew/opt/openjdk@24/bin:$PATH npm test`. A suíte cobre isolamento entre usuários, validação de schema, apelido (1-40) e a sequência da exclusão de conta (marcador, lotes de 400, perfil).
+Na máquina de desenvolvimento o `java` padrão é o 11 (recusado pelo firebase-tools): use `JAVA_HOME=/opt/homebrew/opt/openjdk@24 PATH=/opt/homebrew/opt/openjdk@24/bin:$PATH npm test`. A suíte (`firestore.rules.test.mjs` e `recommended.test.mjs`, que roda também contra `fixtures/firestore.rules.v1`, as regras anteriores) cobre isolamento entre usuários, validação de schema, apelido (1-40) e a sequência da exclusão de conta (marcador, lotes de 400, perfil).
 
 ## Estrutura
 

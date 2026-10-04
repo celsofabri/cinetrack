@@ -20,6 +20,11 @@ class FavoriteDoc {
   /// `FavoriteMapper.episodeKey`). Only watched episodes are present.
   final Set<String> watchedEpisodes;
 
+  /// "Recomendo": the user really likes this title (Minhas recomendações,
+  /// private for now). Optional in the document: absent = false. Only `true`
+  /// is ever written (see `FavoriteMapper.toMap`).
+  final bool recommended;
+
   const FavoriteDoc({
     required this.id,
     required this.mediaType,
@@ -31,6 +36,7 @@ class FavoriteDoc {
     this.watchedMovie = false,
     this.seasonSummaries = const [],
     this.watchedEpisodes = const {},
+    this.recommended = false,
   });
 
   /// Same composite key as `FavoriteItem.storageKey`.
@@ -41,6 +47,7 @@ class FavoriteDoc {
     DateTime? lastWatchedAt,
     List<TvSeasonSummary>? seasonSummaries,
     Set<String>? watchedEpisodes,
+    bool? recommended,
   }) =>
       FavoriteDoc(
         id: id,
@@ -53,5 +60,6 @@ class FavoriteDoc {
         watchedMovie: watchedMovie ?? this.watchedMovie,
         seasonSummaries: seasonSummaries ?? this.seasonSummaries,
         watchedEpisodes: watchedEpisodes ?? this.watchedEpisodes,
+        recommended: recommended ?? this.recommended,
       );
 }

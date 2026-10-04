@@ -164,11 +164,57 @@ class FavoritesRepository {
       ? addMovie(id: r.id, title: r.title, posterPath: r.posterPath, overview: r.overview)
       : addTvShow(id: r.id, title: r.title, posterPath: r.posterPath, overview: r.overview);
 
+  /// "Recomendo" on a title that is NOT in Favoritos yet: adds it and
+  /// recommends it in ONE write (a single `set` with `recommended: true`), so
+  /// a failure leaves it in neither list. If it turns out to exist already
+  /// (stale screen), it only marks the field by field path, never rewriting
+  /// the document. Used by the login replay too (explicit intent, not a toggle).
+  Future<void> addAndRecommend(SearchResult r) async {
+    final key = '${r.id}-${r.mediaType.jsonValue}';
+    if (await _exists(key)) return setRecommended(r.id, r.mediaType, true);
+    if (r.mediaType == MediaType.movie) {
+      return _addMovie(
+        id: r.id,
+        title: r.title,
+        posterPath: r.posterPath,
+        overview: r.overview,
+        recommended: true,
+      );
+    }
+    return _addTvShow(
+      id: r.id,
+      title: r.title,
+      posterPath: r.posterPath,
+      overview: r.overview,
+      recommended: true,
+    );
+  }
+
+  /// Explicit (not toggle) "Recomendo" state of a title that is in Favoritos.
+  /// One field-level update (`true` / field deleted); never touches progress,
+  /// `addedAt` or `lastWatchedAt`. A title that is gone (removed on another
+  /// device) throws [FavoriteGoneException] and nothing is recreated.
+  /// [FavoritesUnavailableException] propagates (the state cannot be known).
+  Future<void> setRecommended(int id, MediaType mediaType, bool recommended) async {
+    final key = '$id-${mediaType.jsonValue}';
+    if (await _data.get(key) == null) throw const FavoriteGoneException();
+    await _data.setRecommended(key, recommended);
+  }
+
   Future<void> addMovie({
     required int id,
     required String title,
     required String? posterPath,
     required String overview,
+  }) =>
+      _addMovie(id: id, title: title, posterPath: posterPath, overview: overview);
+
+  Future<void> _addMovie({
+    required int id,
+    required String title,
+    required String? posterPath,
+    required String overview,
+    bool recommended = false,
   }) async {
     final key = '$id-${MediaType.movie.jsonValue}';
     if (await _exists(key)) return; // idempotent: already favorited
@@ -179,6 +225,7 @@ class FavoritesRepository {
       posterPath: posterPath,
       overview: overview,
       addedAt: DateTime.now(),
+      recommended: recommended,
     ));
   }
 
@@ -187,6 +234,15 @@ class FavoritesRepository {
     required String title,
     required String? posterPath,
     required String overview,
+  }) =>
+      _addTvShow(id: id, title: title, posterPath: posterPath, overview: overview);
+
+  Future<void> _addTvShow({
+    required int id,
+    required String title,
+    required String? posterPath,
+    required String overview,
+    bool recommended = false,
   }) async {
     final key = '$id-${MediaType.tv.jsonValue}';
     if (await _exists(key)) return; // idempotent: already favorited
@@ -200,6 +256,7 @@ class FavoritesRepository {
       posterPath: posterPath,
       overview: overview,
       addedAt: DateTime.now(),
+      recommended: recommended,
     ));
 
     // ...then best-effort: fetch season names/counts so the season list

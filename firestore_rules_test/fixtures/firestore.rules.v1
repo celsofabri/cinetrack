@@ -20,8 +20,7 @@ service cloud.firestore {
       let d = request.resource.data;
       return key.matches('^[0-9]{1,9}-(movie|tv)$')
         && d.keys().hasOnly(['id', 'mediaType', 'title', 'posterPath', 'overview', 'addedAt',
-                             'lastWatchedAt', 'watchedMovie', 'seasonSummaries', 'eps', 'updatedAt',
-                             'recommended'])
+                             'lastWatchedAt', 'watchedMovie', 'seasonSummaries', 'eps', 'updatedAt'])
         && d.keys().hasAll(['id', 'mediaType', 'title', 'addedAt'])
         && d.id is int && d.id == int(key.split('-')[0])
         && d.mediaType in ['movie', 'tv'] && d.mediaType == key.split('-')[1]
@@ -34,7 +33,6 @@ service cloud.firestore {
         && (!('watchedMovie' in d) || d.watchedMovie is bool)
         && (!('seasonSummaries' in d) || (d.seasonSummaries is list && d.seasonSummaries.size() <= 100))
         && (!('eps' in d) || (d.eps is map && d.eps.size() <= 5000))
-        && (!('recommended' in d) || d.recommended is bool)
         && (!('updatedAt' in d) || d.updatedAt is timestamp);
         // Known limitation: rules cannot iterate, so the shape of individual
         // `eps` keys/values and `seasonSummaries` elements is not enforced

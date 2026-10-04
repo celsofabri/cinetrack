@@ -133,6 +133,20 @@ class FirestoreFavoritesDataSource implements FavoritesDataSource {
         }),
       );
 
+  /// Field-level `update`: `true` to mark, `FieldValue.delete()` to unmark
+  /// (the absence of the field means "not recommended"). Never `set`, so no
+  /// other field of the document can be overwritten; no activity stamp.
+  @override
+  Future<void> setRecommended(String key, bool recommended) =>
+      _fire(() => _col.doc(key).update(recommendedUpdate(recommended)));
+
+  /// The exact `update` payload of [setRecommended]: only these two keys.
+  @visibleForTesting
+  static Map<String, Object?> recommendedUpdate(bool recommended) => {
+        'recommended': recommended ? true : FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
   /// See [SyncFailureSink.fire]: not awaited on purpose; rejections reach
   /// the sink (code only, no PII) and become visible to the user.
   Future<void> _fire(Future<void> Function() write) =>

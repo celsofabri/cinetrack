@@ -58,6 +58,12 @@ abstract class FavoritesDataSource {
   Future<void> setEpisodes(String key, Map<String, bool> changes);
 
   Future<void> setSeasonSummaries(String key, List<TvSeasonSummary> summaries);
+
+  /// Marks (`true`) or unmarks "Recomendo" with ONE field-level update: `true`
+  /// or deleting the field, never a rewrite of the document. Does not touch
+  /// `addedAt` or `lastWatchedAt` (so it never reorders). The document must
+  /// exist: callers check [get] first.
+  Future<void> setRecommended(String key, bool recommended);
 }
 
 /// Data source used while nobody is signed in (or cloud sync is off):
@@ -91,5 +97,9 @@ class SignedOutFavoritesDataSource implements FavoritesDataSource {
 
   @override
   Future<void> setSeasonSummaries(String key, List<TvSeasonSummary> summaries) =>
+      Future.error(const AuthRequiredException());
+
+  @override
+  Future<void> setRecommended(String key, bool recommended) =>
       Future.error(const AuthRequiredException());
 }

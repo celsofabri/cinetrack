@@ -55,7 +55,8 @@ class BrandMark extends StatelessWidget {
 }
 
 /// Fixed top bar of the mobile layout: logo always visible (it lives outside
-/// the scrollable content), sync indicator on the right.
+/// the scrollable content), then the search magnifier (Busca is not a tab on
+/// mobile any more, `/search` is unchanged) and the sync indicator.
 class MobileTopBar extends StatelessWidget {
   const MobileTopBar({super.key});
 
@@ -84,6 +85,12 @@ class MobileTopBar extends StatelessWidget {
                         child: const BrandMark(size: 32),
                       ),
                     ),
+                  ),
+                  IconButton(
+                    tooltip: 'Buscar',
+                    style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                    icon: const Icon(Icons.search),
+                    onPressed: () => context.go('/search'),
                   ),
                   const SyncIndicator(),
                 ],
@@ -153,7 +160,13 @@ class _Tab {
 const _tabs = [
   _Tab('/', 'Início', Icons.home_outlined, Icons.home),
   _Tab('/catalog', 'Explorar', Icons.explore_outlined, Icons.explore),
-  _Tab('/search', 'Busca', Icons.search, Icons.search),
+  _Tab(
+    '/recommendations',
+    'Recomendo',
+    Icons.thumb_up_outlined,
+    Icons.thumb_up,
+    tooltip: 'Minhas recomendações',
+  ),
   _Tab('/favorites', 'Favoritos', Icons.favorite_border, Icons.favorite, tooltip: 'Meus favoritos'),
 ];
 
@@ -184,6 +197,10 @@ class AppShell extends ConsumerWidget {
       (t) => t.path == '/' ? location == '/' : location.startsWith(t.path),
     );
     if (selected < 0 && location.startsWith('/profile')) selected = profileIndex;
+    // `/search` (opened from the magnifier in the top bar) is not a tab; it is
+    // part of exploring, so Explorar is the selected destination there (visual
+    // AND screen reader), never a wrong one.
+    if (selected < 0 && location.startsWith('/search')) selected = 1;
 
     void onSelected(int index) {
       if (index < _tabs.length) {

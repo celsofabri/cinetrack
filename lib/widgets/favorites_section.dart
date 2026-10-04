@@ -629,12 +629,30 @@ class _FavoriteCard extends StatelessWidget {
                       // neighbours), left aligned. Same height in every state (no
                       // layout shift); the label wraps instead of being cut.
                       const Spacer(),
-                      QuickWatchedButton(
-                        title: item.title,
-                        isMovie: isMovie,
-                        watched: isMovie ? item.watchedMovie : status.isCompleted,
-                        pending: pending,
-                        onPressed: onToggleWatched,
+                      // Two independent chips side by side; on a narrow card (or
+                      // large font) the second one drops to the next line.
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          QuickWatchedButton(
+                            title: item.title,
+                            isMovie: isMovie,
+                            watched: isMovie ? item.watchedMovie : status.isCompleted,
+                            pending: pending,
+                            onPressed: onToggleWatched,
+                          ),
+                          RecommendToggleChip(
+                            recommended: item.recommended,
+                            title: item.title,
+                            onSet: (target) => setRecommendedFromUi(
+                              context,
+                              item.toSearchResult(),
+                              inFavorites: true,
+                              recommended: target,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

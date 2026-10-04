@@ -19,6 +19,7 @@ class ProfileStatsCard extends ConsumerWidget {
       ('Filmes assistidos', stats.watchedMovies),
       ('Episódios assistidos', stats.watchedEpisodes),
       ('Séries concluídas', stats.completedSeries),
+      ('Recomendações', stats.recommendedCount),
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

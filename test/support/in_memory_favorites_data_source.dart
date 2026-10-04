@@ -152,6 +152,13 @@ class InMemoryFavoritesDataSource implements FavoritesDataSource {
         final doc = docs[key];
         if (doc != null) docs[key] = doc.copyWith(seasonSummaries: summaries);
       });
+
+  @override
+  Future<void> setRecommended(String key, bool recommended) async => cloud.write(uid, (docs) {
+        final doc = docs[key];
+        // Like `update` on the server: a missing document is never recreated.
+        if (doc != null) docs[key] = doc.copyWith(recommended: recommended);
+      });
 }
 
 /// In-memory profile document + account-deletion operations over [FakeCloud].

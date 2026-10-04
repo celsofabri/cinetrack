@@ -15,6 +15,9 @@ class ProfileStats {
   final int watchedEpisodes;
   final int completedSeries;
 
+  /// Titles marked "Recomendo" (Minhas recomendações).
+  final int recommendedCount;
+
   /// Total watched time (movies + episodes) and its reliability.
   final WatchTime watchTime;
 
@@ -25,6 +28,7 @@ class ProfileStats {
     this.watchedMovies = 0,
     this.watchedEpisodes = 0,
     this.completedSeries = 0,
+    this.recommendedCount = 0,
     this.watchTime = const WatchTime(),
   });
 
@@ -40,7 +44,9 @@ class ProfileStats {
     int? Function(int tvId)? tvFallbackRuntime,
   }) {
     var movies = 0, series = 0, watchedMovies = 0, watchedEpisodes = 0, completed = 0;
+    var recommended = 0;
     for (final doc in docs) {
+      if (doc.recommended) recommended++;
       if (doc.mediaType == MediaType.movie) {
         movies++;
         if (doc.watchedMovie) watchedMovies++;
@@ -57,6 +63,7 @@ class ProfileStats {
       watchedMovies: watchedMovies,
       watchedEpisodes: watchedEpisodes,
       completedSeries: completed,
+      recommendedCount: recommended,
       watchTime: WatchTimeCalculator.compute(
         docs,
         catalog: catalog,

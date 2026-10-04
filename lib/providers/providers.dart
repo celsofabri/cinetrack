@@ -216,6 +216,17 @@ final continueWatchingProvider = Provider<List<FavoriteItem>>((ref) {
   ]..sort(FavoriteItem.byRecentActivity);
 });
 
+/// "Minhas recomendações": the favorites marked "Recomendo", same order as
+/// Favoritos (recent activity). A pure derivation of [favoritesListProvider]:
+/// no extra read, nothing stored, nothing to desync.
+final recommendedListProvider = Provider<List<FavoriteItem>>((ref) {
+  final favorites = ref.watch(favoritesListProvider).valueOrNull ?? const [];
+  return [
+    for (final item in favorites)
+      if (item.recommended) item,
+  ]..sort(FavoriteItem.byRecentActivity);
+});
+
 /// Genre list per media type for the catalog filter (rarely changes, so it
 /// stays cached for the session).
 final genresProvider = FutureProvider.family<List<Genre>, MediaType>((ref, type) {
