@@ -45,6 +45,7 @@ O projeto Firebase é criado pelo mantenedor (passo a passo em [`docs/08-design-
 - **Indicador de sincronização** (ícone de nuvem ao lado do avatar): sincronizado, enviando, sem conexão (mostrando dados do aparelho) ou com problema. Escritas funcionam offline e são enviadas ao reconectar.
 - **Avisos** (faixa no rodapé): *sessão expirada* (as alterações pendentes ficam guardadas e seguem após entrar de novo **com a mesma conta**), *limite diário gratuito atingido* e *alteração recusada pelo servidor*. Na primeira carga, "não consegui carregar" nunca aparece como "você não tem favoritos": há um estado de erro com "Tentar novamente".
 - **Perfil:** apelido editável (1 a 40 caracteres), estatísticas (calculadas a partir dos dados, sem contadores guardados), "Membro desde", resumo de privacidade e link para a [política de privacidade](web/privacidade.html) (publicada como `privacidade.html` junto do app no GitHub Pages).
+- **Exportar meus dados (JSON):** no Perfil, seção "Seus dados". Baixa `cinetrack-export-AAAA-MM-DD.json` com todos os documentos de favoritos exatamente como estão no Firestore (inclusive campos que o app ainda não conhece), apelido e contadores; só leitura, do servidor e em páginas (sem limite de itens). Sem conexão, só exporta os dados do aparelho se o usuário escolher, avisando que podem estar incompletos. Entrega por download no navegador (web); em Android/iOS a seção explica que ainda não está disponível. Detalhes e formato em [docs/39](docs/39-exportar-meus-dados.md).
 - **Excluir conta e dados:** pede para entrar com o Google de novo, apaga favoritos, progresso e apelido em lotes e, por fim, a conta. É retomável: se for interrompida, o app oferece "Concluir exclusão". Exige estar online.
 
 Sem a chave configurada, o app abre normalmente mas a busca por novos filmes/séries mostra um erro de configuração (itens já favoritados continuam funcionando offline).
@@ -71,6 +72,7 @@ flutter test
 
 - `test/sync_status_test.dart`, `test/sync_status_provider_test.dart`, `test/sync_widgets_test.dart` — estado de sincronização (pendente/offline/erro), erros de escrita visíveis (regras, cota, sessão), erro x vazio no primeiro login, sessão expirada preservando pendências, indicador e faixa de avisos.
 - `test/account_deleter_test.dart`, `test/profile_screen_test.dart`, `test/profile_stats_test.dart` — exclusão de conta retomável (ordem, offline, reauth cancelada/outra conta, falha no meio), diálogo acessível por teclado, apelido, estatísticas e link de privacidade.
+- `test/export_serializer_test.dart`, `test/export_data_section_test.dart` — exportação de dados: formato, round-trip pelo `FavoriteMapper`, campos desconhecidos, documentos corrompidos, paginação (0 a 1500 itens), botão/estados/offline/erro no Perfil, troca de conta, nome do arquivo, 320 a 1440 px.
 
 Todos os testes acima rodam no CI sem credenciais. Os **testes das regras do Firestore** exigem o Emulator (Node + JDK 21 ou superior) e não rodam no `flutter test`:
 
@@ -89,6 +91,7 @@ lib/
   models/        # FavoriteItem, SeasonCache, EpisodeCache, SearchResult...
   auth/          # AuthRepository (Firebase Auth + Google), AppUser, AuthFailure
   account/       # AccountDeleter (exclusão retomável), sessão expirada
+  export/        # Exportar meus dados: serializador, paginação, entrega do arquivo (web)
   data/          # FavoritesDataSource e ProfileDataSource (Firestore / deslogado), estado de sincronização
   services/      # TmdbApiClient, LocalStore (Hive: só caches), ProgressCalculator, FavoriteMapper
   repositories/  # FavoritesRepository — única camada que decide rede x nuvem x cache

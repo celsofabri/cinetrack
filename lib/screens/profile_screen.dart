@@ -7,6 +7,7 @@ import '../providers/providers.dart';
 import '../widgets/account_widgets.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/delete_account_dialog.dart';
+import '../widgets/export_data_section.dart';
 import '../widgets/nickname_dialog.dart';
 import '../widgets/privacy_summary.dart';
 import '../widgets/tmdb_attribution.dart';
@@ -70,6 +71,8 @@ class ProfileScreen extends ConsumerWidget {
                 const PrivacySummary(),
                 const SizedBox(height: 24),
                 const TmdbAttribution(),
+                const SizedBox(height: 24),
+                const ExportDataSection(),
                 const SizedBox(height: 24),
                 Wrap(
                   alignment: WrapAlignment.center,
