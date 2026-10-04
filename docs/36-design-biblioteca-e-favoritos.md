@@ -689,3 +689,9 @@ Gate: Manager publica regras (8.2) antes do merge do app.
    - o app novo nunca grava `loved` enquanto não houver conhecimento de que as regras novas estão publicadas (ou falha de forma visível sem perder nada);
    - **Fatia 0 (rede de segurança): "Exportar meus dados" (JSON) no Perfil**, antes de qualquer mudança de regras, para o usuário ter uma cópia de tudo; o Manager faz a exportação da própria conta antes de publicar as regras da fatia 2;
    - desfazer/bulk, exclusão de conta e sincronização não podem apagar nem sobrescrever dado existente sem confirmação explícita do usuário.
+
+## Decisões do Manager (2026-10-04) — revisão da navegação
+1. **O Perfil fica onde está** (aba na barra inferior do mobile e no menu do topo no desktop). Substitui a recomendação R.* de mover o Perfil para o topo.
+2. A barra inferior do mobile (≤768 px) passa a: Início, Explorar, **Minhas recomendações**, Favoritos, Perfil (5 itens). A **Busca vira uma lupa na barra superior** (ao lado do logo/indicador de sync), abrindo `/search`; no desktop a Busca continua no menu do topo. Nenhuma rota some.
+3. Demais padrões aprovados: remover de Favoritos apaga a recomendação (com confirmação); recomendar fora de Favoritos adiciona a Favoritos; aba ordenada por atividade; frase de consentimento na política de privacidade.
+4. **Nenhum usuário precisa fazer nada** (sem migração, sem onboarding obrigatório, sem tela de aviso). Exportar dados é opcional. Consistência do app atual preservada: Favoritos inalterado.
