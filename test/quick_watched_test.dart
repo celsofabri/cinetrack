@@ -178,17 +178,18 @@ class _Rig {
 }
 
 Finder _markTv(String title) =>
-    find.byTooltip('Marcar todos os episódios de $title como assistidos');
-Finder _unmarkTv(String title) => find.byTooltip('Desmarcar todos os episódios de $title');
+    find.byTooltip('Marcar como assistido: todos os episódios de $title');
+Finder _unmarkTv(String title) =>
+    find.byTooltip('Assistido: desmarcar todos os episódios de $title');
 
 void main() {
   group('movie: direct toggle', () {
     testWidgets('marks and unmarks without a dialog, never opens the details', (tester) async {
       final r = _Rig()..put(_movie());
       await r.pump(tester);
-      expect(find.text('Não assistido'), findsOneWidget);
+      expect(find.text('Marcar como assistido'), findsOneWidget);
 
-      await tester.tap(find.byTooltip('Marcar Filme M como assistido'));
+      await tester.tap(find.byTooltip('Marcar como assistido: Filme M'));
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing);
       expect(r.doc('7-movie').watchedMovie, isTrue);
@@ -199,9 +200,9 @@ void main() {
       expect(find.text('Concluídos (1)'), findsOneWidget);
       await tester.tap(find.text('Concluídos (1)'));
       await tester.pumpAndSettle();
-      expect(find.text('Assistido'), findsOneWidget);
+      expect(find.text('Assistido'), findsOneWidget); // chip label (icon + text)
 
-      await tester.tap(find.byTooltip('Desmarcar Filme M como assistido'));
+      await tester.tap(find.byTooltip('Assistido: desmarcar Filme M'));
       await tester.pumpAndSettle();
       expect(r.doc('7-movie').watchedMovie, isFalse);
       expect(find.text('Concluídos (0)'), findsOneWidget);
@@ -222,10 +223,13 @@ void main() {
         ..put(_movie())
         ..put(_movie(id: 8, title: 'Filme V', watched: true));
       await r.pump(tester);
-      final off = find.byTooltip('Marcar Filme M como assistido');
-      final on = find.byTooltip('Desmarcar Filme V como assistido');
-      expect(tester.getSize(off).height, greaterThanOrEqualTo(48));
-      expect(tester.getSize(off).width, greaterThanOrEqualTo(48));
+      final off = find.byTooltip('Marcar como assistido: Filme M');
+      final on = find.byTooltip('Assistido: desmarcar Filme V');
+      // The Tooltip wraps the visual chip (36 px); the padded tap target is the
+      // FilterChip itself (48 px).
+      final offChip = find.ancestor(of: off, matching: find.byType(FilterChip));
+      expect(tester.getSize(offChip).height, greaterThanOrEqualTo(48));
+      expect(tester.getSize(offChip).width, greaterThanOrEqualTo(48));
       final offData = tester.getSemantics(off).getSemanticsData();
       expect(offData.hasAction(SemanticsAction.tap), isTrue);
       expect(offData.flagsCollection.isSelected, Tristate.isFalse);
@@ -242,8 +246,8 @@ void main() {
     testWidgets('double tap while pending writes once', (tester) async {
       final r = _Rig()..put(_movie());
       await r.pump(tester);
-      final at = tester.getCenter(find.byTooltip('Marcar Filme M como assistido'));
-      await tester.tap(find.byTooltip('Marcar Filme M como assistido'));
+      final at = tester.getCenter(find.byTooltip('Marcar como assistido: Filme M'));
+      await tester.tap(find.byTooltip('Marcar como assistido: Filme M'));
       await tester.tapAt(at); // same frame: pending/absorbed or already moved
       await tester.pumpAndSettle();
       expect(r.doc('7-movie').watchedMovie, isTrue);
@@ -855,29 +859,84 @@ void main() {
     });
   });
 
+  group('labelled chip', () {
+    testWidgets('text in both states, series done, no navigation, semantics', (tester) async {
+      final handle = tester.ensureSemantics();
+      final r = _Rig()
+        ..put(_movie())
+        ..put(_movie(id: 8, title: 'Filme V', watched: true))
+        ..put(_tv());
+      await r.pump(tester);
+      expect(find.text('Marcar como assistido'), findsNWidgets(2)); // movie + series
+      final chip = find.ancestor(
+        of: find.text('Marcar como assistido').first,
+        matching: find.byType(FilterChip),
+      );
+      expect(tester.getSize(chip.first).height, greaterThanOrEqualTo(32));
+      final sem = tester.getSemantics(find.byTooltip('Marcar como assistido: Filme M'));
+      expect(sem.label, 'Marcar como assistido: Filme M');
+      expect(sem.getSemanticsData().flagsCollection.isSelected, Tristate.isFalse);
+      await tester.tap(find.byTooltip('Marcar como assistido: Filme M'));
+      await tester.pumpAndSettle();
+      expect(r.navigated, isEmpty);
+      expect(find.text('DETAIL-MOVIE'), findsNothing);
+      await tester.tap(find.textContaining('Concluídos ('));
+      await tester.pumpAndSettle();
+      expect(find.text('Assistido'), findsNWidgets(2));
+      final on = tester.getSemantics(find.byTooltip('Assistido: desmarcar Filme V'));
+      expect(on.label, 'Assistido: desmarcar Filme V');
+      expect(on.getSemanticsData().flagsCollection.isSelected, Tristate.isTrue);
+      handle.dispose();
+    });
+
+    testWidgets('completed series shows "Assistido" and unmarks', (tester) async {
+      final r = _Rig()..put(_tv());
+      await r.seedCatalog(1, [_s0, _s1, _s2]);
+      await r.pump(tester);
+      await tester.tap(_markTv('Serie A'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Marcar tudo'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Concluídos ('));
+      await tester.pumpAndSettle();
+      expect(find.text('Assistido'), findsOneWidget);
+      expect(_unmarkTv('Serie A'), findsOneWidget);
+      expect(r.navigated, isEmpty);
+    });
+  });
+
   group('layout', () {
-    for (final width in [320.0, 360.0, 768.0, 1024.0, 1440.0]) {
-      for (final dark in [false, true]) {
-        testWidgets('${width.toInt()} px, ${dark ? 'dark' : 'light'}, font 2x: no overflow', (
-          tester,
-        ) async {
-          final r = _Rig()
-            ..put(_tv(title: 'Uma série com um título bastante longo para quebrar linhas'))
-            ..put(_movie(title: 'Um filme com um título igualmente longo e cheio de palavras'));
-          await r.seedCatalog(1, [_s0, _s1, _s2]);
-          await r.pump(
-            tester,
-            size: Size(width, 900),
-            textScale: 2,
-            brightness: dark ? Brightness.dark : Brightness.light,
+    for (final scale in [1.0, 2.0, 3.0]) {
+      for (final width in [320.0, 360.0, 768.0, 1024.0, 1440.0]) {
+        for (final dark in [false, true]) {
+          testWidgets(
+            '${width.toInt()} px, ${dark ? 'dark' : 'light'}, font ${scale.toInt()}x: no overflow',
+            (tester) async {
+              final r = _Rig()
+                ..put(_tv(title: 'Uma série com um título bastante longo para quebrar linhas'))
+                ..put(_movie(title: 'Um filme com um título igualmente longo e cheio de palavras'));
+              await r.seedCatalog(1, [_s0, _s1, _s2]);
+              await r.pump(
+                tester,
+                size: Size(width, 900),
+                textScale: scale,
+                brightness: dark ? Brightness.dark : Brightness.light,
+              );
+              expect(tester.takeException(), isNull);
+              expect(find.text('Marcar como assistido'), findsWidgets);
+              for (final b in find.byType(FilterChip).evaluate()) {
+                final size = tester.getSize(find.byWidget(b.widget));
+                expect(size.width, greaterThanOrEqualTo(48));
+                expect(size.height, greaterThanOrEqualTo(48));
+              }
+              final chips = find.byType(FilterChip);
+              if (width >= 768) {
+                // Neighbours in the same row: chips anchored at the same base.
+                expect(tester.getBottomLeft(chips.at(0)).dy, tester.getBottomLeft(chips.at(1)).dy);
+              }
+            },
           );
-          expect(tester.takeException(), isNull);
-          for (final b in find.byType(IconButton).evaluate()) {
-            final size = tester.getSize(find.byWidget(b.widget));
-            expect(size.width, greaterThanOrEqualTo(48));
-            expect(size.height, greaterThanOrEqualTo(48));
-          }
-        });
+        }
       }
     }
   });

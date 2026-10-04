@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -516,26 +517,47 @@ class _FavoritesGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
-      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 460,
-        mainAxisExtent: (_posterHeight + 20) * scale,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-      ),
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final entry = entries[index];
-        return _FavoriteCard(
-          key: ValueKey(entry.item.storageKey),
-          item: entry.item,
-          status: entry.status,
-          pending: busy.contains(entry.item.storageKey),
-          onToggleWatched: () => onToggleWatched(entry.item, entry.status),
+    // No fixed card height: each row is as tall as its tallest card (any font
+    // scale), and the cards of a row stretch to it so their chips line up.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 12.0;
+        const maxExtent = 460.0;
+        final inner = constraints.maxWidth - 24;
+        final columns = math.max(1, (inner / (maxExtent + spacing)).ceil());
+        final rows = <Widget>[];
+        for (var i = 0; i < entries.length; i += columns) {
+          rows.add(
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var c = 0; c < columns; c++) ...[
+                    if (c > 0) const SizedBox(width: spacing),
+                    Expanded(
+                      child: i + c < entries.length
+                          ? _FavoriteCard(
+                              key: ValueKey(entries[i + c].item.storageKey),
+                              item: entries[i + c].item,
+                              status: entries[i + c].status,
+                              pending: busy.contains(entries[i + c].item.storageKey),
+                              onToggleWatched: () => onToggleWatched(
+                                entries[i + c].item,
+                                entries[i + c].status,
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+          if (i + columns < entries.length) rows.add(const SizedBox(height: spacing));
+        }
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+          child: Column(children: rows),
         );
       },
     );
@@ -561,12 +583,8 @@ class _FavoriteCard extends StatelessWidget {
     final isMovie = item.mediaType == MediaType.movie;
     final theme = Theme.of(context);
 
-    final Widget statusWidget = isMovie
-        ? Text(
-            item.watchedMovie ? 'Assistido' : 'Não assistido',
-            style: theme.textTheme.bodyMedium,
-          )
-        : SeriesStatusBadge(status: status);
+    // Movies: the chip itself says watched / not (no duplicated status text).
+    final Widget? statusWidget = isMovie ? null : SeriesStatusBadge(status: status);
 
     return Semantics(
       button: true,
@@ -580,47 +598,44 @@ class _FavoriteCard extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(10),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // Exact 2:3 box + contain: the whole poster, no crop.
-                PosterImage(
-                  posterPath: item.posterPath,
-                  width: _posterWidth,
-                  height: _posterHeight,
-                  fit: BoxFit.contain,
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: PosterImage(
+                    posterPath: item.posterPath,
+                    width: _posterWidth,
+                    height: _posterHeight,
+                    fit: BoxFit.contain,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // The check sits on the title row, so the status below keeps
-                      // the whole text width (no extra height at large fonts).
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: Text(
-                                item.title,
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.titleMedium,
-                              ),
-                            ),
-                          ),
-                          QuickWatchedButton(
-                            title: item.title,
-                            isMovie: isMovie,
-                            watched: isMovie ? item.watchedMovie : status.isCompleted,
-                            pending: pending,
-                            onPressed: onToggleWatched,
-                          ),
-                        ],
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          item.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium,
+                        ),
                       ),
-                      const SizedBox(height: 2),
-                      statusWidget,
+                      if (statusWidget != null) ...[const SizedBox(height: 2), statusWidget],
+                      // Labelled chip anchored at the base of the card (aligned between
+                      // neighbours), left aligned. Same height in every state (no
+                      // layout shift); the label wraps instead of being cut.
+                      const Spacer(),
+                      QuickWatchedButton(
+                        title: item.title,
+                        isMovie: isMovie,
+                        watched: isMovie ? item.watchedMovie : status.isCompleted,
+                        pending: pending,
+                        onPressed: onToggleWatched,
+                      ),
                     ],
                   ),
                 ),
@@ -633,9 +648,9 @@ class _FavoriteCard extends StatelessWidget {
   }
 }
 
-/// Quick watched control of a favorites card: a 48 px check button. Filled
-/// check = watched (movie watched / series up to date), outline = not. Its tap wins
-/// over the card's InkWell, so it never opens the details.
+/// Quick watched control of a favorites card: the same chip as the details
+/// ("Marcar como assistido" / "Assistido", icon + text, 48 px target). Its tap
+/// wins over the card's InkWell, so it never opens the details.
 class QuickWatchedButton extends StatelessWidget {
   final String title;
   final bool isMovie;
@@ -654,37 +669,20 @@ class QuickWatchedButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final label = isMovie
-        ? (watched ? 'Desmarcar $title como assistido' : 'Marcar $title como assistido')
+        ? (watched ? 'Assistido: desmarcar $title' : 'Marcar como assistido: $title')
         : (watched
-              ? 'Desmarcar todos os episódios de $title'
-              : 'Marcar todos os episódios de $title como assistidos');
-    if (pending) {
-      return Semantics(
-        label: '$title: atualizando',
-        liveRegion: true,
-        child: const SizedBox(
-          width: 48,
-          height: 48,
-          child: Center(
-            child: SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          ),
-        ),
-      );
-    }
-    return IconButton(
+              ? 'Assistido: desmarcar todos os episódios de $title'
+              : 'Marcar como assistido: todos os episódios de $title');
+    return DetailToggleChip(
+      label: watched ? 'Assistido' : 'Marcar como assistido',
+      semanticsLabel: pending ? '$title: atualizando' : label,
       tooltip: label,
-      isSelected: watched,
-      icon: const Icon(Icons.check_circle_outline),
-      // Watched: filled check on a tonal disc (clear in light and dark).
-      selectedIcon: Icon(Icons.check_circle, color: scheme.onPrimaryContainer),
-      style: watched ? IconButton.styleFrom(backgroundColor: scheme.primaryContainer) : null,
-      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+      icon: Icons.check_circle_outline,
+      selectedIcon: Icons.check_circle,
+      selected: watched,
+      pending: pending,
+      accent: true,
       onPressed: onPressed,
     );
   }

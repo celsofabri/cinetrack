@@ -174,6 +174,7 @@ class DetailToggleChip extends StatelessWidget {
   final bool selected;
   final bool pending;
   final bool accent;
+  final String? tooltip;
   final VoidCallback onPressed;
 
   const DetailToggleChip({
@@ -186,6 +187,7 @@ class DetailToggleChip extends StatelessWidget {
     required this.pending,
     required this.onPressed,
     this.accent = false,
+    this.tooltip,
   });
 
   @override
@@ -204,6 +206,7 @@ class DetailToggleChip extends StatelessWidget {
         labelStyle: fg == null ? null : TextStyle(color: fg),
         selected: selected,
         showCheckmark: false,
+        tooltip: tooltip,
         selectedColor: selected && accent ? scheme.primaryContainer : null,
         avatar: pending
             ? SizedBox(

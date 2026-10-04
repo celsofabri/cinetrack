@@ -44,3 +44,9 @@ Branch `feat/quick-watched-toggle` (não commitada). Parte B é o pedido do Mana
 
 ## Não verificado
 Visual real em navegador/dispositivo (só testes de widget e build); Firestore real (somente fakes, como nos docs anteriores): comportamento offline do Desfazer e `hasPendingWrites` não testados contra o SDK.
+
+## Ajuste: botão com texto (fix/quick-watched-label)
+- O botão só com o ícone de check foi trocado pelo mesmo chip do detalhe (`DetailToggleChip`): ícone + "Marcar como assistido" (não marcado) ou "Assistido" (marcado; série concluída igual). Alvo de 48 px, tooltip e semântica (label completo, botão, selecionado) preservados; pendente mostra spinner e mantém o texto.
+- Posição: base do cartão, à esquerda, abaixo do título (agora até 2 linhas) e do selo de progresso. Nos filmes o chip é o próprio estado (o texto "Assistido/Não assistido" foi removido para não duplicar). O rótulo quebra em 2 linhas em larguras estreitas/fonte grande, nunca é cortado; a grade não usa mais altura fixa: cada linha tem a altura do cartão mais alto (`IntrinsicHeight`), qualquer escala de fonte (testado 1x/2x/3x), e o chip fica ancorado na base (alinhado entre vizinhos), sem salto entre estados. Nome acessível começa pelo texto visível (WCAG 2.5.3): "Marcar como assistido: <título>" / "Assistido: desmarcar <título>".
+- Comportamento (filme direto, série com diálogo, Desfazer 30 s, "salvando…", anti-duplo-toque, troca de conta) inalterado. Sem mudança de modelo, regras ou dependências.
+- Não verificado visualmente em navegador/dispositivo; só testes de widget (320 a 1440 px, claro/escuro, fonte 2x) e build.

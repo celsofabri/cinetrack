@@ -58,7 +58,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('A Movie'), findsOneWidget);
-    expect(find.text('Não assistido'), findsOneWidget);
+    // The labelled quick chip now carries the movie's watched state.
+    expect(find.text('Marcar como assistido'), findsOneWidget);
   });
 
   testWidgets('shows aggregated progress for a favorite series', (tester) async {
