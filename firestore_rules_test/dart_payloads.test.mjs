@@ -8,8 +8,8 @@ import { readFileSync } from 'node:fs';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import {
-  collection, doc, getDoc, getDocs, limit, query, runTransaction, serverTimestamp, setDoc,
-  where, writeBatch,
+  collection, doc, getCountFromServer, getDoc, getDocs, limit, orderBy, query, runTransaction,
+  serverTimestamp, setDoc, startAfter, where, writeBatch,
 } from 'firebase/firestore';
 import { PHOTO, U, agoDays, makeTools, newEnv } from './social_helpers.mjs';
 
@@ -30,11 +30,13 @@ const resolve = (v) => (v === fx.serverTimestamp ? serverTimestamp() : v);
 const resolved = (data) => Object.fromEntries(Object.entries(data).map(([k, v]) => [k, resolve(v)]));
 const ref = (db, path) => doc(db, ...path.split('/'));
 
-// Executes one fixture "write" exactly as the Firestore data source does: a transaction (writes
-// only; the Dart reads do not matter to the rules) or one batch.
+// Executes one fixture "write" exactly as the Firestore data source does: a transaction (first
+// the `reads` the payload declares, which the rules must allow; the other reads of the Dart
+// side do not matter to the rules) or one batch.
 const run = (db, write) => {
   if (write.mode === 'transaction') {
     return runTransaction(db, async (tx) => {
+      for (const path of write.reads ?? []) await tx.get(ref(db, path));
       for (const op of write.ops) {
         const r = ref(db, op.path);
         if (op.op === 'set') tx.set(r, resolved(op.data));
@@ -56,7 +58,8 @@ const run = (db, write) => {
 const toQuery = (db, spec) => {
   let q = collection(db, ...spec.collection.split('/'));
   const clauses = spec.where.map(([f, op, v]) => where(f, op, v));
-  return query(q, ...clauses, limit(spec.limit));
+  const order = spec.orderBy ? [orderBy(spec.orderBy[0], spec.orderBy[1])] : [];
+  return query(q, ...clauses, ...order, limit(spec.limit));
 };
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -196,5 +199,207 @@ describe('Dart payloads (fixture) against the final rules', () => {
     for (const q of Object.values(fx.queries)) {
       assert.equal((await assertSucceeds(getDocs(toQuery(db, q.query)))).empty, true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Slice 2 (docs/59): search, send / cancel request, "Enviados" list. Same fixture, same rules.
+// ---------------------------------------------------------------------------------------------
+describe('Dart payloads (fixture): friend requests (slice 2)', () => {
+  const to = S.sendRequest.input.toUid; // uid-bruno
+  const reqPath = `friend_requests/${ana}_${to}`;
+  const bothActive = async () => {
+    await t.seedSocial(ana, { handle: 'ana' });
+    await t.seedSocial(to, { handle: 'bruno' });
+  };
+  const clauses = (w, fn) => {
+    const c = clone(w);
+    fn(c.ops[0]);
+    return c;
+  };
+
+  for (const name of ['sendRequest', 'sendRequest_with_photos']) {
+    it(`${name}: reads are allowed and the request is created`, async () => {
+      await bothActive();
+      await assertSucceeds(run(t.db(ana), S[name].write));
+      assert.equal(await t.exists(['friend_requests', `${ana}_${to}`]), true);
+    });
+  }
+
+  it('sendRequest declares the two reads the app does (own and inverse request)', () => {
+    assert.deepEqual(S.sendRequest.write.reads, [reqPath, `friend_requests/${to}_${ana}`]);
+  });
+
+  it('duplicate: a second request to the same person is denied (create over existing)', async () => {
+    await bothActive();
+    await assertSucceeds(run(t.db(ana), S.sendRequest.write));
+    await assertFails(run(t.db(ana), S.sendRequest.write));
+  });
+
+  it('to yourself is denied', async () => {
+    await bothActive();
+    const self = clauses(S.sendRequest.write, (op) => {
+      op.path = `friend_requests/${ana}_${ana}`;
+      op.data.to = ana;
+    });
+    await assertFails(run(t.db(ana), self));
+  });
+
+  it('to a hidden user: the rules ALLOW it (D12: only with a known uid) but search cannot reach it', async () => {
+    await t.seedSocial(ana, { handle: 'ana' });
+    await t.seedSocial(to, { handle: 'bruno', discoverable: false });
+    // the app finds people only through this get, which is denied for hidden cards:
+    await assertFails(getDoc(doc(t.db(ana), 'handles', 'bruno')));
+    await assertSucceeds(run(t.db(ana), S.sendRequest.write));
+  });
+
+  it('to someone who blocked you, or whom you blocked: denied (and the card is not readable)', async () => {
+    await bothActive();
+    await t.seedBlock(to, ana);
+    await assertFails(getDoc(doc(t.db(ana), 'handles', 'bruno')));
+    await assertFails(run(t.db(ana), S.sendRequest.write));
+    await env.clearFirestore();
+    await bothActive();
+    await t.seedBlock(ana, to);
+    await assertFails(getDoc(doc(t.db(ana), 'handles', 'bruno')));
+    await assertFails(run(t.db(ana), S.sendRequest.write));
+  });
+
+  it('to someone without social is denied', async () => {
+    await t.seedSocial(ana, { handle: 'ana' });
+    await assertFails(run(t.db(ana), S.sendRequest.write));
+  });
+
+  it('sender without social is denied', async () => {
+    await t.seedSocial(to, { handle: 'bruno' });
+    await assertFails(run(t.db(ana), S.sendRequest.write));
+  });
+
+  it('non-Google provider is denied', async () => {
+    await bothActive();
+    await assertFails(run(t.dbWith(ana, 'password'), S.sendRequest.write));
+  });
+
+  it('unknown handle: the get is allowed and says "does not exist" (the app shows the generic message)', async () => {
+    const snap = await assertSucceeds(getDoc(doc(t.db(ana), 'handles', 'ninguem')));
+    assert.equal(snap.exists(), false);
+  });
+
+  it('a request to a uid with "_" is denied (ambiguous composite id)', async () => {
+    await t.seedSocial(ana, { handle: 'ana' });
+    await t.seedSocial('uid_x', { handle: 'xis' });
+    const bad = clauses(S.sendRequest.write, (op) => {
+      op.path = `friend_requests/${ana}_uid_x`;
+      op.data.to = 'uid_x';
+    });
+    await assertFails(run(t.db(ana), bad));
+  });
+
+  it('field limits (derived from the fixture): extra field, forged sender, id mismatch, names, photos, clock', async () => {
+    await bothActive();
+    const w = S.sendRequest_with_photos.write;
+    const bad = {
+      'extra field': (op) => (op.data.note = 'oi'),
+      'sender forged': (op) => (op.data.from = to),
+      'id mismatch': (op) => (op.path = `friend_requests/${ana}_uid-caio`),
+      'fromName empty': (op) => (op.data.fromName = '   '),
+      'toName 41 chars': (op) => (op.data.toName = 'x'.repeat(41)),
+      'toName with zero-width space': (op) => (op.data.toName = 'Bru\u200Bno'),
+      'fromPhoto outside Google': (op) => (op.data.fromPhoto = 'https://evil.example/x.png'),
+      'toPhoto http': (op) => (op.data.toPhoto = 'http://lh3.googleusercontent.com/a'),
+      'client clock': (op) => (op.data.createdAt = new Date().toISOString()),
+      'missing toName': (op) => delete op.data.toName,
+    };
+    for (const [label, edit] of Object.entries(bad)) {
+      await assertFails(run(t.db(ana), clauses(w, edit)), label);
+    }
+    // 20 emoji (40 UTF-16 units) is the largest valid name
+    await assertSucceeds(
+      run(t.db(ana), clauses(w, (op) => (op.data.toName = '\u{1F3AC}'.repeat(20)))),
+    );
+  });
+
+  it('cancel: the sender deletes their own request; repeating it is harmless', async () => {
+    await bothActive();
+    await t.seedRequest(ana, to);
+    await assertSucceeds(run(t.db(ana), S.cancelRequest.write));
+    assert.equal(await t.exists(['friend_requests', `${ana}_${to}`]), false);
+    await assertSucceeds(run(t.db(ana), S.cancelRequest.write));
+  });
+
+  it('cancel: a request of someone else is denied (and survives); so is an id without my uid', async () => {
+    await bothActive();
+    await t.seedRequest(to, 'uid-caio');
+    const other = clone(S.cancelRequest.write);
+    other.ops[0].path = `friend_requests/${to}_uid-caio`;
+    await assertFails(run(t.db(ana), other));
+    assert.equal(await t.exists(['friend_requests', `${to}_uid-caio`]), true);
+    // a non-existing document whose id does not contain my uid: denied too
+    const ghost = clone(S.cancelRequest.write);
+    ghost.ops[0].path = 'friend_requests/uid-x_uid-y';
+    await assertFails(run(t.db(ana), ghost));
+  });
+
+  it('sent query: only my pending requests, newest first, paged with startAfter; others cannot run it', async () => {
+    await bothActive();
+    await t.seed(async (d) => {
+      const mk = (id, from, toUid, days) =>
+        setDoc(doc(d, 'friend_requests', id), {
+          from, to: toUid, fromName: 'F', toName: 'T', createdAt: agoDays(days),
+        });
+      await mk(`${ana}_uid-x1`, ana, 'uid-x1', 3);
+      await mk(`${ana}_uid-x2`, ana, 'uid-x2', 1);
+      await mk(`${ana}_uid-x3`, ana, 'uid-x3', 2);
+      await mk(`${to}_${ana}`, to, ana, 0.5); // received: must not appear
+      await mk(`${to}_uid-caio`, to, 'uid-caio', 0.5); // someone else's: must not appear
+    });
+    const spec = fx.requestQueries.sent.query;
+    const db = t.db(ana);
+    const first = await assertSucceeds(getDocs(toQuery(db, { ...spec, limit: 3 })));
+    assert.deepEqual(first.docs.map((x) => x.id), [`${ana}_uid-x2`, `${ana}_uid-x3`, `${ana}_uid-x1`]);
+    // page size 2 (+1 look-ahead), then continue after the 2nd document
+    const p1 = await getDocs(toQuery(db, { ...spec, limit: 3 }));
+    const page2 = await assertSucceeds(
+      getDocs(query(toQuery(db, { ...spec, limit: 3 }), startAfter(p1.docs[1]))),
+    );
+    assert.deepEqual(page2.docs.map((x) => x.id), [`${ana}_uid-x1`]);
+    // the same query run by another user (from == ana) is denied
+    await assertFails(getDocs(toQuery(t.db(to), spec)));
+    await assertFails(getDocs(toQuery(t.anon(), spec)));
+  });
+
+  it('sentCount query: counts only my sent requests (limit as in the payload); others are denied', async () => {
+    await bothActive();
+    await t.seedRequest(ana, 'uid-x1');
+    await t.seedRequest(ana, 'uid-x2');
+    await t.seedRequest(to, ana);
+    const spec = fx.requestQueries.sentCount.query;
+    assert.equal(spec.aggregate, 'count');
+    const snap = await assertSucceeds(getCountFromServer(toQuery(t.db(ana), spec)));
+    assert.equal(snap.data().count, 2);
+    await assertFails(getCountFromServer(toQuery(t.db(to), spec)));
+  });
+
+  it('crossed request: the inverse request is readable (the app detects it) and nothing becomes a friendship', async () => {
+    await bothActive();
+    await t.seedRequest(to, ana);
+    await assertSucceeds(getDoc(doc(t.db(ana), 'friend_requests', `${to}_${ana}`)));
+    // the app stops here ("essa pessoa já enviou um pedido para você"); the pair is slice 3
+    assert.equal(await t.exists(['friendships', 'uid-ana_uid-bruno']), false);
+  });
+
+  it('lookup: the exact document the app reads (fixture path): visible card ok, hidden / blocked denied, missing = no document', async () => {
+    const path = fx.lookups.handle.get;
+    assert.equal(path, 'handles/bruno');
+    await bothActive();
+    const visible = await assertSucceeds(getDoc(ref(t.db(ana), path)));
+    assert.equal(visible.data().nickname, 'Nome uid-bruno');
+    const none = await assertSucceeds(getDoc(ref(t.db(ana), 'handles/ninguem')));
+    assert.equal(none.exists(), false);
+    await env.clearFirestore();
+    await t.seedSocial(ana, { handle: 'ana' });
+    await t.seedSocial(to, { handle: 'bruno', discoverable: false });
+    await assertFails(getDoc(ref(t.db(ana), path)));
+    await assertFails(getDoc(ref(t.anon(), path)));
   });
 });

@@ -23,6 +23,9 @@ class CardPatch {
 /// Nothing here is ever called for a user who did not turn friendships on,
 /// except the reads that tell whether they did.
 abstract class SocialDataSource {
+  /// The signed-in user this source works for ('' when signed out).
+  String get uid;
+
   /// `social/{uid}` and the card it points to. [fromServer] false = whatever
   /// this device has. Throws [SocialFailureKind.denied] while the rules that
   /// allow the feature are not published.
@@ -48,6 +51,28 @@ abstract class SocialDataSource {
   /// Idempotent. Reads from the server.
   Future<bool> closeSocial();
 
+  /// Search: ONE `get` of `handles/{handle}` (never a list). Null = the
+  /// document does not exist. A card that is hidden or whose owner blocked
+  /// this user (or the reverse) is answered by the rules with
+  /// [SocialFailureKind.denied]; callers must treat both exactly alike.
+  Future<RawCard?> lookupHandle(String handle);
+
+  /// Number of pending requests sent by this user (aggregate `count()`, at
+  /// most [kMaxSentRequests]); server read.
+  Future<int> countSentRequests();
+
+  /// Creates `friend_requests/{me}_{to}` in one transaction. Throws
+  /// [SocialFailureKind.alreadySent] / [SocialFailureKind.incomingRequest]
+  /// (nothing is created), [SocialFailureKind.denied] when the rules refuse.
+  Future<void> sendRequest(SendRequestDraft draft);
+
+  /// Deletes the request this user sent to [toUid] (idempotent).
+  Future<void> cancelRequest(String toUid);
+
+  /// A page of sent requests, newest first: server when reachable, else the
+  /// device ([RawSentPage.fromCache]). [cursor] comes from the previous page.
+  Future<RawSentPage> readSentPage({Object? cursor, required int limit});
+
   /// Up to [limit] documents of [kind] that involve this user, from the
   /// server. Empty = nothing left.
   Future<List<SweepRef>> readSweepPage(SweepKind kind, {required int limit});
@@ -59,6 +84,9 @@ abstract class SocialDataSource {
 /// Inert source for signed-out sessions.
 class SignedOutSocialDataSource implements SocialDataSource {
   const SignedOutSocialDataSource();
+
+  @override
+  String get uid => '';
 
   @override
   Future<RawSocial> read({required bool fromServer}) async => const RawSocial();
@@ -80,6 +108,24 @@ class SignedOutSocialDataSource implements SocialDataSource {
 
   @override
   Future<bool> closeSocial() async => false;
+
+  @override
+  Future<RawCard?> lookupHandle(String handle) async => null;
+
+  @override
+  Future<int> countSentRequests() async => 0;
+
+  @override
+  Future<void> sendRequest(SendRequestDraft draft) =>
+      Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<void> cancelRequest(String toUid) =>
+      Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<RawSentPage> readSentPage({Object? cursor, required int limit}) async =>
+      const RawSentPage(docs: []);
 
   @override
   Future<List<SweepRef>> readSweepPage(SweepKind kind, {required int limit}) async => const [];

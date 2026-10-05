@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../providers/social_providers.dart';
 import '../providers/sync_providers.dart';
 import '../social/social_models.dart';
 import '../social/social_validation.dart';
 import 'nickname_dialog.dart';
+import 'person_avatar.dart';
 import 'social_dialogs.dart';
 
 /// Profile section "Amizades": opt-in, off by default. Nothing is written
@@ -18,6 +20,7 @@ class SocialSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(socialControllerProvider);
+    ref.read(socialControllerProvider.notifier).confirm();
     final offline = ref.watch(syncStatusProvider).offline;
     final theme = Theme.of(context);
     if (state.phase == SocialPhase.signedOut) return const SizedBox.shrink();
@@ -130,7 +133,7 @@ class _Inactive extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Ative para ter um identificador (@usuario) e, em breve, adicionar amigos. '
+            'Ative para ter um identificador (@usuario) e adicionar amigos. '
             'Enquanto estiver desativado, nada seu fica visível para outras pessoas.',
           ),
           const SizedBox(height: 12),
@@ -190,7 +193,7 @@ class _Active extends ConsumerWidget {
       children: [
         Row(
           children: [
-            _CardAvatar(photoUrl: profile.photoUrl, nickname: profile.nickname),
+            PersonAvatar(photoUrl: profile.photoUrl, nickname: profile.nickname),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -246,6 +249,12 @@ class _Active extends ConsumerWidget {
           spacing: 12,
           runSpacing: 12,
           children: [
+            FilledButton.tonalIcon(
+              style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
+              onPressed: () => context.push('/friends'),
+              icon: const Icon(Icons.people_outline),
+              label: const Text('Gerenciar amigos'),
+            ),
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
               onPressed: locked || !canChange ? null : () => showChangeHandleDialog(context),
@@ -272,31 +281,6 @@ class _Active extends ConsumerWidget {
           ],
         ),
       ],
-    );
-  }
-}
-
-/// Round avatar of the public card: Google photo, or the nickname's initial.
-/// Decorative for screen readers (the handle and nickname are read next to it).
-class _CardAvatar extends StatelessWidget {
-  final String? photoUrl;
-  final String nickname;
-
-  const _CardAvatar({required this.photoUrl, required this.nickname});
-
-  @override
-  Widget build(BuildContext context) {
-    final photo = photoUrl;
-    final initial = nickname.isEmpty
-        ? '@'
-        : String.fromCharCode(nickname.runes.first).toUpperCase();
-    return ExcludeSemantics(
-      child: CircleAvatar(
-        radius: 24,
-        foregroundImage: photo == null ? null : NetworkImage(photo),
-        onForegroundImageError: photo == null ? null : (_, _) {},
-        child: Text(initial),
-      ),
     );
   }
 }

@@ -111,6 +111,11 @@ class AccountController extends Notifier<AccountDeletionState> {
       try {
         await ref.read(localStoreProvider).markFirestoreCachePurge();
       } catch (_) {}
+      // The uid is gone for good: its "limpeza pendente" flag (docs/58) too.
+      try {
+        await ref.read(localStoreProvider).setSocialCleanupPending(uid, false);
+        await ref.read(localStoreProvider).setSocialHint(uid, null);
+      } catch (_) {}
       state = const AccountDeletionState();
       return true;
     } on AccountDeletionFailure catch (failure) {

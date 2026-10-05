@@ -4,9 +4,11 @@ import 'package:go_router/go_router.dart';
 
 import 'models/media_type.dart';
 import 'providers/providers.dart';
+import 'screens/add_friend_screen.dart';
 import 'screens/cast_screen.dart';
 import 'screens/catalog_screen.dart';
 import 'screens/favorites_screen.dart';
+import 'screens/friends_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/movie_details_screen.dart';
 import 'screens/not_found_screen.dart';
@@ -23,7 +25,7 @@ int? _parseId(GoRouterState state) {
   return id == null || id <= 0 ? null : id;
 }
 
-/// The catalog is public; only `/profile` needs a session. While the
+/// The catalog is public; only `/profile` and `/friends*` need a session. While the
 /// session is still being restored we don't redirect (the profile screen
 /// handles "not connected" itself); once known, signed-out goes home.
 final routerProvider = Provider<GoRouter>((ref) {
@@ -35,7 +37,10 @@ final routerProvider = Provider<GoRouter>((ref) {
     initialLocation: '/',
     refreshListenable: refresh,
     redirect: (context, state) {
-      if (state.matchedLocation != '/profile') return null;
+      final location = state.matchedLocation;
+      if (location != '/profile' && location != '/friends' && !location.startsWith('/friends/')) {
+        return null;
+      }
       final auth = ref.read(authStateProvider);
       if (auth.isLoading) return null;
       return auth.valueOrNull == null ? '/' : null;
@@ -54,6 +59,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/catalog', builder: (context, state) => const CatalogScreen()),
           GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
           GoRoute(path: '/profile', builder: (context, state) => const ProfileScreen()),
+          GoRoute(path: '/friends', builder: (context, state) => const FriendsScreen()),
+          // A sibling, not a child: a nested route keeps the parent page alive under it, and the
+          // list behind the search would be read although the search must read nothing.
+          GoRoute(path: '/friends/add', builder: (context, state) => const AddFriendScreen()),
         ],
       ),
       // Detail screens sit outside the shell: no tab bar, back button kept.

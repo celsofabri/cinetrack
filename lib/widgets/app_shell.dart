@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../providers/catalog_sync_providers.dart';
 import '../providers/providers.dart';
+import '../providers/social_providers.dart';
 import 'auth_gate.dart';
 import 'sync_widgets.dart';
 
@@ -57,12 +58,14 @@ class BrandMark extends StatelessWidget {
 /// Fixed top bar of the mobile layout: logo always visible (it lives outside
 /// the scrollable content), then the search magnifier (Busca is not a tab on
 /// mobile any more, `/search` is unchanged) and the sync indicator.
-class MobileTopBar extends StatelessWidget {
+class MobileTopBar extends ConsumerWidget {
   const MobileTopBar({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    // Only for accounts with friendships on (loads the social state once per session).
+    final friends = ref.watch(socialActiveProvider);
     return Material(
       color: theme.colorScheme.surface,
       child: DecoratedBox(
@@ -86,6 +89,13 @@ class MobileTopBar extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (friends)
+                    IconButton(
+                      tooltip: 'Amigos',
+                      style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                      icon: const Icon(Icons.people_outline),
+                      onPressed: () => context.go('/friends'),
+                    ),
                   IconButton(
                     tooltip: 'Buscar',
                     style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
@@ -196,7 +206,10 @@ class AppShell extends ConsumerWidget {
     var selected = _tabs.indexWhere(
       (t) => t.path == '/' ? location == '/' : location.startsWith(t.path),
     );
-    if (selected < 0 && location.startsWith('/profile')) selected = profileIndex;
+    // Amigos "lives" in the Profile (docs/50 §13): its screens keep Perfil selected.
+    if (selected < 0 && (location.startsWith('/profile') || location.startsWith('/friends'))) {
+      selected = profileIndex;
+    }
     // `/search` (opened from the magnifier in the top bar) is not a tab; it is
     // part of exploring, so Explorar is the selected destination there (visual
     // AND screen reader), never a wrong one.

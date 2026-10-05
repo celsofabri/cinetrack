@@ -39,6 +39,16 @@ class FakeLocalStore extends LocalStore {
   Future<void> setSocialCleanupPending(String uid, bool pending) async =>
       pending ? socialCleanup.add(uid) : socialCleanup.remove(uid);
 
+  final Map<String, ({bool active, DateTime at})> socialHints = {};
+
+  @override
+  ({bool active, DateTime at})? socialHint(String uid) => socialHints[uid];
+
+  @override
+  Future<void> setSocialHint(String uid, bool? active, {DateTime? at}) async => active == null
+      ? socialHints.remove(uid)
+      : socialHints[uid] = (active: active, at: at ?? DateTime.now());
+
   final Map<int, List<SeasonCache>> _catalog = {};
   final _controller = StreamController<void>.broadcast();
 

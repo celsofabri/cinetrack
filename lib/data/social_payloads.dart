@@ -43,10 +43,15 @@ class SocialWrite {
   final SocialWriteMode mode;
   final List<SocialOp> ops;
 
-  const SocialWrite(this.mode, this.ops);
+  /// Documents a [SocialWriteMode.transaction] reads BEFORE writing (`get` by
+  /// path). The rules suite replays them too: they must be allowed.
+  final List<String> reads;
+
+  const SocialWrite(this.mode, this.ops, {this.reads = const []});
 
   Map<String, Object?> toJson() => {
     'mode': mode.name,
+    if (reads.isNotEmpty) 'reads': reads,
     'ops': [for (final o in ops) o.toJson()],
   };
 }
@@ -57,7 +62,13 @@ class SocialQuerySpec {
   final List<(String field, String op, String value)> where;
   final int limit;
 
-  const SocialQuerySpec(this.collection, this.where, this.limit);
+  /// `(field, descending)`; null = no ordering.
+  final (String field, bool descending)? orderBy;
+
+  /// `count` = aggregate query (`count()`), null = normal query.
+  final String? aggregate;
+
+  const SocialQuerySpec(this.collection, this.where, this.limit, {this.orderBy, this.aggregate});
 
   Map<String, Object?> toJson() => {
     'collection': collection,
@@ -65,6 +76,8 @@ class SocialQuerySpec {
       for (final w in where) [w.$1, w.$2, w.$3],
     ],
     'limit': limit,
+    if (orderBy != null) 'orderBy': [orderBy!.$1, orderBy!.$2 ? 'desc' : 'asc'],
+    if (aggregate != null) 'aggregate': aggregate,
   };
 }
 
@@ -155,6 +168,55 @@ class SocialPayloads {
         if (inviteCode != null) SocialOp.delete(invitePath(inviteCode)),
         SocialOp.delete(socialPath(uid)),
       ]);
+
+  /// Search: the ONE document a lookup reads (`get`, never a list).
+  static String lookupPath(String handle) => handlePath(handle);
+
+  static String requestPath(String from, String to) => 'friend_requests/${from}_$to';
+
+  /// "Enviar pedido": ONE transaction. It reads the request already sent by
+  /// this user and the inverse one (from the other person) first: if either
+  /// exists the data source stops and creates nothing ("já enviado" / "essa
+  /// pessoa já enviou um pedido para você"; accepting is slice 3). Optional
+  /// photo keys are left out when there is no photo.
+  static SocialWrite sendRequest(String uid, SendRequestDraft draft) => SocialWrite(
+    SocialWriteMode.transaction,
+    [
+      SocialOp.set(requestPath(uid, draft.toUid), {
+        'from': uid,
+        'to': draft.toUid,
+        'fromName': draft.fromName,
+        if (draft.fromPhoto != null) 'fromPhoto': draft.fromPhoto,
+        'toName': draft.toName,
+        if (draft.toPhoto != null) 'toPhoto': draft.toPhoto,
+        'createdAt': serverTimestamp,
+      }),
+    ],
+    reads: [requestPath(uid, draft.toUid), requestPath(draft.toUid, uid)],
+  );
+
+  /// "Cancelar pedido enviado": deletes `{me}_{to}` (the rules also let the
+  /// recipient delete it, which is slice 3's "recusar").
+  static SocialWrite cancelRequest(String uid, String toUid) =>
+      SocialWrite(SocialWriteMode.batch, [SocialOp.delete(requestPath(uid, toUid))]);
+
+  /// Lists the pending requests sent by this user, newest first (index
+  /// `from ASC, createdAt DESC`). Pages continue with `startAfterDocument`.
+  static SocialQuerySpec sentQuery(String uid, int limit) => SocialQuerySpec(
+    'friend_requests',
+    [('from', '==', uid)],
+    limit,
+    orderBy: ('createdAt', true),
+  );
+
+  /// Counts the pending sent requests (stops at [kMaxSentRequests]): one
+  /// billed read for the limit check instead of loading the list.
+  static SocialQuerySpec sentCountQuery(String uid) => SocialQuerySpec(
+    'friend_requests',
+    [('from', '==', uid)],
+    kMaxSentRequests,
+    aggregate: 'count',
+  );
 
   /// The sweep queries (server reads), always parameterised by the uid.
   static SocialQuerySpec sweepQuery(SweepKind kind, String uid, int limit) => switch (kind) {

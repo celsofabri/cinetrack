@@ -54,7 +54,9 @@ class PrivacySummary extends StatelessWidget {
           'listas e recomendações são privadas: só você as vê, por enquanto. Nome e e-mail '
           'vêm do Google e não são copiados para o banco. A foto também não, a menos que você '
           'ative as amizades e deixe a foto marcada: aí copiamos o endereço da foto, seu '
-          'apelido e seu identificador para o cartão que outras pessoas veem. Sem ativar as '
+          'apelido e seu identificador para o cartão que outras pessoas veem. Se você pedir '
+          'amizade a alguém, o pedido guarda seu apelido e foto e os da pessoa até ela '
+          'responder ou você cancelar; ninguém é avisado de uma recusa. Sem ativar as '
           'amizades, nada disso é gravado. Não usamos anúncios nem telemetria. '
           'Você pode excluir sua conta e todos os dados a qualquer momento, aqui no perfil.',
         ),

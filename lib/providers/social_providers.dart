@@ -97,15 +97,60 @@ class SocialController extends Notifier<SocialState> {
     final user = ref.watch(currentUserProvider.select((u) => (u?.uid, u?.isGoogle)));
     if (user.$1 == null) return const SocialState(phase: SocialPhase.signedOut);
     if (user.$2 != true) return const SocialState(phase: SocialPhase.notGoogle);
-    Future.microtask(() {
-      if (generation == _generation) _load(generation);
-    });
+    // A fresh local hint ("friendships on/off", at most [kSocialHintTtl] old)
+    // lets the Amigos icon show without reading the server; the first screen
+    // that needs the real state (Profile, /friends) calls [confirm].
+    final hinted = _freshHint(user.$1!) != null;
+    _started = !hinted;
+    if (!hinted) {
+      Future.microtask(() {
+        if (generation == _generation) _load(generation);
+      });
+    }
     return const SocialState();
+  }
+
+  /// True once the state of this session was asked from the server.
+  bool _started = false;
+
+  ({bool active, DateTime at})? _freshHint(String uid) {
+    try {
+      final hint = ref.read(localStoreProvider).socialHint(uid);
+      if (hint == null) return null;
+      final age = DateTime.now().difference(hint.at);
+      return age < kSocialHintTtl && !age.isNegative ? hint : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Hint for the icon while the state is not confirmed yet.
+  bool get hintedActive {
+    final uid = ref.read(currentUidProvider);
+    return uid != null && (_freshHint(uid)?.active ?? false);
+  }
+
+  /// Reads the real state once per session if the build skipped it (hint).
+  void confirm() {
+    if (_started) return;
+    final phase = state.phase;
+    if (phase == SocialPhase.signedOut || phase == SocialPhase.notGoogle) return;
+    _started = true;
+    Future.microtask(() => _load(_generation));
+  }
+
+  Future<void> _rememberHint(bool active) async {
+    final uid = ref.read(currentUidProvider);
+    if (uid == null) return;
+    try {
+      await ref.read(localStoreProvider).setSocialHint(uid, active);
+    } catch (_) {}
   }
 
   /// Reads the state again (server first, then the device).
   Future<void> refresh() async {
     if (state.phase == SocialPhase.signedOut || state.phase == SocialPhase.notGoogle) return;
+    _started = true;
     state = const SocialState();
     await _load(_generation);
   }
@@ -120,6 +165,8 @@ class SocialController extends Notifier<SocialState> {
         fromCache: load.fromCache,
         cleanupPending: load.profile == null && _cleanupFlag(),
       );
+      // Only a server answer is worth remembering (a device copy may be old).
+      if (!load.fromCache) await _rememberHint(load.profile != null);
     } on SocialFailure catch (e) {
       if (keepOnFailure) return;
       next = SocialState(
@@ -252,3 +299,250 @@ class SocialController extends Notifier<SocialState> {
 final socialControllerProvider = NotifierProvider<SocialController, SocialState>(
   SocialController.new,
 );
+
+/// How long the "Enviados" list is served from memory before the next open
+/// reads again (docs/50 §9 / D11: cache + TTL, no listener). Tests override.
+final sentRequestsTtlProvider = Provider<Duration>((ref) => const Duration(minutes: 5));
+
+enum SentPhase { idle, loading, loaded, error }
+
+class SentRequestsState {
+  final SentPhase phase;
+  final List<SentRequest> items;
+  final bool hasMore;
+  final Object? cursor;
+
+  /// The list shown came from this device, not from the server.
+  final bool fromCache;
+  final bool loadingMore;
+
+  /// A "Ver mais" that failed (the page already shown stays).
+  final SocialFailure? moreFailure;
+
+  /// Why the first page failed (phase [SentPhase.error]).
+  final SocialFailure? failure;
+
+  /// Recipients whose request is being cancelled right now.
+  final Set<String> cancelling;
+
+  /// When the first page was read from the server (null = never / from cache).
+  final DateTime? loadedAt;
+
+  const SentRequestsState({
+    this.phase = SentPhase.idle,
+    this.items = const [],
+    this.hasMore = false,
+    this.cursor,
+    this.fromCache = false,
+    this.loadingMore = false,
+    this.moreFailure,
+    this.failure,
+    this.cancelling = const {},
+    this.loadedAt,
+  });
+
+  bool contains(String toUid) => items.any((r) => r.toUid == toUid);
+
+  SentRequestsState copyWith({
+    SentPhase? phase,
+    List<SentRequest>? items,
+    bool? hasMore,
+    Object? cursor,
+    bool? fromCache,
+    bool? loadingMore,
+    SocialFailure? moreFailure,
+    bool clearMoreFailure = false,
+    Set<String>? cancelling,
+  }) => SentRequestsState(
+    phase: phase ?? this.phase,
+    items: items ?? this.items,
+    hasMore: hasMore ?? this.hasMore,
+    cursor: cursor ?? this.cursor,
+    fromCache: fromCache ?? this.fromCache,
+    loadingMore: loadingMore ?? this.loadingMore,
+    moreFailure: clearMoreFailure ? null : (moreFailure ?? this.moreFailure),
+    failure: failure,
+    cancelling: cancelling ?? this.cancelling,
+    loadedAt: loadedAt,
+  );
+}
+
+/// The pending requests this user sent ("Enviados"). Nothing is read until a
+/// screen asks ([ensureLoaded]); no listener; the first page is kept for
+/// [sentRequestsTtlProvider]. Sending adds to the list in memory and
+/// cancelling removes from it, so no re-read is needed after either.
+class SentRequestsController extends Notifier<SentRequestsState> {
+  int _generation = 0;
+
+  @override
+  SentRequestsState build() {
+    _generation++;
+    ref.watch(currentUidProvider);
+    // Everything in memory belongs to ONE "friendships on" period: turning
+    // them off (which deletes the requests on the server), on again, logging
+    // out or changing account rebuilds this controller and drops the list.
+    ref.watch(
+      socialControllerProvider.select((s) => (s.phase == SocialPhase.active, s.profile?.handle)),
+    );
+    return const SentRequestsState();
+  }
+
+  bool get _expired {
+    final at = state.loadedAt;
+    return at == null || DateTime.now().difference(at) >= ref.read(sentRequestsTtlProvider);
+  }
+
+  /// Loads the first page unless a fresh one is already in memory.
+  Future<void> ensureLoaded() async {
+    if (ref.read(currentUidProvider) == null) return;
+    if (state.phase == SentPhase.loading) return;
+    if (state.phase == SentPhase.loaded && !_expired) return;
+    await _loadFirst();
+  }
+
+  /// Reads the first page again (retry / pull).
+  Future<void> reload() async {
+    if (ref.read(currentUidProvider) == null || state.phase == SentPhase.loading) return;
+    await _loadFirst();
+  }
+
+  Future<void> _loadFirst() async {
+    final generation = _generation;
+    // Keep what is shown while refreshing a loaded list (no flicker).
+    state = state.phase == SentPhase.loaded
+        ? state.copyWith(clearMoreFailure: true)
+        : const SentRequestsState(phase: SentPhase.loading);
+    try {
+      final page = await ref.read(socialRepositoryProvider).sentRequests();
+      if (generation != _generation) return;
+      state = SentRequestsState(
+        phase: SentPhase.loaded,
+        items: page.items,
+        hasMore: page.hasMore,
+        cursor: page.cursor,
+        fromCache: page.fromCache,
+        loadedAt: page.fromCache ? null : DateTime.now(),
+      );
+    } on SocialFailure catch (e) {
+      if (generation != _generation) return;
+      state = state.phase == SentPhase.loaded
+          ? state.copyWith(moreFailure: e)
+          : SentRequestsState(phase: SentPhase.error, failure: e);
+    } catch (_) {
+      if (generation != _generation) return;
+      state = const SentRequestsState(
+        phase: SentPhase.error,
+        failure: SocialFailure(SocialFailureKind.unknown),
+      );
+    }
+  }
+
+  Future<void> loadMore() async {
+    if (state.phase != SentPhase.loaded || !state.hasMore || state.loadingMore) return;
+    final generation = _generation;
+    state = state.copyWith(loadingMore: true, clearMoreFailure: true);
+    try {
+      final page = await ref.read(socialRepositoryProvider).sentRequests(cursor: state.cursor);
+      if (generation != _generation) return;
+      final known = {for (final r in state.items) r.toUid};
+      state = state.copyWith(
+        items: [
+          ...state.items,
+          for (final r in page.items)
+            if (!known.contains(r.toUid)) r,
+        ],
+        hasMore: page.hasMore,
+        cursor: page.cursor,
+        fromCache: state.fromCache || page.fromCache,
+        loadingMore: false,
+      );
+    } on SocialFailure catch (e) {
+      if (generation == _generation) state = state.copyWith(loadingMore: false, moreFailure: e);
+    } catch (_) {
+      if (generation == _generation) {
+        state = state.copyWith(
+          loadingMore: false,
+          moreFailure: const SocialFailure(SocialFailureKind.unknown),
+        );
+      }
+    }
+  }
+
+  /// Sends a request. Returns the failure to show, or null on success.
+  Future<SocialFailure?> send(FriendCard target) async {
+    final generation = _generation;
+    final me = ref.read(socialControllerProvider).profile;
+    if (me == null) return const SocialFailure(SocialFailureKind.notActive);
+    try {
+      await ref.read(socialRepositoryProvider).sendRequest(target, me: me);
+    } on SocialFailure catch (e) {
+      return e;
+    } catch (_) {
+      return const SocialFailure(SocialFailureKind.unknown);
+    }
+    if (generation == _generation &&
+        state.phase == SentPhase.loaded &&
+        !state.contains(target.uid)) {
+      state = state.copyWith(
+        items: [
+          SentRequest(
+            toUid: target.uid,
+            toName: target.nickname,
+            toPhoto: target.photoUrl,
+            createdAt: DateTime.now(),
+          ),
+          ...state.items,
+        ],
+      );
+    }
+    return null;
+  }
+
+  /// Cancels the request sent to [toUid]. Returns the failure to show, or null.
+  Future<SocialFailure?> cancel(String toUid) async {
+    if (state.cancelling.contains(toUid)) return null;
+    final generation = _generation;
+    state = state.copyWith(cancelling: {...state.cancelling, toUid});
+    SocialFailure? failure;
+    try {
+      await ref.read(socialRepositoryProvider).cancelRequest(toUid);
+    } on SocialFailure catch (e) {
+      failure = e;
+    } catch (_) {
+      failure = const SocialFailure(SocialFailureKind.unknown);
+    }
+    if (generation != _generation) return failure;
+    final left = {...state.cancelling}..remove(toUid);
+    state = failure == null
+        ? state.copyWith(
+            items: [
+              for (final r in state.items)
+                if (r.toUid != toUid) r,
+            ],
+            cancelling: left,
+          )
+        : state.copyWith(cancelling: left);
+    // An unconfirmed delete may or may not have happened: look again.
+    if (failure?.kind == SocialFailureKind.uncertain) await reload();
+    return failure;
+  }
+}
+
+final sentRequestsControllerProvider = NotifierProvider<SentRequestsController, SentRequestsState>(
+  SentRequestsController.new,
+);
+
+/// True when this account has friendships on (and the answer is known):
+/// drives the Amigos entry in the top bar / menu. Reading it makes the social
+/// state load once per session (1-2 reads, docs/59).
+final socialActiveProvider = Provider<bool>((ref) {
+  final phase = ref.watch(socialControllerProvider.select((s) => s.phase));
+  if (phase == SocialPhase.active) return true;
+  // Not confirmed yet: trust a fresh local hint, never a stale one.
+  if (phase == SocialPhase.loading) return ref.read(socialControllerProvider.notifier).hintedActive;
+  return false;
+});
+
+/// How long a remembered "friendships on/off" answer lets the icon skip the
+/// server (docs/59). After that the next session asks again.
+const kSocialHintTtl = Duration(hours: 24);

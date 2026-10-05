@@ -25,7 +25,7 @@
 <body>
 <main>
   <h1>Política de privacidade do CineTrack</h1>
-  <p class="muted">Última atualização: 05/10/2026. <a href="./">Voltar ao app</a></p>
+  <p class="muted">Última atualização: 06/10/2026. <a href="./">Voltar ao app</a></p>
 
   <p>O CineTrack é um app gratuito para favoritar filmes e séries e acompanhar o progresso episódio
   por episódio. Esta página explica, em linguagem simples, quais dados são guardados, por quê, onde
@@ -37,7 +37,7 @@
     <tr><td>Identificador da sua conta (um código, não o seu nome)</td><td>Banco de dados na nuvem</td><td>Separar os seus dados dos de outras pessoas</td></tr>
     <tr><td>Seus favoritos, filmes assistidos e episódios assistidos (com a data em que foram marcados) e quais títulos você marcou como <strong>Recomendo</strong> (&ldquo;Minhas recomendações&rdquo;)</td><td>Banco de dados na nuvem</td><td>Mostrar a mesma lista em qualquer aparelho</td></tr>
     <tr><td>Apelido (opcional, de 1 a 40 caracteres)</td><td>Banco de dados na nuvem</td><td>Mostrar o nome que você escolheu</td></tr>
-    <tr><td><strong>Só se você ativar as amizades:</strong> identificador (@usuario), cartão de busca (identificador, apelido, endereço da foto do Google e a opção &ldquo;Aparecer na busca&rdquo;), e, nas próximas etapas, amigos, pedidos de amizade, bloqueios e convite</td><td>Banco de dados na nuvem</td><td>Permitir que outras pessoas encontrem você e vocês sejam amigos</td></tr>
+    <tr><td><strong>Só se você ativar as amizades:</strong> identificador (@usuario), cartão de busca (identificador, apelido, endereço da foto do Google e a opção &ldquo;Aparecer na busca&rdquo;), os <strong>pedidos de amizade que você envia</strong> (quem pediu e para quem, o apelido e a foto dos dois como estavam nos cartões, e a data) e, nas próximas etapas, amigos, bloqueios e convite</td><td>Banco de dados na nuvem</td><td>Permitir que outras pessoas encontrem você e vocês sejam amigos</td></tr>
   </table>
   <h2>Amizades (opcional, desligado por padrão)</h2>
   <p>As amizades só existem se <strong>você</strong> as ativar em Perfil &rarr; Amizades. Quem não
@@ -52,6 +52,16 @@
     <strong>só se &ldquo;Aparecer na busca&rdquo; estiver ligado</strong>. Seus amigos (quando
     existirem) veem apelido e foto. Ninguém vê seus favoritos, recomendações, progresso nem
     e-mail. Não existe lista pública de usuários nem busca por nome.</li>
+    <li><strong>Pedidos de amizade:</strong> ao tocar em &ldquo;Enviar pedido&rdquo;, gravamos um
+    registro com o identificador interno (uid) de você e da outra pessoa, o <strong>seu apelido e
+    foto</strong> e o <strong>apelido e foto dela</strong> (como aparecem nos cartões) e a data. A
+    outra pessoa pode ver esse pedido (seu apelido e foto); <strong>ninguém recebe e-mail nem
+    notificação</strong>. Você pode <strong>cancelar</strong> enquanto estiver pendente (o registro
+    é apagado). Se a pessoa recusar, o pedido some, <strong>sem aviso para você nem para ela</strong>.
+    O app limita você a 50 pedidos pendentes. Quando as duas pessoas pedem amizade uma à outra, elas
+    viram amigas. A busca responde sempre com a mesma
+    mensagem (&ldquo;Não encontramos ninguém com esse apelido&rdquo;), seja porque o identificador não
+    existe, a pessoa está fora da busca ou bloqueou você: ninguém descobre isso por aqui.</li>
     <li><strong>Bloquear:</strong> você poderá bloquear alguém; a pessoa bloqueada deixa de ver seu
     cartão, não consegue pedir amizade e não é avisada.</li>
     <li><strong>Desativar, exclusão e exportação:</strong> &ldquo;Desativar amizades&rdquo; apaga o
@@ -107,11 +117,12 @@
   <h2>Dados no seu aparelho</h2>
   <p>Para funcionar sem internet, o app guarda uma cópia das suas listas e do catálogo no
   armazenamento do navegador ou do aparelho. Se você ativou as amizades, essa cópia inclui o seu
-  cartão (identificador, apelido, endereço da foto e a opção &ldquo;Aparecer na busca&rdquo;) e, nas
-  próximas etapas, a lista de amigos e pedidos já carregados. <strong>Sair da conta não apaga essa cópia.</strong>
+  cartão (identificador, apelido, endereço da foto e a opção &ldquo;Aparecer na busca&rdquo;), a lista
+  de pedidos enviados já carregada (e, nas próximas etapas, a de amigos e pedidos recebidos). <strong>Sair da conta não apaga essa cópia.</strong>
   Ela fica até você limpar os dados do site; ao excluir a conta, ela é limpa na próxima vez que
-  você abrir o app. O aparelho também guarda, só se uma desativação das amizades não terminar, um
-  aviso para oferecer &ldquo;Concluir limpeza&rdquo;.
+  você abrir o app. O aparelho também guarda um indicador simples (sim/não, com a data) de que você
+  ativou ou não as amizades, para mostrar o ícone Amigos sem consultar o servidor toda vez, e, só se uma
+  desativação das amizades não terminar, um aviso para oferecer &ldquo;Concluir limpeza&rdquo;.
   Em computador ou aparelho compartilhado, use uma janela anônima ou limpe os dados do site depois
   de usar. O app só mostra os dados da conta que está conectada.</p>
 

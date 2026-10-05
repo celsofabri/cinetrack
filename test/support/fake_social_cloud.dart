@@ -18,7 +18,16 @@ class FakeSocialCloud {
   /// Operations that reached the "server", in order.
   final List<String> log;
 
+  /// Reads that reached the "server" (or the device cache), in order: 'read',
+  /// 'handleFree', 'lookup:HANDLE', 'count', 'sent:page', 'sweep:KIND'.
+  /// Used to prove a screen does not read more than it must (docs/59).
+  final List<String> readLog = [];
+
   bool offline = false;
+
+  /// While [offline], the list reads still answer from "the device" when true
+  /// (persistence on); false = nothing cached.
+  bool cacheAvailable = true;
 
   /// False = the rules that allow the feature are not published (everything
   /// is `permission-denied`, like the old ruleset's catch-all).
@@ -33,7 +42,8 @@ class FakeSocialCloud {
 
   /// Operation name -> failure thrown ONCE the next time it runs. Names:
   /// 'read', 'activate', 'changeHandle', 'updateCard', 'closeSocial',
-  /// 'readSweep:KIND', 'deleteRefs:KIND'.
+  /// 'readSweep:KIND', 'deleteRefs:KIND', 'lookup', 'count', 'sendRequest',
+  /// 'cancelRequest', 'sentPage'.
   final Map<String, SocialFailure> failures = {};
 
   /// Number of `deleteRefs` calls so far, and the 1-based call that fails once.
@@ -152,6 +162,7 @@ class FakeSocialCloud {
 
 class InMemorySocialDataSource implements SocialDataSource {
   final FakeSocialCloud cloud;
+  @override
   final String uid;
 
   InMemorySocialDataSource(this.cloud, {required this.uid});
@@ -166,6 +177,7 @@ class InMemorySocialDataSource implements SocialDataSource {
   @override
   Future<RawSocial> read({required bool fromServer}) async {
     _gate(server: fromServer);
+    cloud.readLog.add('read');
     cloud.checkFailure('read');
     final social = _copy(cloud.social[uid]);
     final handle = social?['handle'];
@@ -175,6 +187,7 @@ class InMemorySocialDataSource implements SocialDataSource {
   @override
   Future<bool> isHandleFree(String handle) async {
     _gate(server: true);
+    cloud.readLog.add('handleFree');
     return !cloud.handles.containsKey(handle);
   }
 
@@ -264,6 +277,110 @@ class InMemorySocialDataSource implements SocialDataSource {
     return true;
   }
 
+  bool _blockedEither(String a, String b) =>
+      (cloud.blocks[a]?.containsKey(b) ?? false) || (cloud.blocks[b]?.containsKey(a) ?? false);
+
+  /// `get handles/{h}` under the rules: missing = null; hidden or blocked =
+  /// denied (the owner always reads their own card).
+  @override
+  Future<RawCard?> lookupHandle(String handle) async {
+    _gate(server: true);
+    cloud.readLog.add('lookup:$handle');
+    cloud.checkFailure('lookup');
+    final card = cloud.handles[handle];
+    if (card == null) return null;
+    final owner = card['uid'] as String;
+    if (owner != uid && (card['discoverable'] != true || _blockedEither(owner, uid))) {
+      throw const SocialFailure(SocialFailureKind.denied, code: 'permission-denied');
+    }
+    return RawCard(handle, {...card});
+  }
+
+  Iterable<MapEntry<String, Map<String, dynamic>>> _sent() =>
+      cloud.requests.entries.where((e) => e.value['from'] == uid);
+
+  @override
+  Future<int> countSentRequests() async {
+    _gate(server: true);
+    cloud.readLog.add('count');
+    cloud.checkFailure('count');
+    return _sent().length.clamp(0, kMaxSentRequests);
+  }
+
+  @override
+  Future<void> sendRequest(SendRequestDraft draft) async {
+    _gate(server: true);
+    cloud.checkFailure('sendRequest');
+    final to = draft.toUid;
+    cloud.readLog.add('tx:get:${uid}_$to');
+    cloud.readLog.add('tx:get:${to}_$uid');
+    if (cloud.requests.containsKey('${uid}_$to')) {
+      throw const SocialFailure(SocialFailureKind.alreadySent);
+    }
+    if (cloud.requests.containsKey('${to}_$uid')) {
+      throw const SocialFailure(SocialFailureKind.incomingRequest);
+    }
+    // validRequest of the rules (everything else is "denied").
+    final ok =
+        uid != to &&
+        RegExp(r'^[^_/]{1,128}$').hasMatch(to) &&
+        RegExp(r'^[^_/]{1,128}$').hasMatch(uid) &&
+        cloud.social.containsKey(uid) &&
+        cloud.social.containsKey(to) &&
+        !_blockedEither(uid, to) &&
+        !cloud.friendships.containsKey(FakeSocialCloud.pairId(uid, to)) &&
+        FakeSocialCloud.validName(draft.fromName) &&
+        FakeSocialCloud.validName(draft.toName) &&
+        FakeSocialCloud.validPhoto(draft.fromPhoto) &&
+        FakeSocialCloud.validPhoto(draft.toPhoto);
+    if (!ok) throw const SocialFailure(SocialFailureKind.denied, code: 'permission-denied');
+    cloud.requests['${uid}_$to'] = {
+      'from': uid,
+      'to': to,
+      'fromName': draft.fromName,
+      'fromPhoto': ?draft.fromPhoto,
+      'toName': draft.toName,
+      'toPhoto': ?draft.toPhoto,
+      'createdAt': cloud.now(),
+    };
+    cloud.log.add('sendRequest');
+  }
+
+  @override
+  Future<void> cancelRequest(String toUid) async {
+    _gate(server: true);
+    cloud.checkFailure('cancelRequest');
+    cloud.requests.remove('${uid}_$toUid');
+    cloud.log.add('cancelRequest');
+  }
+
+  @override
+  Future<RawSentPage> readSentPage({Object? cursor, required int limit}) async {
+    _gate(server: false);
+    cloud.readLog.add('sent:page');
+    final cached = cloud.offline;
+    if (cached && !cloud.cacheAvailable) throw const SocialFailure(SocialFailureKind.offline);
+    cloud.checkFailure('sentPage');
+    final all = _sent().toList()
+      ..sort((a, b) {
+        final byTime = (b.value['createdAt'] as DateTime).compareTo(
+          a.value['createdAt'] as DateTime,
+        );
+        return byTime != 0 ? byTime : b.key.compareTo(a.key);
+      });
+    final start = cursor is int ? cursor : 0;
+    final slice = all.skip(start).take(limit + 1).toList();
+    final page = slice.take(limit).toList();
+    return RawSentPage(
+      docs: [
+        for (final e in page) (id: e.key, data: {...e.value}),
+      ],
+      cursor: start + page.length,
+      hasMore: slice.length > limit,
+      fromCache: cached,
+    );
+  }
+
   Iterable<String> _ids(SweepKind kind) => switch (kind) {
     SweepKind.requestsSent => [
       for (final e in cloud.requests.entries)
@@ -283,6 +400,7 @@ class InMemorySocialDataSource implements SocialDataSource {
   @override
   Future<List<SweepRef>> readSweepPage(SweepKind kind, {required int limit}) async {
     _gate(server: true);
+    cloud.readLog.add('sweep:${kind.name}');
     cloud.checkFailure('readSweep:${kind.name}');
     return [for (final id in _ids(kind).take(limit)) SweepRef(kind, id)];
   }

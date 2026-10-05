@@ -107,4 +107,23 @@ class LocalStore {
   Future<void> setSocialCleanupPending(String uid, bool pending) => pending
       ? _discoveryBox.put('socialCleanup:$uid', true)
       : _discoveryBox.delete('socialCleanup:$uid');
+
+  /// Last answer the server gave about "friendships on?" for [uid] and when
+  /// (docs/59): lets the Amigos icon appear without reading the server on
+  /// every session. A boolean per uid, no personal data. Null = never known.
+  ({bool active, DateTime at})? socialHint(String uid) {
+    final raw = _discoveryBox.get('socialHint:$uid');
+    if (raw is! String) return null;
+    final parts = raw.split(':');
+    final ms = parts.length == 2 ? int.tryParse(parts[1]) : null;
+    if (ms == null || (parts[0] != 'a' && parts[0] != 'n')) return null;
+    return (active: parts[0] == 'a', at: DateTime.fromMillisecondsSinceEpoch(ms));
+  }
+
+  Future<void> setSocialHint(String uid, bool? active, {DateTime? at}) => active == null
+      ? _discoveryBox.delete('socialHint:$uid')
+      : _discoveryBox.put(
+          'socialHint:$uid',
+          '${active ? 'a' : 'n'}:${(at ?? DateTime.now()).millisecondsSinceEpoch}',
+        );
 }

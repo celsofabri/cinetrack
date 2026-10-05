@@ -49,6 +49,14 @@ class Handle {
     return null;
   }
 
+  /// Like [errorFor] for the search field: a reserved handle is a valid thing
+  /// to look for (nobody owns it, so the answer is the generic "not found").
+  static String? searchErrorFor(String raw) {
+    final value = normalize(raw);
+    if (kReservedHandles.contains(value)) return null;
+    return errorFor(raw);
+  }
+
   /// The canonical handle, or null when invalid.
   static String? parse(String raw) => errorFor(raw) == null ? normalize(raw) : null;
 }

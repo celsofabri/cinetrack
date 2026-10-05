@@ -129,6 +129,21 @@ enum SocialFailureKind {
   tooSoon,
   notGoogle,
   invalid,
+
+  /// Sending a request failed for a reason the screen must NOT explain: the
+  /// rules answer the same for blocked, hidden, not activated and "already
+  /// friends" (docs/51). One generic message.
+  notSent,
+
+  /// This user already has a pending request to the same person.
+  alreadySent,
+
+  /// The other person already sent a request to this user. Receiving and
+  /// accepting arrive in slice 3, so slice 2 only says so (docs/59).
+  incomingRequest,
+
+  /// 50 pending sent requests (docs/49 D5; client-side limit).
+  limitReached,
   unknown,
 }
 
@@ -173,11 +188,107 @@ class SocialFailure implements Exception {
           : 'Você poderá trocar de novo em ${formatSocialDate(retryAt!)}.',
     SocialFailureKind.notGoogle => 'Amizades só estão disponíveis para contas Google.',
     SocialFailureKind.invalid => detail ?? 'Confira os dados e tente de novo.',
+    SocialFailureKind.notSent => 'Não foi possível enviar o pedido. Tente de novo mais tarde.',
+    SocialFailureKind.alreadySent => 'Você já enviou um pedido para essa pessoa.',
+    SocialFailureKind.incomingRequest =>
+      'Essa pessoa já enviou um pedido para você. Os pedidos recebidos chegam em breve.',
+    SocialFailureKind.limitReached =>
+      'Você atingiu o limite de $kMaxSentRequests pedidos enviados. '
+          'Cancele algum pedido para enviar outro.',
     SocialFailureKind.unknown => 'Não foi possível concluir. Tente novamente.',
   };
 
   @override
   String toString() => 'SocialFailure($kind, code: $code)';
+}
+
+/// The only message a search shows when nobody can be shown: the handle does
+/// not exist, the person is hidden, blocked you, or is yourself. It must be
+/// identical in all of those cases (docs/49, docs/51).
+const kSearchNotFoundMessage = 'Não encontramos ninguém com esse apelido';
+
+/// Pending sent requests allowed per user (docs/49 D5). Client-side only: the
+/// rules cannot count documents.
+const kMaxSentRequests = 50;
+
+/// What the public card of someone else shows in a search result.
+class FriendCard {
+  final String uid;
+  final String handle;
+  final String nickname;
+  final String? photoUrl;
+
+  const FriendCard({
+    required this.uid,
+    required this.handle,
+    required this.nickname,
+    this.photoUrl,
+  });
+}
+
+/// A request this user sent and nobody answered yet.
+class SentRequest {
+  final String toUid;
+  final String toName;
+  final String? toPhoto;
+  final DateTime? createdAt;
+
+  const SentRequest({required this.toUid, required this.toName, this.toPhoto, this.createdAt});
+}
+
+/// One page of sent requests, newest first.
+class SentPage {
+  final List<SentRequest> items;
+
+  /// Opaque cursor for the next page; null when [hasMore] is false.
+  final Object? cursor;
+  final bool hasMore;
+
+  /// Answered from this device (no server confirmation).
+  final bool fromCache;
+
+  const SentPage({required this.items, this.cursor, this.hasMore = false, this.fromCache = false});
+}
+
+/// Raw `handles/{h}` read for a search (timestamps already [DateTime]).
+class RawCard {
+  final String handle;
+  final Map<String, dynamic> data;
+
+  const RawCard(this.handle, this.data);
+}
+
+/// A page of raw `friend_requests` documents (id + data) as the data source
+/// found them.
+class RawSentPage {
+  final List<({String id, Map<String, dynamic> data})> docs;
+  final Object? cursor;
+  final bool hasMore;
+  final bool fromCache;
+
+  const RawSentPage({
+    required this.docs,
+    this.cursor,
+    this.hasMore = false,
+    this.fromCache = false,
+  });
+}
+
+/// What to write for "Enviar pedido" (already validated and cleaned).
+class SendRequestDraft {
+  final String toUid;
+  final String fromName;
+  final String? fromPhoto;
+  final String toName;
+  final String? toPhoto;
+
+  const SendRequestDraft({
+    required this.toUid,
+    required this.fromName,
+    this.fromPhoto,
+    required this.toName,
+    this.toPhoto,
+  });
 }
 
 /// dd/mm/aaaa in the user's local time.

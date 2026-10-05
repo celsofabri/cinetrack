@@ -14,6 +14,25 @@ class SocialLoad {
   const SocialLoad({this.profile, this.fromCache = false});
 }
 
+/// Sent requests shown per page ("Ver mais" loads the next one).
+const kSentPageSize = 20;
+
+/// Answer of a search: someone to show, or nothing. There is deliberately no
+/// third case: missing, hidden, blocked and "yourself" are all [SearchNotFound].
+sealed class SearchOutcome {
+  const SearchOutcome();
+}
+
+class SearchFound extends SearchOutcome {
+  final FriendCard card;
+
+  const SearchFound(this.card);
+}
+
+class SearchNotFound extends SearchOutcome {
+  const SearchNotFound();
+}
+
 /// Rules of the friendships feature for the signed-in user, over a
 /// [SocialDataSource]: validation that matches `firestore.rules`, the 30-day
 /// interval, and the sweeps that the rules cannot do (they never iterate).
@@ -104,6 +123,103 @@ class SocialRepository {
     final error = SocialNickname.errorFor(rawNickname);
     if (error != null) return _invalid(error);
     return _data.updateCard(CardPatch(nickname: SocialNickname.normalize(rawNickname)));
+  }
+
+  /// Exact search by handle: ONE `get` of `handles/{handle}`. Nothing is read
+  /// for your own handle or a reserved one. Every way of "nobody to show"
+  /// (missing, hidden, blocked, yourself, permission denied) is the same
+  /// [SearchNotFound]; only transport problems (offline, quota...) throw.
+  /// An invalid handle throws [SocialFailureKind.invalid] (the field already
+  /// explains the format, which reveals nothing about anybody).
+  Future<SearchOutcome> search(String rawHandle, {String? ownHandle}) async {
+    final error = Handle.searchErrorFor(rawHandle);
+    if (error != null) return _invalid(error);
+    final handle = Handle.normalize(rawHandle);
+    if (kReservedHandles.contains(handle) || handle == ownHandle) return const SearchNotFound();
+    final RawCard? raw;
+    try {
+      raw = await _data.lookupHandle(handle);
+    } on SocialFailure catch (e) {
+      if (e.kind == SocialFailureKind.denied) return const SearchNotFound();
+      rethrow;
+    }
+    final data = raw?.data;
+    final uid = data?['uid'];
+    if (data == null || uid is! String || uid.isEmpty || uid == _data.uid) {
+      return const SearchNotFound();
+    }
+    final nickname = SocialNickname.clean('${data['nickname'] ?? ''}');
+    final photo = data['photoURL'];
+    return SearchFound(
+      FriendCard(
+        uid: uid,
+        handle: handle,
+        // A card with a nickname that cleans to nothing is not worth showing as a person.
+        nickname: nickname.isEmpty ? '@$handle' : nickname,
+        photoUrl: photo is String ? SocialPhoto.sanitize(photo) : null,
+      ),
+    );
+  }
+
+  /// Sends a friend request to [target]. Checks the 50 pending requests
+  /// limit (one `count()` read), then one transaction that also detects "you
+  /// already asked" and "they already asked you" (nothing is created then).
+  /// A denial by the rules is the one generic [SocialFailureKind.notSent].
+  Future<void> sendRequest(FriendCard target, {required SocialProfile me}) async {
+    final fromName = SocialNickname.normalize(me.nickname);
+    if (fromName == null) return _invalid('Defina um apelido antes de enviar pedidos.');
+    final toName = SocialNickname.normalize(target.nickname) ?? '@${target.handle}';
+    try {
+      final pending = await _data.countSentRequests();
+      if (pending >= kMaxSentRequests) {
+        throw const SocialFailure(SocialFailureKind.limitReached);
+      }
+      await _data.sendRequest(
+        SendRequestDraft(
+          toUid: target.uid,
+          fromName: fromName,
+          fromPhoto: SocialPhoto.sanitize(me.photoUrl),
+          toName: toName,
+          toPhoto: SocialPhoto.sanitize(target.photoUrl),
+        ),
+      );
+    } on SocialFailure catch (e) {
+      if (e.kind == SocialFailureKind.denied) {
+        throw SocialFailure(SocialFailureKind.notSent, code: e.code);
+      }
+      rethrow;
+    }
+  }
+
+  /// Cancels a request this user sent (one delete; idempotent).
+  Future<void> cancelRequest(String toUid) => _data.cancelRequest(toUid);
+
+  /// A page of pending sent requests, newest first ([pageSize] per page).
+  Future<SentPage> sentRequests({Object? cursor, int pageSize = kSentPageSize}) async {
+    final raw = await _data.readSentPage(cursor: cursor, limit: pageSize);
+    final items = <SentRequest>[];
+    for (final doc in raw.docs) {
+      final to = doc.data['to'];
+      final toUid = to is String && to.isNotEmpty ? to : doc.id.split('_').last;
+      if (toUid.isEmpty) continue;
+      final name = SocialNickname.clean('${doc.data['toName'] ?? ''}');
+      final photo = doc.data['toPhoto'];
+      final at = doc.data['createdAt'];
+      items.add(
+        SentRequest(
+          toUid: toUid,
+          toName: name.isEmpty ? 'Usuário' : name,
+          toPhoto: photo is String ? SocialPhoto.sanitize(photo) : null,
+          createdAt: at is DateTime ? at : null,
+        ),
+      );
+    }
+    return SentPage(
+      items: items,
+      cursor: raw.cursor,
+      hasMore: raw.hasMore,
+      fromCache: raw.fromCache,
+    );
   }
 
   Future<void> setDiscoverable(bool value) => _data.updateCard(CardPatch(discoverable: value));
