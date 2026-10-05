@@ -159,35 +159,98 @@ class FirestoreSocialDataSource implements SocialDataSource {
   }, write: false);
 
   @override
-  Future<int> countSentRequests() => _guard(() async {
-    final spec = SocialPayloads.sentCountQuery(uid);
-    final result = await _query(spec).count().get(source: AggregateSource.server);
-    return result.count ?? 0;
-  }, write: false);
+  Future<int> countSentRequests() =>
+      _guard(() => _count(SocialPayloads.sentCountQuery(uid)), write: false);
 
   @override
-  Future<void> sendRequest(SendRequestDraft draft) => _guard(
-    () => _execute(
-      SocialPayloads.sendRequest(uid, draft),
-      check: (reads) {
-        final own = reads[SocialPayloads.requestPath(uid, draft.toUid)];
-        final inverse = reads[SocialPayloads.requestPath(draft.toUid, uid)];
-        if (own?.exists ?? false) throw const SocialFailure(SocialFailureKind.alreadySent);
-        if (inverse?.exists ?? false) throw const SocialFailure(SocialFailureKind.incomingRequest);
-      },
-    ),
-    write: true,
-  );
+  Future<SendOutcome> sendRequest(SendRequestDraft draft) => _guard(() async {
+    Map<String, dynamic>? inverse;
+    try {
+      await _execute(
+        SocialPayloads.sendRequest(uid, draft),
+        check: (reads) {
+          inverse = null;
+          final own = reads[SocialPayloads.requestPath(uid, draft.toUid)];
+          final other = reads[SocialPayloads.requestPath(draft.toUid, uid)];
+          if (own?.exists ?? false) throw const SocialFailure(SocialFailureKind.alreadySent);
+          if (other?.exists ?? false) {
+            inverse = other!.data();
+            throw const _CrossedRequest();
+          }
+        },
+      );
+      return SendOutcome.requested;
+    } on _CrossedRequest {
+      // The other person asked first: friendship + their request, ONE batch.
+      // The 300 friends cap holds on this door too (one extra read, only here).
+      if (await _count(SocialPayloads.friendsCountQuery(uid)) >= kMaxFriends) {
+        throw const SocialFailure(SocialFailureKind.friendsLimit);
+      }
+      final data = inverse;
+      final name = data?['fromName'];
+      if (name is! String) throw const SocialFailure(SocialFailureKind.denied);
+      final photo = data?['fromPhoto'];
+      await _execute(
+        SocialPayloads.acceptRequest(
+          uid,
+          AcceptDraft(
+            fromUid: draft.toUid,
+            fromName: name,
+            fromPhoto: photo is String ? photo : null,
+            myName: draft.fromName,
+            myPhoto: draft.fromPhoto,
+          ),
+        ),
+      );
+      return SendOutcome.becameFriends;
+    }
+  }, write: true);
+
+  @override
+  Future<void> acceptRequest(AcceptDraft draft) =>
+      _guard(() => _execute(SocialPayloads.acceptRequest(uid, draft)), write: true);
+
+  @override
+  Future<void> declineRequest(String fromUid) =>
+      _guard(() => _execute(SocialPayloads.declineRequest(uid, fromUid)), write: true);
+
+  @override
+  Future<void> removeFriend(String otherUid) =>
+      _guard(() => _execute(SocialPayloads.removeFriend(uid, otherUid)), write: true);
+
+  Future<int> _count(SocialQuerySpec spec) async {
+    final result = await _query(spec).count().get(source: AggregateSource.server);
+    return result.count ?? 0;
+  }
+
+  @override
+  Future<int> countReceivedRequests() =>
+      _guard(() => _count(SocialPayloads.receivedCountQuery(uid)), write: false);
+
+  @override
+  Future<int> countFriends() =>
+      _guard(() => _count(SocialPayloads.friendsCountQuery(uid)), write: false);
 
   @override
   Future<void> cancelRequest(String toUid) =>
       _guard(() => _execute(SocialPayloads.cancelRequest(uid, toUid)), write: true);
 
   @override
-  Future<RawSentPage> readSentPage({Object? cursor, required int limit}) => _guard(() async {
-    // One extra document tells whether there is a next page without a
-    // second query (and is not shown).
-    var query = _query(SocialPayloads.sentQuery(uid, limit + 1));
+  Future<RawSentPage> readSentPage({Object? cursor, required int limit}) =>
+      _page(SocialPayloads.sentQuery(uid, limit + 1), cursor, limit);
+
+  @override
+  Future<RawSentPage> readReceivedPage({Object? cursor, required int limit}) =>
+      _page(SocialPayloads.receivedQuery(uid, limit + 1), cursor, limit);
+
+  @override
+  Future<RawSentPage> readFriendsPage({Object? cursor, required int limit}) =>
+      _page(SocialPayloads.friendsQuery(uid, limit + 1), cursor, limit);
+
+  /// One page of [spec] (built with `limit + 1`): the extra document only
+  /// tells whether there is a next page and is not returned.
+  Future<RawSentPage> _page(SocialQuerySpec spec, Object? cursor, int limit) => _guard(() async {
+    var query = _query(spec);
     if (cursor is DocumentSnapshot<Map<String, dynamic>>) {
       query = query.startAfterDocument(cursor);
     }
@@ -367,4 +430,9 @@ class FirestoreSocialDataSource implements SocialDataSource {
     List() => [for (final item in value) convertValue(item)],
     _ => value,
   };
+}
+
+/// Internal signal: the transaction found the inverse request (D4).
+class _CrossedRequest implements Exception {
+  const _CrossedRequest();
 }

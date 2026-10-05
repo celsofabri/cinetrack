@@ -138,9 +138,12 @@ enum SocialFailureKind {
   /// This user already has a pending request to the same person.
   alreadySent,
 
-  /// The other person already sent a request to this user. Receiving and
-  /// accepting arrive in slice 3, so slice 2 only says so (docs/59).
-  incomingRequest,
+  /// Accepting failed for a reason the screen must NOT explain (the request
+  /// was cancelled, a block, friendships off: the rules answer the same).
+  notAccepted,
+
+  /// 300 friends (docs/49 D5; client-side limit).
+  friendsLimit,
 
   /// 50 pending sent requests (docs/49 D5; client-side limit).
   limitReached,
@@ -190,8 +193,10 @@ class SocialFailure implements Exception {
     SocialFailureKind.invalid => detail ?? 'Confira os dados e tente de novo.',
     SocialFailureKind.notSent => 'Não foi possível enviar o pedido. Tente de novo mais tarde.',
     SocialFailureKind.alreadySent => 'Você já enviou um pedido para essa pessoa.',
-    SocialFailureKind.incomingRequest =>
-      'Essa pessoa já enviou um pedido para você. Os pedidos recebidos chegam em breve.',
+    SocialFailureKind.notAccepted =>
+      'Não foi possível aceitar o pedido. Ele pode ter sido cancelado. Atualizamos a lista.',
+    SocialFailureKind.friendsLimit =>
+      'Você atingiu o limite de $kMaxFriends amigos. Remova alguém para adicionar outro amigo.',
     SocialFailureKind.limitReached =>
       'Você atingiu o limite de $kMaxSentRequests pedidos enviados. '
           'Cancele algum pedido para enviar outro.',
@@ -210,6 +215,13 @@ const kSearchNotFoundMessage = 'Não encontramos ninguém com esse apelido';
 /// Pending sent requests allowed per user (docs/49 D5). Client-side only: the
 /// rules cannot count documents.
 const kMaxSentRequests = 50;
+
+/// Friends allowed per user (docs/49 D5). Client-side only.
+const kMaxFriends = 300;
+
+/// Received requests listed at most (docs/49 D5: 50; the rest wait until the
+/// user answers some). Client-side only.
+const kMaxReceivedListed = 50;
 
 /// What the public card of someone else shows in a search result.
 class FriendCard {
@@ -248,6 +260,102 @@ class SentPage {
   final bool fromCache;
 
   const SentPage({required this.items, this.cursor, this.hasMore = false, this.fromCache = false});
+}
+
+/// A request somebody sent to this user and nobody answered yet.
+class ReceivedRequest {
+  final String fromUid;
+
+  /// Cleaned for display.
+  final String fromName;
+
+  /// Exactly as stored: accepting copies it (the rules compare it with the
+  /// request, character by character).
+  final String rawFromName;
+
+  /// Photo to show (sanitised) and as stored (copied on accept).
+  final String? fromPhoto;
+  final String? rawFromPhoto;
+  final DateTime? createdAt;
+
+  const ReceivedRequest({
+    required this.fromUid,
+    required this.fromName,
+    required this.rawFromName,
+    this.fromPhoto,
+    this.rawFromPhoto,
+    this.createdAt,
+  });
+}
+
+/// One page of received requests, newest first.
+class ReceivedPage {
+  final List<ReceivedRequest> items;
+  final Object? cursor;
+  final bool hasMore;
+  final bool fromCache;
+
+  const ReceivedPage({
+    required this.items,
+    this.cursor,
+    this.hasMore = false,
+    this.fromCache = false,
+  });
+}
+
+/// A friend as the friendship document shows them (their half).
+class Friend {
+  final String uid;
+  final String name;
+  final String? photoUrl;
+  final DateTime? since;
+
+  const Friend({required this.uid, required this.name, this.photoUrl, this.since});
+}
+
+/// One page of friends (document-id order; the screen sorts by name).
+class FriendsPage {
+  final List<Friend> items;
+  final Object? cursor;
+  final bool hasMore;
+  final bool fromCache;
+
+  const FriendsPage({
+    required this.items,
+    this.cursor,
+    this.hasMore = false,
+    this.fromCache = false,
+  });
+}
+
+/// What "Enviar pedido" ended up doing.
+enum SendOutcome {
+  /// A pending request now exists.
+  requested,
+
+  /// The other person had already asked: it became a friendship (D4).
+  becameFriends,
+}
+
+/// What to write to accept a request (names already as the rules need them).
+class AcceptDraft {
+  final String fromUid;
+
+  /// The other person's half: exactly what their request says.
+  final String fromName;
+  final String? fromPhoto;
+
+  /// This user's half: the nickname / photo of their own card.
+  final String myName;
+  final String? myPhoto;
+
+  const AcceptDraft({
+    required this.fromUid,
+    required this.fromName,
+    this.fromPhoto,
+    required this.myName,
+    this.myPhoto,
+  });
 }
 
 /// Raw `handles/{h}` read for a search (timestamps already [DateTime]).

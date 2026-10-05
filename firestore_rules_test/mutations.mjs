@@ -46,11 +46,20 @@ const MUTATIONS = [
   ['M21 photo regex without the start anchor (prefix before lh accepted)',
     [["'^https://lh[0-9]+[.]googleusercontent[.]com/.*$'", "'^.*https://lh[0-9]+[.]googleusercontent[.]com/.*$'"]]],
   ['M22 reserved list: "admin" allowed', [["'admin', ", ""]]],
+  // Slice 3 (docs/62): killed by the replay of the Dart payloads (dart_payloads.test.mjs).
+  ['M23 accept (or crossed request) leaves MY pending request behind',
+    [["        && !existsAfter(requestPath(other, me))\n        && !existsAfter(requestPath(me, other));", "        && !existsAfter(requestPath(other, me));"]], true],
+  ['M24 a third party removes a friendship',
+    [["            : request.auth.uid in resource.data.members);\n    }\n\n    // --- users", "            : true);\n    }\n\n    // --- users"]], true],
+  ['M25 the other person\'s half of a friendship can be forged',
+    [["        && (otherIsA ? d.aName : d.bName) == req.fromName\n", "\n"]], true],
+  ['M26 the sender confirms their own request (accept without the other side\'s request)',
+    [["let req = get(requestPath(other, me)).data;", "let req = get(requestPath(me, other)).data;"]], true],
 ];
 
 const dir = mkdtempSync(join(tmpdir(), 'cinetrack-mut-'));
 let survived = 0;
-for (const [name, edits] of MUTATIONS) {
+for (const [name, edits, replay] of MUTATIONS) {
   if (process.env.ONLY && !name.startsWith(`${process.env.ONLY} `)) continue;
   let text = rules;
   for (const [from, to] of edits) {
@@ -64,7 +73,7 @@ for (const [name, edits] of MUTATIONS) {
   writeFileSync(file, text);
   const r = spawnSync(
     'node',
-    ['--test', '--test-concurrency=1', '--test-reporter=tap', 'social.test.mjs', 'social_compat.test.mjs'],
+    ['--test', '--test-concurrency=1', '--test-reporter=tap', 'social.test.mjs', 'social_compat.test.mjs', ...(replay ? ['dart_payloads.test.mjs'] : [])],
     { env: { ...process.env, RULES_PATH: file }, encoding: 'utf8' },
   );
   const failed = [...r.stdout.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => m[1]).filter((n) => !/\(\d/.test(n) || true);

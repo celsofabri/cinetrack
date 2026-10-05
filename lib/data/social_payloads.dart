@@ -175,10 +175,11 @@ class SocialPayloads {
   static String requestPath(String from, String to) => 'friend_requests/${from}_$to';
 
   /// "Enviar pedido": ONE transaction. It reads the request already sent by
-  /// this user and the inverse one (from the other person) first: if either
-  /// exists the data source stops and creates nothing ("já enviado" / "essa
-  /// pessoa já enviou um pedido para você"; accepting is slice 3). Optional
-  /// photo keys are left out when there is no photo.
+  /// this user and the inverse one (from the other person) first: if mine
+  /// exists the data source stops ("já enviado"); if the inverse exists it
+  /// creates NOTHING here and runs [acceptRequest] instead (crossed request,
+  /// D4: it becomes a friendship). Optional photo keys are left out when
+  /// there is no photo.
   static SocialWrite sendRequest(String uid, SendRequestDraft draft) => SocialWrite(
     SocialWriteMode.transaction,
     [
@@ -193,6 +194,68 @@ class SocialPayloads {
       }),
     ],
     reads: [requestPath(uid, draft.toUid), requestPath(draft.toUid, uid)],
+  );
+
+  static String pairId(String a, String b) => a.compareTo(b) < 0 ? '${a}_$b' : '${b}_$a';
+  static String friendshipPath(String a, String b) => 'friendships/${pairId(a, b)}';
+
+  /// "Aceitar" (and a crossed request, D4): ONE batch that creates
+  /// `friendships/{menor}_{maior}` AND consumes the request: the rules demand
+  /// the pending request of the other person (`get`) and that neither
+  /// `{other}_{me}` nor `{me}_{other}` exists after the batch (`existsAfter`).
+  /// The other half is exactly what their request says; deleting
+  /// `{me}_{other}` when it does not exist is allowed (id has my uid).
+  static SocialWrite acceptRequest(String uid, AcceptDraft draft) {
+    final other = draft.fromUid;
+    final meIsA = uid.compareTo(other) < 0;
+    final (aName, aPhoto, bName, bPhoto) = meIsA
+        ? (draft.myName, draft.myPhoto, draft.fromName, draft.fromPhoto)
+        : (draft.fromName, draft.fromPhoto, draft.myName, draft.myPhoto);
+    return SocialWrite(SocialWriteMode.batch, [
+      SocialOp.set(friendshipPath(uid, other), {
+        'members': meIsA ? [uid, other] : [other, uid],
+        'createdAt': serverTimestamp,
+        'aName': aName,
+        'aPhoto': ?aPhoto,
+        'bName': bName,
+        'bPhoto': ?bPhoto,
+      }),
+      SocialOp.delete(requestPath(other, uid)),
+      SocialOp.delete(requestPath(uid, other)),
+    ]);
+  }
+
+  /// "Recusar": deletes `{from}_{me}` (silent; the sender is not told).
+  static SocialWrite declineRequest(String uid, String fromUid) =>
+      SocialWrite(SocialWriteMode.batch, [SocialOp.delete(requestPath(fromUid, uid))]);
+
+  /// "Remover amizade": deletes the one pair document (both sides lose it).
+  static SocialWrite removeFriend(String uid, String otherUid) =>
+      SocialWrite(SocialWriteMode.batch, [SocialOp.delete(friendshipPath(uid, otherUid))]);
+
+  /// Pending requests received, newest first (index `to ASC, createdAt DESC`).
+  static SocialQuerySpec receivedQuery(String uid, int limit) =>
+      SocialQuerySpec('friend_requests', [('to', '==', uid)], limit, orderBy: ('createdAt', true));
+
+  /// Counts the pending received requests for the badge (one billed read).
+  static SocialQuerySpec receivedCountQuery(String uid) => SocialQuerySpec(
+    'friend_requests',
+    [('to', '==', uid)],
+    kMaxReceivedListed,
+    aggregate: 'count',
+  );
+
+  /// The friends list: `members array-contains uid` (automatic single-field
+  /// index; document-id order, the screen sorts by name).
+  static SocialQuerySpec friendsQuery(String uid, int limit) =>
+      SocialQuerySpec('friendships', [('members', 'array-contains', uid)], limit);
+
+  /// Counts friends (limit check on accept).
+  static SocialQuerySpec friendsCountQuery(String uid) => SocialQuerySpec(
+    'friendships',
+    [('members', 'array-contains', uid)],
+    kMaxFriends,
+    aggregate: 'count',
   );
 
   /// "Cancelar pedido enviado": deletes `{me}_{to}` (the rules also let the

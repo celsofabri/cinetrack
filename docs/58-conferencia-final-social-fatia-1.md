@@ -45,4 +45,4 @@ Consistentes: `privacidade.html` (data 05/10/2026), `PrivacySummary`, README e d
 Continua válido: nada social é gravado para quem não ativou (leituras apenas; `readSocial` tolera regra negada); exclusão de conta com passo social retomável e fechando a porta primeiro; export schema 2; validadores iguais às regras (31 reservados lidos de `firestore.rules`); UI com matriz 320 a 1440 px, fonte 3x, claro/escuro e alvos >= 48 px (testes verdes).
 
 ## (7) Decisão do Manager
-"Aparecer na busca" nasce LIGADO: `kDiscoverableByDefault = true` usado pelo diálogo e pela seção; decisão de 2026-10-06 registrada em docs/50 (seção "Decisão do Manager") e docs/55.
+"Aparecer na busca" nasce LIGADO: `kDiscoverableByDefault = true` usado pelo diálogo e pela seção; decisão de 2026-10-05 registrada em docs/50 (seção "Decisão do Manager") e docs/55.

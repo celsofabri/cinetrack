@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'models/media_type.dart';
 import 'providers/providers.dart';
+import 'providers/social_lists_providers.dart';
 import 'screens/add_friend_screen.dart';
 import 'screens/cast_screen.dart';
 import 'screens/catalog_screen.dart';
@@ -48,7 +49,9 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       // Main destinations share the shell (mobile: logo bar + bottom tab bar).
       ShellRoute(
-        builder: (context, state, child) => AppShell(location: state.uri.path, child: child),
+        builder: (context, state, child) => BadgeRefresher(
+          child: AppShell(location: state.uri.path, child: child),
+        ),
         routes: [
           GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
           GoRoute(path: '/favorites', builder: (context, state) => const FavoritesScreen()),

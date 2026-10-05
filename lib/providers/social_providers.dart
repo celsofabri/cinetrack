@@ -6,6 +6,7 @@ import '../repositories/social_repository.dart';
 import '../social/social_models.dart';
 import '../social/social_validation.dart';
 import 'account_providers.dart';
+import 'social_lists_providers.dart';
 import 'providers.dart';
 
 typedef SocialDataSourceFactory = SocialDataSource Function(String uid);
@@ -27,6 +28,16 @@ final socialDataSourceProvider = Provider<SocialDataSource>((ref) {
 final socialRepositoryProvider = Provider<SocialRepository>(
   (ref) => SocialRepository(ref.watch(socialDataSourceProvider)),
 );
+
+/// Bumped when friendships are turned on or off: everything held in memory
+/// (lists, counts) belongs to ONE such period and is rebuilt empty on a change.
+final socialEpochProvider = StateProvider<int>((ref) => 0);
+
+/// `(friendships on, epoch)`: the lists watch this to know when to forget.
+final socialPeriodProvider = Provider<(bool, int)>((ref) {
+  final active = ref.watch(socialControllerProvider.select((s) => s.phase == SocialPhase.active));
+  return (active, ref.watch(socialEpochProvider));
+});
 
 enum SocialPhase {
   loading,
@@ -139,9 +150,11 @@ class SocialController extends Notifier<SocialState> {
     Future.microtask(() => _load(_generation));
   }
 
-  Future<void> _rememberHint(bool active) async {
-    final uid = ref.read(currentUidProvider);
-    if (uid == null) return;
+  /// Remembers the answer for [uid] (captured BEFORE the request started) and
+  /// only if that account and this controller generation are still current:
+  /// a reply for account A must never become the hint of account B.
+  Future<void> _rememberHint(String uid, int generation, bool active) async {
+    if (generation != _generation || ref.read(currentUidProvider) != uid) return;
     try {
       await ref.read(localStoreProvider).setSocialHint(uid, active);
     } catch (_) {}
@@ -157,6 +170,7 @@ class SocialController extends Notifier<SocialState> {
 
   Future<void> _load(int generation, {bool keepOnFailure = false}) async {
     SocialState next;
+    final uid = ref.read(currentUidProvider);
     try {
       final load = await ref.read(socialRepositoryProvider).load();
       next = SocialState(
@@ -166,7 +180,9 @@ class SocialController extends Notifier<SocialState> {
         cleanupPending: load.profile == null && _cleanupFlag(),
       );
       // Only a server answer is worth remembering (a device copy may be old).
-      if (!load.fromCache) await _rememberHint(load.profile != null);
+      if (!load.fromCache && uid != null) {
+        await _rememberHint(uid, generation, load.profile != null);
+      }
     } on SocialFailure catch (e) {
       if (keepOnFailure) return;
       next = SocialState(
@@ -193,6 +209,8 @@ class SocialController extends Notifier<SocialState> {
     required bool discoverable,
   }) {
     final user = ref.read(currentUserProvider);
+    final uid = user?.uid;
+    final generation = _generation;
     return _run(() async {
       await ref
           .read(socialRepositoryProvider)
@@ -204,6 +222,9 @@ class SocialController extends Notifier<SocialState> {
             discoverable: discoverable,
           );
       await _syncAppNickname(nickname);
+      // Confirmed by the server: the icon must not wait for the next read.
+      if (uid != null) await _rememberHint(uid, generation, true);
+      ref.read(socialEpochProvider.notifier).state++;
     });
   }
 
@@ -230,7 +251,16 @@ class SocialController extends Notifier<SocialState> {
 
   /// Turns friendships off and deletes friends, requests, blocks and invite.
   Future<SocialFailure?> deactivate() async {
+    final uid = ref.read(currentUidProvider);
+    final generation = _generation;
     final failure = await _run(() => ref.read(socialRepositoryProvider).deactivate());
+    // The pointer is gone in both cases (even if the last sweep did not
+    // finish): friendships are off, the lists in memory are void.
+    final off = failure == null || failure.code == SocialRepository.cleanupPendingCode;
+    if (off) {
+      if (uid != null) await _rememberHint(uid, generation, false);
+      if (generation == _generation) ref.read(socialEpochProvider.notifier).state++;
+    }
     if (failure == null) await _setCleanupFlag(false);
     if (failure?.code == SocialRepository.cleanupPendingCode) {
       await _setCleanupFlag(true);
@@ -381,9 +411,8 @@ class SentRequestsController extends Notifier<SentRequestsState> {
     // Everything in memory belongs to ONE "friendships on" period: turning
     // them off (which deletes the requests on the server), on again, logging
     // out or changing account rebuilds this controller and drops the list.
-    ref.watch(
-      socialControllerProvider.select((s) => (s.phase == SocialPhase.active, s.profile?.handle)),
-    );
+    // (Changing the handle does not: the requests stay valid.)
+    ref.watch(socialPeriodProvider);
     return const SentRequestsState();
   }
 
@@ -468,17 +497,37 @@ class SentRequestsController extends Notifier<SentRequestsState> {
     }
   }
 
-  /// Sends a request. Returns the failure to show, or null on success.
-  Future<SocialFailure?> send(FriendCard target) async {
+  /// Sends a request. Returns the failure to show, or null on success;
+  /// [outcome] says whether a request now exists or (crossed request, D4) the
+  /// two became friends.
+  Future<({SocialFailure? failure, SendOutcome? outcome})> send(FriendCard target) async {
     final generation = _generation;
     final me = ref.read(socialControllerProvider).profile;
-    if (me == null) return const SocialFailure(SocialFailureKind.notActive);
+    if (me == null) {
+      return (failure: const SocialFailure(SocialFailureKind.notActive), outcome: null);
+    }
+    final SendOutcome outcome;
     try {
-      await ref.read(socialRepositoryProvider).sendRequest(target, me: me);
+      outcome = await ref.read(socialRepositoryProvider).sendRequest(target, me: me);
     } on SocialFailure catch (e) {
-      return e;
+      return (failure: e, outcome: null);
     } catch (_) {
-      return const SocialFailure(SocialFailureKind.unknown);
+      return (failure: const SocialFailure(SocialFailureKind.unknown), outcome: null);
+    }
+    if (outcome == SendOutcome.becameFriends) {
+      // Their request is gone and the friend appears without another read.
+      ref.read(receivedRequestsControllerProvider.notifier).consumed(target.uid);
+      ref
+          .read(friendsControllerProvider.notifier)
+          .add(
+            Friend(
+              uid: target.uid,
+              name: target.nickname,
+              photoUrl: target.photoUrl,
+              since: DateTime.now(),
+            ),
+          );
+      return (failure: null, outcome: outcome);
     }
     if (generation == _generation &&
         state.phase == SentPhase.loaded &&
@@ -495,7 +544,7 @@ class SentRequestsController extends Notifier<SentRequestsState> {
         ],
       );
     }
-    return null;
+    return (failure: null, outcome: outcome);
   }
 
   /// Cancels the request sent to [toUid]. Returns the failure to show, or null.

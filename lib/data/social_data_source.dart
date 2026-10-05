@@ -61,10 +61,36 @@ abstract class SocialDataSource {
   /// most [kMaxSentRequests]); server read.
   Future<int> countSentRequests();
 
-  /// Creates `friend_requests/{me}_{to}` in one transaction. Throws
-  /// [SocialFailureKind.alreadySent] / [SocialFailureKind.incomingRequest]
+  /// Creates `friend_requests/{me}_{to}` in one transaction. If the other
+  /// person had already asked (crossed request, D4) nothing is requested: ONE
+  /// batch creates the friendship and consumes their request
+  /// ([SendOutcome.becameFriends]). Throws [SocialFailureKind.alreadySent]
   /// (nothing is created), [SocialFailureKind.denied] when the rules refuse.
-  Future<void> sendRequest(SendRequestDraft draft);
+  Future<SendOutcome> sendRequest(SendRequestDraft draft);
+
+  /// Accepts a received request: ONE batch (friendship + both requests
+  /// deleted). [SocialFailureKind.denied] when the rules refuse (request gone,
+  /// block, friendships off...).
+  Future<void> acceptRequest(AcceptDraft draft);
+
+  /// Declines a received request: deletes `{from}_{me}` (silent, idempotent).
+  Future<void> declineRequest(String fromUid);
+
+  /// Removes the friendship with [otherUid] for both sides (idempotent).
+  Future<void> removeFriend(String otherUid);
+
+  /// Number of pending requests received (aggregate `count()`, at most
+  /// [kMaxReceivedListed]); server read.
+  Future<int> countReceivedRequests();
+
+  /// Number of friends (aggregate `count()`, at most [kMaxFriends]); server.
+  Future<int> countFriends();
+
+  /// A page of received requests, newest first (server, else the device).
+  Future<RawSentPage> readReceivedPage({Object? cursor, required int limit});
+
+  /// A page of friendships (document-id order; server, else the device).
+  Future<RawSentPage> readFriendsPage({Object? cursor, required int limit});
 
   /// Deletes the request this user sent to [toUid] (idempotent).
   Future<void> cancelRequest(String toUid);
@@ -116,8 +142,34 @@ class SignedOutSocialDataSource implements SocialDataSource {
   Future<int> countSentRequests() async => 0;
 
   @override
-  Future<void> sendRequest(SendRequestDraft draft) =>
+  Future<SendOutcome> sendRequest(SendRequestDraft draft) =>
       Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<void> acceptRequest(AcceptDraft draft) =>
+      Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<void> declineRequest(String fromUid) =>
+      Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<void> removeFriend(String otherUid) =>
+      Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<int> countReceivedRequests() async => 0;
+
+  @override
+  Future<int> countFriends() async => 0;
+
+  @override
+  Future<RawSentPage> readReceivedPage({Object? cursor, required int limit}) async =>
+      const RawSentPage(docs: []);
+
+  @override
+  Future<RawSentPage> readFriendsPage({Object? cursor, required int limit}) async =>
+      const RawSentPage(docs: []);
 
   @override
   Future<void> cancelRequest(String toUid) =>

@@ -5,7 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cinetrack/data/social_data_source.dart';
 import 'package:cinetrack/data/social_payloads.dart';
-import 'package:cinetrack/repositories/social_repository.dart' show kSentPageSize;
+import 'package:cinetrack/repositories/social_repository.dart'
+    show kFriendsPageSize, kReceivedPageSize, kSentPageSize;
 import 'package:cinetrack/social/social_models.dart';
 
 /// Golden test: what the Dart app writes and queries (SocialPayloads) must
@@ -70,7 +71,36 @@ Map<String, Object?> _scenarios() {
     'toName': d.toName,
     'toPhoto': d.toPhoto,
   };
+  const accept = AcceptDraft(fromUid: to, fromName: 'Bruno', myName: 'Ana');
+  const acceptPhotos = AcceptDraft(
+    fromUid: to,
+    fromName: 'Bruno',
+    fromPhoto: 'https://lh4.googleusercontent.com/a/bruno',
+    myName: 'Ana',
+    myPhoto: _photo,
+  );
+  // The same pair seen from the other side: "me" sorts AFTER the other person.
+  const acceptAsB = AcceptDraft(fromUid: _uid, fromName: 'Ana', myName: 'Bruno');
+  Map<String, Object?> acceptIn(String uid, AcceptDraft d) => {
+    'uid': uid,
+    'fromUid': d.fromUid,
+    'fromName': d.fromName,
+    'fromPhoto': d.fromPhoto,
+    'myName': d.myName,
+    'myPhoto': d.myPhoto,
+  };
   return {
+    'acceptRequest': entry(acceptIn(_uid, accept), SocialPayloads.acceptRequest(_uid, accept)),
+    'acceptRequest_with_photos': entry(
+      acceptIn(_uid, acceptPhotos),
+      SocialPayloads.acceptRequest(_uid, acceptPhotos),
+    ),
+    'acceptRequest_as_b': entry(
+      acceptIn(to, acceptAsB),
+      SocialPayloads.acceptRequest(to, acceptAsB),
+    ),
+    'declineRequest': entry({'uid': _uid, 'fromUid': to}, SocialPayloads.declineRequest(_uid, to)),
+    'removeFriend': entry({'uid': _uid, 'otherUid': to}, SocialPayloads.removeFriend(_uid, to)),
     'sendRequest': entry(draftIn(plain), SocialPayloads.sendRequest(_uid, plain)),
     'sendRequest_with_photos': entry(
       draftIn(withPhotos),
@@ -132,6 +162,16 @@ Map<String, Object?> _queries() => {
 Map<String, Object?> _requestQueries() => {
   'sent': {'uid': _uid, 'query': SocialPayloads.sentQuery(_uid, kSentPageSize + 1).toJson()},
   'sentCount': {'uid': _uid, 'query': SocialPayloads.sentCountQuery(_uid).toJson()},
+  'received': {
+    'uid': _uid,
+    'query': SocialPayloads.receivedQuery(_uid, kReceivedPageSize + 1).toJson(),
+  },
+  'receivedCount': {'uid': _uid, 'query': SocialPayloads.receivedCountQuery(_uid).toJson()},
+  'friends': {
+    'uid': _uid,
+    'query': SocialPayloads.friendsQuery(_uid, kFriendsPageSize + 1).toJson(),
+  },
+  'friendsCount': {'uid': _uid, 'query': SocialPayloads.friendsCountQuery(_uid).toJson()},
 };
 
 Map<String, Object?> _lookups() => {

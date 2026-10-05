@@ -191,16 +191,21 @@ void main() {
       expect(r.cloud.requests['uid-ana_uid-bruno']!['createdAt'], created);
     });
 
-    test('crossed request (D4): detects the inverse, creates NOTHING, no friendship', () async {
-      final r = _Rig();
-      r.cloud.seedRequest('uid-bruno', 'uid-ana', fromName: 'Bruno', toName: 'Ana');
-      final f = await _fail(r.repo.sendRequest(await r.bruno(), me: _me));
-      expect(f!.kind, SocialFailureKind.incomingRequest);
-      expect(f.message, contains('já enviou um pedido para você'));
-      expect(f.message, contains('chegam em breve'));
-      expect(r.cloud.requests.keys, ['uid-bruno_uid-ana']);
-      expect(r.cloud.friendships, isEmpty);
-    });
+    test(
+      'crossed request (D4): becomes a friendship; their request is consumed (slice 3)',
+      () async {
+        final r = _Rig();
+        r.cloud.seedRequest('uid-bruno', 'uid-ana', fromName: 'Bruno', toName: 'Ana');
+        final outcome = await r.repo.sendRequest(await r.bruno(), me: _me);
+        expect(outcome, SendOutcome.becameFriends);
+        expect(r.cloud.requests, isEmpty, reason: 'no request left in either direction');
+        expect(r.cloud.friendships.keys, ['uid-ana_uid-bruno']);
+        final pair = r.cloud.friendships['uid-ana_uid-bruno']!;
+        expect(pair['members'], ['uid-ana', 'uid-bruno']);
+        expect(pair['aName'], 'Ana');
+        expect(pair['bName'], 'Bruno', reason: 'their half is exactly what THEIR request said');
+      },
+    );
 
     test('limit of 50 pending requests: refused before any write; 49 still works', () async {
       final r = _Rig();
@@ -367,10 +372,10 @@ void main() {
       final controller = c.read(sentRequestsControllerProvider.notifier);
       await controller.ensureLoaded();
       const card = FriendCard(uid: 'uid-bruno', handle: 'bruno', nickname: 'Bruno');
-      expect(await controller.send(card), isNull);
+      expect((await controller.send(card)).failure, isNull);
       expect(c.read(sentRequestsControllerProvider).items.map((e) => e.toUid), ['uid-bruno']);
       expect(social.requests, hasLength(1));
-      expect((await controller.send(card))!.kind, SocialFailureKind.alreadySent);
+      expect((await controller.send(card)).failure!.kind, SocialFailureKind.alreadySent);
       expect(await controller.cancel('uid-bruno'), isNull);
       expect(c.read(sentRequestsControllerProvider).items, isEmpty);
       expect(social.requests, isEmpty);
@@ -384,7 +389,7 @@ void main() {
       final sent = c.read(sentRequestsControllerProvider.notifier);
       await sent.ensureLoaded();
       const card = FriendCard(uid: 'uid-bruno', handle: 'bruno', nickname: 'Bruno');
-      expect(await sent.send(card), isNull);
+      expect((await sent.send(card)).failure, isNull);
       expect(c.read(sentRequestsControllerProvider).items, hasLength(1));
 
       expect(await ctl.deactivate(), isNull);
@@ -398,7 +403,7 @@ void main() {
       await c.read(sentRequestsControllerProvider.notifier).ensureLoaded();
       expect(c.read(sentRequestsControllerProvider).items, isEmpty);
       // and the same person can be asked again (no stale "já enviou")
-      expect(await c.read(sentRequestsControllerProvider.notifier).send(card), isNull);
+      expect((await c.read(sentRequestsControllerProvider.notifier).send(card)).failure, isNull);
       expect(social.requests.keys, ['uid-ana_uid-bruno']);
     });
 

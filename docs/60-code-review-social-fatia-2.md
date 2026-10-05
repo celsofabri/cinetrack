@@ -1,6 +1,6 @@
 # 60 - Code review: amizades, fatia 2 (busca, enviar/cancelar pedido, "Pedidos enviados")
 
-> Revisor: Code Reviewer (gate) · 2026-10-06 · Escopo: working tree NÃO commitado sobre `feat/social-friends` (8c5d9dd, 091c664) + [docs/59](./59-social-fatia-2-implementacao.md). Somente leitura; mutações só em cópia (scratchpad). `git status` idêntico antes e depois.
+> Revisor: Code Reviewer (gate) · 2026-10-05 · Escopo: working tree NÃO commitado sobre `feat/social-friends` (8c5d9dd, 091c664) + [docs/59](./59-social-fatia-2-implementacao.md). Somente leitura; mutações só em cópia (scratchpad). `git status` idêntico antes e depois.
 
 ## Veredito: **REPROVADO** (1 🟡 que o critério "APROVADO limpo" do Manager não admite + 1 🟡 de texto; nenhum 🔴)
 

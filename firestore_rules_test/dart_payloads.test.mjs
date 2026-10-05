@@ -403,3 +403,361 @@ describe('Dart payloads (fixture): friend requests (slice 2)', () => {
     await assertFails(getDoc(ref(t.anon(), path)));
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Slice 3 (docs/62): receive / accept / decline / list / remove friends, and the crossed request
+// (D4). Same fixture, same rules: nothing about the payloads is copied by hand.
+// ---------------------------------------------------------------------------------------------
+describe('Dart payloads (fixture): accept, decline, friends, remove (slice 3)', () => {
+  const bru = bruno;
+  const caio = U.caio;
+  const pair = `friendships/${ana}_${bru}`; // ana < bruno
+  const acc = S.acceptRequest;
+  const bothActive = async () => {
+    await t.seedSocial(ana, { handle: 'ana' });
+    await t.seedSocial(bru, { handle: 'bruno' });
+  };
+  // The pending request the accept payload refers to (their half = what THEIR request says).
+  const seedTheirs = (i = acc.input, extra = {}) =>
+    t.seedRequest(i.fromUid, i.uid, { fromName: i.fromName, fromPhoto: i.fromPhoto, ...extra });
+  const edit = (w, fn) => {
+    const c = clone(w);
+    fn(c.ops[0], c);
+    return c;
+  };
+
+  it('accept declares ONE batch: the pair + both requests deleted (derived from the fixture)', () => {
+    for (const name of ['acceptRequest', 'acceptRequest_with_photos', 'acceptRequest_as_b']) {
+      const w = S[name].write;
+      assert.equal(w.mode, 'batch');
+      assert.deepEqual(w.ops.map((o) => o.op), ['set', 'delete', 'delete']);
+      const { uid, fromUid } = S[name].input;
+      assert.deepEqual(w.ops.slice(1).map((o) => o.path).sort(), [
+        `friend_requests/${fromUid}_${uid}`,
+        `friend_requests/${uid}_${fromUid}`,
+      ].sort());
+    }
+  });
+
+  for (const name of ['acceptRequest', 'acceptRequest_with_photos', 'acceptRequest_as_b']) {
+    it(`${name}: creates the pair and consumes the request in the same batch`, async () => {
+      const i = S[name].input;
+      await bothActive();
+      await seedTheirs(i);
+      await assertSucceeds(run(t.db(i.uid), S[name].write));
+      await t.seed(async (d) => {
+        const w = S[name].write.ops[0];
+        const snap = await getDoc(ref(d, w.path));
+        assert.equal(snap.exists(), true);
+        const [lo, hi] = snap.data().members;
+        assert.ok(lo < hi);
+        assert.equal(snap.data()[lo === i.uid ? 'aName' : 'bName'], i.myName);
+        assert.equal(snap.data()[lo === i.uid ? 'bName' : 'aName'], i.fromName);
+      });
+      assert.equal(await t.exists(['friend_requests', `${i.fromUid}_${i.uid}`]), false);
+      assert.equal(await t.exists(['friend_requests', `${i.uid}_${i.fromUid}`]), false);
+    });
+  }
+
+  it('accept without their pending request is denied (nothing created)', async () => {
+    await bothActive();
+    await assertFails(run(t.db(ana), acc.write));
+    assert.equal(await t.exists(['friendships', `${ana}_${bru}`]), false);
+  });
+
+  it('accepting my OWN request (the sender confirms) is denied', async () => {
+    await bothActive();
+    await t.seedRequest(ana, bru, { fromName: 'Bruno' });
+    await assertFails(run(t.db(ana), acc.write));
+    assert.equal(await t.exists(['friendships', `${ana}_${bru}`]), false);
+  });
+
+  it('accepting a request addressed to somebody else is denied; so is a third party creating the pair', async () => {
+    await bothActive();
+    await t.seedSocial(caio, { handle: 'caio' });
+    await seedTheirs(acc.input, {});
+    await t.seedRequest(bru, caio, { fromName: 'Bruno' });
+    // caio tries to use the request bruno -> ana
+    const forged = edit(acc.write, (op) => {
+      op.data.members = [ana, caio];
+      op.path = `friendships/${ana}_${caio}`;
+    });
+    await assertFails(run(t.db(caio), forged));
+    await assertFails(run(t.db(caio), acc.write));
+    assert.equal(await t.exists(['friendships', `${ana}_${bru}`]), false);
+  });
+
+  it('accepting twice: the second batch is denied and nothing changes', async () => {
+    await bothActive();
+    await seedTheirs();
+    await assertSucceeds(run(t.db(ana), acc.write));
+    await assertFails(run(t.db(ana), acc.write));
+    assert.equal(await t.exists(['friendships', `${ana}_${bru}`]), true);
+  });
+
+  it('accept that leaves the request behind (create only, no delete) is denied', async () => {
+    await bothActive();
+    await seedTheirs();
+    const keep = clone(acc.write);
+    keep.ops = [keep.ops[0]];
+    await assertFails(run(t.db(ana), keep));
+    const half = clone(acc.write);
+    half.ops = [half.ops[0], half.ops[1]];
+    // deleting only {other}_{me} is fine when {me}_{other} does not exist...
+    await assertSucceeds(run(t.db(ana), half));
+  });
+
+  it('with BOTH requests pending, deleting only THEIR request is denied (mine must go too)', async () => {
+    await bothActive();
+    await t.seedRequest(bru, ana, { fromName: acc.input.fromName });
+    await t.seedRequest(ana, bru);
+    const half = clone(acc.write);
+    half.ops = half.ops.filter((o) => o.path !== `friend_requests/${ana}_${bru}`);
+    await assertFails(run(t.db(ana), half));
+    await assertSucceeds(run(t.db(ana), acc.write));
+  });
+
+  it('the other person\'s half cannot be forged (name or photo different from THEIR request)', async () => {
+    await bothActive();
+    await seedTheirs();
+    const bnameKey = 'bName'; // ana < bruno: the other half is "b"
+    await assertFails(run(t.db(ana), edit(acc.write, (op) => (op.data[bnameKey] = 'Outro Nome'))));
+    await assertFails(
+      run(t.db(ana), edit(acc.write, (op) => (op.data.bPhoto = 'https://lh3.googleusercontent.com/x'))),
+    );
+  });
+
+  it('field limits (derived from the fixture): extra field, names, photo host, clock, order, id, members', async () => {
+    await bothActive();
+    await seedTheirs(S.acceptRequest_with_photos.input);
+    const w = S.acceptRequest_with_photos.write;
+    const bad = {
+      'extra field': (op) => (op.data.note = 'oi'),
+      'my name empty': (op) => (op.data.aName = '  '),
+      'my name 41 chars': (op) => (op.data.aName = 'x'.repeat(41)),
+      'my name with zero-width space': (op) => (op.data.aName = 'An​a'),
+      'my photo outside Google': (op) => (op.data.aPhoto = 'https://evil.example/x.png'),
+      'client clock': (op) => (op.data.createdAt = new Date().toISOString()),
+      'members out of order': (op) => (op.data.members = [bru, ana]),
+      'three members': (op) => (op.data.members = [ana, bru, U.caio]),
+      'id mismatch': (op) => (op.path = `friendships/${bru}_${ana}`),
+      'missing aName': (op) => delete op.data.aName,
+    };
+    for (const [label, fn] of Object.entries(bad)) {
+      await assertFails(run(t.db(ana), edit(w, fn)), label);
+    }
+    // 20 emoji (40 UTF-16 units) is the largest valid name
+    await assertSucceeds(run(t.db(ana), edit(w, (op) => (op.data.aName = '\u{1F3AC}'.repeat(20)))));
+  });
+
+  it('accept is denied when either side blocked the other, without social, or when not Google', async () => {
+    const i = acc.input;
+    await bothActive();
+    await seedTheirs(i);
+    await t.seedBlock(bru, ana);
+    await assertFails(run(t.db(ana), acc.write));
+    await env.clearFirestore();
+    await bothActive();
+    await seedTheirs(i);
+    await t.seedBlock(ana, bru);
+    await assertFails(run(t.db(ana), acc.write));
+    await env.clearFirestore();
+    // the other person turned friendships off (their social is gone)
+    await t.seedSocial(ana, { handle: 'ana' });
+    await seedTheirs(i);
+    await assertFails(run(t.db(ana), acc.write));
+    await env.clearFirestore();
+    // I never turned them on
+    await t.seedSocial(bru, { handle: 'bruno' });
+    await seedTheirs(i);
+    await assertFails(run(t.db(ana), acc.write));
+    await env.clearFirestore();
+    await bothActive();
+    await seedTheirs(i);
+    await assertFails(run(t.dbWith(ana, 'password'), acc.write));
+    await assertSucceeds(run(t.db(ana), acc.write));
+  });
+
+  it('crossed request (D4): the app reads the inverse, then ONE batch makes the friendship and leaves nothing pending', async () => {
+    await bothActive();
+    await t.seedRequest(bru, ana, { fromName: acc.input.fromName });
+    const send = S.sendRequest.write;
+    // the transaction reads the inverse (allowed) ...
+    const db = t.db(ana);
+    await assertSucceeds(
+      runTransaction(db, async (tx) => {
+        for (const path of send.reads) await tx.get(ref(db, path));
+      }),
+    );
+    // ... and the accept batch (the same payload as "Aceitar") closes it
+    await assertSucceeds(run(db, acc.write));
+    assert.equal(await t.exists(['friendships', `${ana}_${bru}`]), true);
+    assert.equal(await t.exists(['friend_requests', `${bru}_${ana}`]), false);
+    assert.equal(await t.exists(['friend_requests', `${ana}_${bru}`]), false);
+  });
+
+  it('crossed request when BOTH requests exist (race): both are consumed', async () => {
+    await bothActive();
+    await t.seedRequest(bru, ana, { fromName: acc.input.fromName });
+    await t.seedRequest(ana, bru);
+    await assertSucceeds(run(t.db(ana), acc.write));
+    assert.equal(await t.exists(['friend_requests', `${bru}_${ana}`]), false);
+    assert.equal(await t.exists(['friend_requests', `${ana}_${bru}`]), false);
+  });
+
+  it('crossed request: creating the pending request instead (old provisional path) is still allowed by the rules; the app no longer does it', async () => {
+    // Documented so nobody mistakes the rules for the guard: the app decides, the rules only protect.
+    await bothActive();
+    await t.seedRequest(bru, ana);
+    await assertSucceeds(run(t.db(ana), S.sendRequest.write));
+  });
+
+  it('decline: the recipient deletes the request silently; repeating it is harmless; the sender can still cancel', async () => {
+    const d = S.declineRequest;
+    await bothActive();
+    await t.seedRequest(d.input.fromUid, ana);
+    await assertSucceeds(run(t.db(ana), d.write));
+    assert.equal(await t.exists(['friend_requests', `${bru}_${ana}`]), false);
+    assert.equal(await t.exists(['friendships', `${ana}_${bru}`]), false);
+    await assertSucceeds(run(t.db(ana), d.write));
+  });
+
+  it('decline: a request between two other people is denied (and survives); so is an id without my uid', async () => {
+    await bothActive();
+    await t.seedRequest(bru, U.caio);
+    const other = edit(S.declineRequest.write, (op) => (op.path = `friend_requests/${bru}_${U.caio}`));
+    await assertFails(run(t.db(ana), other));
+    assert.equal(await t.exists(['friend_requests', `${bru}_${U.caio}`]), true);
+    const ghost = edit(S.declineRequest.write, (op) => (op.path = 'friend_requests/uid-x_uid-y'));
+    await assertFails(run(t.db(ana), ghost));
+  });
+
+  it('remove friend: either side removes the one pair document for both; repeating is harmless', async () => {
+    await t.seedFriendship(ana, bru);
+    await assertSucceeds(run(t.db(ana), S.removeFriend.write));
+    assert.equal(await t.exists(['friendships', `${ana}_${bru}`]), false);
+    await assertSucceeds(run(t.db(ana), S.removeFriend.write));
+    await t.seedFriendship(ana, bru);
+    // the other side runs the same pair delete
+    const asBruno = edit(S.removeFriend.write, () => {});
+    await assertSucceeds(run(t.db(bru), asBruno));
+    assert.equal(await t.exists(['friendships', `${ana}_${bru}`]), false);
+  });
+
+  it('remove friend: a third party is denied (the pair survives); a pair without my uid is denied even if missing', async () => {
+    await t.seedFriendship(ana, bru);
+    await assertFails(run(t.db(U.caio), S.removeFriend.write));
+    assert.equal(await t.exists(['friendships', `${ana}_${bru}`]), true);
+    const ghost = edit(S.removeFriend.write, (op) => (op.path = 'friendships/uid-x_uid-y'));
+    await assertFails(run(t.db(ana), ghost));
+  });
+
+  it('after removing a friend a new request is possible again (and while friends it is denied)', async () => {
+    await bothActive();
+    await t.seedFriendship(ana, bru);
+    await assertFails(run(t.db(ana), S.sendRequest.write));
+    await assertSucceeds(run(t.db(ana), S.removeFriend.write));
+    await assertSucceeds(run(t.db(ana), S.sendRequest.write));
+  });
+
+  it('received query: only requests addressed to me, newest first, paged with startAfter; others are denied', async () => {
+    await bothActive();
+    await t.seed(async (d) => {
+      const mk = (id, from, toUid, days) =>
+        setDoc(doc(d, 'friend_requests', id), {
+          from, to: toUid, fromName: 'F', toName: 'T', createdAt: agoDays(days),
+        });
+      await mk(`uid-x1_${ana}`, 'uid-x1', ana, 3);
+      await mk(`uid-x2_${ana}`, 'uid-x2', ana, 1);
+      await mk(`uid-x3_${ana}`, 'uid-x3', ana, 2);
+      await mk(`${ana}_${bru}`, ana, bru, 0.5); // sent: must not appear
+      await mk(`uid-x1_${bru}`, 'uid-x1', bru, 0.5); // somebody else's
+    });
+    const spec = fx.requestQueries.received.query;
+    const db = t.db(ana);
+    const first = await assertSucceeds(getDocs(toQuery(db, { ...spec, limit: 3 })));
+    assert.deepEqual(first.docs.map((x) => x.id), [`uid-x2_${ana}`, `uid-x3_${ana}`, `uid-x1_${ana}`]);
+    const page2 = await assertSucceeds(
+      getDocs(query(toQuery(db, { ...spec, limit: 3 }), startAfter(first.docs[1]))),
+    );
+    assert.deepEqual(page2.docs.map((x) => x.id), [`uid-x1_${ana}`]);
+    await assertFails(getDocs(toQuery(t.db(bru), spec)));
+    await assertFails(getDocs(toQuery(t.anon(), spec)));
+  });
+
+  it('receivedCount query: counts only mine (capped by the payload limit); others are denied', async () => {
+    await bothActive();
+    await t.seedRequest('uid-x1', ana);
+    await t.seedRequest('uid-x2', ana);
+    await t.seedRequest(ana, bru);
+    const spec = fx.requestQueries.receivedCount.query;
+    assert.equal(spec.aggregate, 'count');
+    const snap = await assertSucceeds(getCountFromServer(toQuery(t.db(ana), spec)));
+    assert.equal(snap.data().count, 2);
+    await assertFails(getCountFromServer(toQuery(t.db(bru), spec)));
+    // an account without friendships may count too (0): the app asks before the state is known
+    const lone = await assertSucceeds(getCountFromServer(toQuery(t.db('uid-lone'), {
+      ...spec, where: [['to', '==', 'uid-lone']],
+    })));
+    assert.equal(lone.data().count, 0);
+  });
+
+  it('friends query: only my pairs, paged with startAfter, both sides list it; others are denied', async () => {
+    await t.seedFriendship(ana, bru);
+    await t.seedFriendship(ana, U.caio);
+    await t.seedFriendship(ana, U.dora);
+    await t.seedFriendship(bru, U.dora); // not mine
+    const spec = fx.requestQueries.friends.query;
+    assert.deepEqual(spec.where, [['members', 'array-contains', ana]]);
+    const db = t.db(ana);
+    const first = await assertSucceeds(getDocs(toQuery(db, { ...spec, limit: 2 })));
+    assert.equal(first.docs.length, 2);
+    const rest = await assertSucceeds(
+      getDocs(query(toQuery(db, { ...spec, limit: 3 }), startAfter(first.docs[1]))),
+    );
+    assert.equal(rest.docs.length, 1);
+    const all = [...first.docs, ...rest.docs].map((x) => x.id).sort();
+    assert.deepEqual(all, [`${ana}_${U.caio}`, `${ana}_${bru}`, `${ana}_${U.dora}`].sort());
+    // the other side lists the same pair, with its own uid
+    const theirs = await assertSucceeds(
+      getDocs(toQuery(t.db(bru), { ...spec, where: [['members', 'array-contains', bru]] })),
+    );
+    assert.deepEqual(theirs.docs.map((x) => x.id).sort(), [`${ana}_${bru}`, `${bru}_${U.dora}`].sort());
+    await assertFails(getDocs(toQuery(t.db(U.caio), spec)));
+    await assertFails(getDocs(toQuery(t.anon(), spec)));
+  });
+
+  it('friendsCount query: counts only my pairs; others are denied', async () => {
+    await t.seedFriendship(ana, bru);
+    await t.seedFriendship(bru, U.dora);
+    const spec = fx.requestQueries.friendsCount.query;
+    assert.equal(spec.aggregate, 'count');
+    const snap = await assertSucceeds(getCountFromServer(toQuery(t.db(ana), spec)));
+    assert.equal(snap.data().count, 1);
+    await assertFails(getCountFromServer(toQuery(t.db(bru), spec)));
+  });
+
+  it('deactivate sweep still removes real friendships and requests (both sides lose the pair)', async () => {
+    await bothActive();
+    await t.seedFriendship(ana, bru);
+    await t.seedRequest('uid-x', ana);
+    await t.seedRequest(ana, 'uid-y');
+    const db = t.db(ana);
+    const friends = await getDocs(toQuery(db, fx.queries.friendships.query));
+    assert.deepEqual(friends.docs.map((x) => x.id), [`${ana}_${bru}`]);
+    await assertSucceeds(run(db, S.close.write));
+    await assertSucceeds(
+      run(db, {
+        mode: 'batch',
+        ops: [
+          { op: 'delete', path: `friendships/${ana}_${bru}` },
+          { op: 'delete', path: `friend_requests/uid-x_${ana}` },
+          { op: 'delete', path: `friend_requests/${ana}_uid-y` },
+        ],
+      }),
+    );
+    // Bruno's list no longer has Ana
+    const theirs = await getDocs(toQuery(t.db(bru), { ...fx.queries.friendships.query, where: [['members', 'array-contains', bru]] }));
+    assert.equal(theirs.empty, true);
+  });
+});

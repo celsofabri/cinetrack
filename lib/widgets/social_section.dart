@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../providers/social_lists_providers.dart';
 import '../providers/social_providers.dart';
 import '../providers/sync_providers.dart';
 import '../social/social_models.dart';
 import '../social/social_validation.dart';
+import 'count_badge.dart';
 import 'nickname_dialog.dart';
 import 'person_avatar.dart';
 import 'social_dialogs.dart';
@@ -180,6 +182,8 @@ class _Active extends ConsumerWidget {
     final locked = busy || offline;
     final theme = Theme.of(context);
     final controller = ref.read(socialControllerProvider.notifier);
+    final pending = ref.watch(receivedBadgeProvider);
+    refreshBadge(ref);
     final canChange = profile.canChangeHandle(DateTime.now());
 
     Future<void> toggle(Future<SocialFailure?> Function() action, String done) async {
@@ -251,9 +255,15 @@ class _Active extends ConsumerWidget {
           children: [
             FilledButton.tonalIcon(
               style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
-              onPressed: () => context.push('/friends'),
-              icon: const Icon(Icons.people_outline),
-              label: const Text('Gerenciar amigos'),
+              onPressed: () => context.push(pending > 0 ? '/friends?tab=pedidos' : '/friends'),
+              icon: CountBadge(count: pending, child: const Icon(Icons.people_outline)),
+              label: Text(
+                'Gerenciar amigos',
+                semanticsLabel: pending == 0
+                    ? null
+                    : 'Gerenciar amigos, ${badgeText(pending)} '
+                          '${pending == 1 ? 'pedido recebido' : 'pedidos recebidos'}',
+              ),
             ),
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),

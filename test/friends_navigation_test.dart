@@ -106,7 +106,7 @@ void main() {
       await tester.tap(_topBarFriends());
       await tester.pumpAndSettle();
       expect(app.location, '/friends');
-      expect(find.text('Pedidos enviados'), findsOneWidget);
+      expect(find.text('Adicionar amigo'), findsOneWidget);
       expect(tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex, 4);
       // the search screen keeps Perfil selected too
       await tester.tap(find.text('Adicionar amigo'));
@@ -126,25 +126,36 @@ void main() {
       expect(app.reads, ['read']);
     });
 
+    // The icon needs room next to the logo and the name (friendsIconFits): with a 3x font at
+    // 320 and 360 px it gives way to a dot on Perfil (docs/50 §13, docs/62).
+    bool expectIcon(double width, double scale) => !(scale == 3.0 && width <= 360);
+
     for (final width in [320.0, 360.0, 390.0, 768.0]) {
       for (final scale in [1.0, 2.0, 3.0]) {
-        testWidgets('$width px font ${scale}x: logo bar fits with the Amigos icon', (tester) async {
-          for (final brightness in [Brightness.light, Brightness.dark]) {
-            await pumpFriends(
-              tester,
-              size: Size(width, 700),
-              textScale: scale,
-              brightness: brightness,
-            );
-            expect(tester.takeException(), isNull);
-            expect(_topBarFriends(), findsOneWidget);
-            final bar = tester.getRect(find.byType(MobileTopBar));
-            final icons = tester.getRect(_topBarFriends());
-            expect(icons.right, lessThanOrEqualTo(bar.right));
-            // the logo (flexible) still leaves room: it never goes negative
-            expect(tester.getSize(find.text('CineTrack')).width, greaterThanOrEqualTo(0));
-          }
-        });
+        testWidgets(
+          '$width px font ${scale}x: logo bar fits, icon ${expectIcon(width, scale) ? 'shown' : 'replaced by the Perfil dot'}',
+          (tester) async {
+            for (final brightness in [Brightness.light, Brightness.dark]) {
+              await pumpFriends(
+                tester,
+                size: Size(width, 700),
+                textScale: scale,
+                brightness: brightness,
+              );
+              expect(tester.takeException(), isNull);
+              if (!expectIcon(width, scale)) {
+                expect(_topBarFriends(), findsNothing);
+                continue;
+              }
+              expect(_topBarFriends(), findsOneWidget);
+              final bar = tester.getRect(find.byType(MobileTopBar));
+              final icons = tester.getRect(_topBarFriends());
+              expect(icons.right, lessThanOrEqualTo(bar.right));
+              // the logo (flexible) still leaves room: it never goes negative
+              expect(tester.getSize(find.text('CineTrack')).width, greaterThanOrEqualTo(0));
+            }
+          },
+        );
       }
     }
   });
@@ -217,9 +228,11 @@ void main() {
       expect(find.text('Amigos'), findsOneWidget); // label on wide screens
       await tester.tap(find.text('Amigos'));
       await tester.pumpAndSettle();
-      expect(find.text('Pedidos enviados'), findsOneWidget);
+      expect(find.text('Adicionar amigo'), findsOneWidget);
       expect(find.byType(AppBar), findsOneWidget);
-      expect(app.reads.where((r) => r == 'sent:page'), hasLength(1));
+      // Opens on the Amigos tab: only the friends list is read (docs/62).
+      expect(app.reads.where((r) => r == 'friends:page'), hasLength(1));
+      expect(app.reads.where((r) => r == 'sent:page'), isEmpty);
     });
 
     for (final width in [769.0, 800.0, 960.0, 1024.0, 1100.0, 1440.0]) {
@@ -252,7 +265,7 @@ void main() {
       expect(size.height, greaterThanOrEqualTo(48));
       await tester.tap(find.text('Gerenciar amigos'));
       await tester.pumpAndSettle();
-      expect(find.text('Pedidos enviados'), findsOneWidget);
+      expect(find.text('Adicionar amigo'), findsOneWidget);
     });
 
     testWidgets('not shown while friendships are off', (tester) async {

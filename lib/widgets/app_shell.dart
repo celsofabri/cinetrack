@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 
 import '../providers/catalog_sync_providers.dart';
 import '../providers/providers.dart';
+import '../providers/social_lists_providers.dart';
 import '../providers/social_providers.dart';
+import 'count_badge.dart';
 import 'auth_gate.dart';
 import 'sync_widgets.dart';
 
@@ -55,6 +57,23 @@ class BrandMark extends StatelessWidget {
   }
 }
 
+/// Width the brand name keeps at 1x font before the Amigos icon gives way.
+const double kBrandNameMinWidth = 56;
+
+/// Whether the Amigos icon fits in the mobile top bar next to the logo, the
+/// name, the magnifier and the sync indicator: the name needs room in
+/// proportion to the font size. When it does not (320 px with a large font),
+/// the icon is hidden and the pending requests show as a dot on the Perfil
+/// destination instead (docs/50 §13); Perfil -> "Gerenciar amigos" still
+/// reaches the screen.
+bool friendsIconFits(BuildContext context) {
+  const padding = 32.0, button = 48.0, sync = 32.0, logo = 32.0, gap = 8.0;
+  final width = MediaQuery.sizeOf(context).width;
+  final scale = MediaQuery.textScalerOf(context).scale(1);
+  final room = width - padding - button /* search */ - sync - button /* friends */;
+  return room >= logo + gap + kBrandNameMinWidth * scale;
+}
+
 /// Fixed top bar of the mobile layout: logo always visible (it lives outside
 /// the scrollable content), then the search magnifier (Busca is not a tab on
 /// mobile any more, `/search` is unchanged) and the sync indicator.
@@ -65,7 +84,9 @@ class MobileTopBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     // Only for accounts with friendships on (loads the social state once per session).
-    final friends = ref.watch(socialActiveProvider);
+    final friends = ref.watch(socialActiveProvider) && friendsIconFits(context);
+    final pending = ref.watch(receivedBadgeProvider);
+    refreshBadge(ref);
     return Material(
       color: theme.colorScheme.surface,
       child: DecoratedBox(
@@ -91,10 +112,12 @@ class MobileTopBar extends ConsumerWidget {
                   ),
                   if (friends)
                     IconButton(
-                      tooltip: 'Amigos',
+                      tooltip: friendsSemanticLabel(pending),
                       style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                      icon: const Icon(Icons.people_outline),
-                      onPressed: () => context.go('/friends'),
+                      icon: CountBadge(count: pending, child: const Icon(Icons.people_outline)),
+                      // With requests waiting the screen opens on them.
+                      onPressed: () =>
+                          context.go(pending > 0 ? '/friends?tab=pedidos' : '/friends'),
                     ),
                   IconButton(
                     tooltip: 'Buscar',
@@ -199,6 +222,8 @@ class AppShell extends ConsumerWidget {
     if (!isMobileWidth(context)) return child;
 
     final user = ref.watch(currentUserProvider);
+    final pending = ref.watch(receivedBadgeProvider);
+    final dotOnProfile = pending > 0 && !friendsIconFits(context);
     final authLoading = ref.watch(authStateProvider).isLoading;
     final signedOut = user == null && !authLoading;
     final profileIndex = _tabs.length;
@@ -254,10 +279,20 @@ class AppShell extends ConsumerWidget {
                 tooltip: t.tooltip ?? t.label,
               ),
             NavigationDestination(
-              icon: Icon(signedOut ? Icons.login : Icons.person_outline),
-              selectedIcon: const Icon(Icons.person),
+              icon: CountBadge(
+                count: dotOnProfile ? pending : 0,
+                dot: true,
+                child: Icon(signedOut ? Icons.login : Icons.person_outline),
+              ),
+              selectedIcon: CountBadge(
+                count: dotOnProfile ? pending : 0,
+                dot: true,
+                child: const Icon(Icons.person),
+              ),
               label: signedOut ? 'Entrar' : 'Perfil',
-              tooltip: signedOut ? 'Entrar com Google' : 'Perfil',
+              tooltip: signedOut
+                  ? 'Entrar com Google'
+                  : (dotOnProfile ? profileSemanticLabel(pending) : 'Perfil'),
             ),
           ],
         ),

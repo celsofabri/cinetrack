@@ -1,6 +1,6 @@
 # 59 - Amizades, fatia 2: busca por handle, enviar/cancelar pedido, "Pedidos enviados"
 
-> Autor: Dev FE/BE · 2026-10-06 · Base: [docs/49](./49-especificacao-amizades.md), [docs/50](./50-design-amizades.md) §13, [docs/51](./51-regras-sociais-fatia-0.md), [docs/55](./55-social-fatia-1-implementacao.md), [docs/58](./58-conferencia-final-social-fatia-1.md). **`firestore.rules`, `firestore.indexes.json` e os testes de regras existentes não foram alterados** (só `dart_payloads.test.mjs` foi ESTENDIDO e o fixture ganhou entradas novas; nada removido).
+> Autor: Dev FE/BE · 2026-10-05 · Base: [docs/49](./49-especificacao-amizades.md), [docs/50](./50-design-amizades.md) §13, [docs/51](./51-regras-sociais-fatia-0.md), [docs/55](./55-social-fatia-1-implementacao.md), [docs/58](./58-conferencia-final-social-fatia-1.md). **`firestore.rules`, `firestore.indexes.json` e os testes de regras existentes não foram alterados** (só `dart_payloads.test.mjs` foi ESTENDIDO e o fixture ganhou entradas novas; nada removido).
 
 ## O que foi feito
 - **Dados** (`SocialDataSource` / Firestore / fake / deslogado + `SocialRepository`):

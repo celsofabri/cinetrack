@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cinetrack/data/social_data_source.dart';
 import 'package:cinetrack/social/social_models.dart';
 import 'package:cinetrack/social/social_validation.dart';
@@ -25,6 +27,16 @@ class FakeSocialCloud {
 
   bool offline = false;
 
+  /// While set, `read()` (the social state) waits for it: lets a test change
+  /// account with a read in flight.
+  Completer<void>? readGate;
+
+  /// While set, accept / decline / remove wait for it (to see "Salvando...").
+  Completer<void>? writeGate;
+
+  /// While set, the list pages (sent / received / friends) wait for it.
+  Completer<void>? pageGate;
+
   /// While [offline], the list reads still answer from "the device" when true
   /// (persistence on); false = nothing cached.
   bool cacheAvailable = true;
@@ -43,7 +55,8 @@ class FakeSocialCloud {
   /// Operation name -> failure thrown ONCE the next time it runs. Names:
   /// 'read', 'activate', 'changeHandle', 'updateCard', 'closeSocial',
   /// 'readSweep:KIND', 'deleteRefs:KIND', 'lookup', 'count', 'sendRequest',
-  /// 'cancelRequest', 'sentPage'.
+  /// 'cancelRequest', 'sentPage', 'acceptRequest', 'declineRequest',
+  /// 'removeFriend', 'countReceived', 'countFriends', 'receivedPage', 'friendsPage'.
   final Map<String, SocialFailure> failures = {};
 
   /// Number of `deleteRefs` calls so far, and the 1-based call that fails once.
@@ -179,6 +192,7 @@ class InMemorySocialDataSource implements SocialDataSource {
     _gate(server: fromServer);
     cloud.readLog.add('read');
     cloud.checkFailure('read');
+    await cloud.readGate?.future;
     final social = _copy(cloud.social[uid]);
     final handle = social?['handle'];
     return RawSocial(social: social, card: handle is String ? _copy(cloud.handles[handle]) : null);
@@ -307,8 +321,22 @@ class InMemorySocialDataSource implements SocialDataSource {
     return _sent().length.clamp(0, kMaxSentRequests);
   }
 
+  /// `validRequest` of the rules (everything else is "denied").
+  bool _requestAllowed(String to, SendRequestDraft draft) =>
+      uid != to &&
+      RegExp(r'^[^_/]{1,128}$').hasMatch(to) &&
+      RegExp(r'^[^_/]{1,128}$').hasMatch(uid) &&
+      cloud.social.containsKey(uid) &&
+      cloud.social.containsKey(to) &&
+      !_blockedEither(uid, to) &&
+      !cloud.friendships.containsKey(FakeSocialCloud.pairId(uid, to)) &&
+      FakeSocialCloud.validName(draft.fromName) &&
+      FakeSocialCloud.validName(draft.toName) &&
+      FakeSocialCloud.validPhoto(draft.fromPhoto) &&
+      FakeSocialCloud.validPhoto(draft.toPhoto);
+
   @override
-  Future<void> sendRequest(SendRequestDraft draft) async {
+  Future<SendOutcome> sendRequest(SendRequestDraft draft) async {
     _gate(server: true);
     cloud.checkFailure('sendRequest');
     final to = draft.toUid;
@@ -317,23 +345,29 @@ class InMemorySocialDataSource implements SocialDataSource {
     if (cloud.requests.containsKey('${uid}_$to')) {
       throw const SocialFailure(SocialFailureKind.alreadySent);
     }
-    if (cloud.requests.containsKey('${to}_$uid')) {
-      throw const SocialFailure(SocialFailureKind.incomingRequest);
+    final inverse = cloud.requests['${to}_$uid'];
+    if (inverse != null) {
+      // Crossed (D4): the same ONE batch as accepting, after the 300 friends cap.
+      cloud.readLog.add('countFriends');
+      if (_friends().length >= kMaxFriends) {
+        throw const SocialFailure(SocialFailureKind.friendsLimit);
+      }
+      final photo = inverse['fromPhoto'];
+      _applyAccept(
+        AcceptDraft(
+          fromUid: to,
+          fromName: inverse['fromName'] as String,
+          fromPhoto: photo is String ? photo : null,
+          myName: draft.fromName,
+          myPhoto: draft.fromPhoto,
+        ),
+      );
+      cloud.log.add('crossedAccept');
+      return SendOutcome.becameFriends;
     }
-    // validRequest of the rules (everything else is "denied").
-    final ok =
-        uid != to &&
-        RegExp(r'^[^_/]{1,128}$').hasMatch(to) &&
-        RegExp(r'^[^_/]{1,128}$').hasMatch(uid) &&
-        cloud.social.containsKey(uid) &&
-        cloud.social.containsKey(to) &&
-        !_blockedEither(uid, to) &&
-        !cloud.friendships.containsKey(FakeSocialCloud.pairId(uid, to)) &&
-        FakeSocialCloud.validName(draft.fromName) &&
-        FakeSocialCloud.validName(draft.toName) &&
-        FakeSocialCloud.validPhoto(draft.fromPhoto) &&
-        FakeSocialCloud.validPhoto(draft.toPhoto);
-    if (!ok) throw const SocialFailure(SocialFailureKind.denied, code: 'permission-denied');
+    if (!_requestAllowed(to, draft)) {
+      throw const SocialFailure(SocialFailureKind.denied, code: 'permission-denied');
+    }
     cloud.requests['${uid}_$to'] = {
       'from': uid,
       'to': to,
@@ -344,6 +378,135 @@ class InMemorySocialDataSource implements SocialDataSource {
       'createdAt': cloud.now(),
     };
     cloud.log.add('sendRequest');
+    return SendOutcome.requested;
+  }
+
+  /// `validFriendshipCreate` of the rules + the batch that consumes both
+  /// requests. Throws denied (and changes nothing) when the rules would.
+  void _applyAccept(AcceptDraft draft) {
+    final other = draft.fromUid;
+    final req = cloud.requests['${other}_$uid'];
+    final ok =
+        req != null &&
+        uid != other &&
+        cloud.social.containsKey(uid) &&
+        cloud.social.containsKey(other) &&
+        !_blockedEither(uid, other) &&
+        draft.fromName == req['fromName'] &&
+        draft.fromPhoto == req['fromPhoto'] &&
+        FakeSocialCloud.validName(draft.fromName) &&
+        FakeSocialCloud.validName(draft.myName) &&
+        FakeSocialCloud.validPhoto(draft.fromPhoto) &&
+        FakeSocialCloud.validPhoto(draft.myPhoto);
+    if (!ok) throw const SocialFailure(SocialFailureKind.denied, code: 'permission-denied');
+    final meIsA = uid.compareTo(other) < 0;
+    cloud.friendships[FakeSocialCloud.pairId(uid, other)] = {
+      'members': meIsA ? [uid, other] : [other, uid],
+      'createdAt': cloud.now(),
+      'aName': meIsA ? draft.myName : draft.fromName,
+      if ((meIsA ? draft.myPhoto : draft.fromPhoto) != null)
+        'aPhoto': meIsA ? draft.myPhoto : draft.fromPhoto,
+      'bName': meIsA ? draft.fromName : draft.myName,
+      if ((meIsA ? draft.fromPhoto : draft.myPhoto) != null)
+        'bPhoto': meIsA ? draft.fromPhoto : draft.myPhoto,
+    };
+    cloud.requests.remove('${other}_$uid');
+    cloud.requests.remove('${uid}_$other');
+  }
+
+  @override
+  Future<void> acceptRequest(AcceptDraft draft) async {
+    _gate(server: true);
+    cloud.checkFailure('acceptRequest');
+    await cloud.writeGate?.future;
+    _applyAccept(draft);
+    cloud.log.add('acceptRequest');
+  }
+
+  @override
+  Future<void> declineRequest(String fromUid) async {
+    _gate(server: true);
+    cloud.checkFailure('declineRequest');
+    await cloud.writeGate?.future;
+    cloud.requests.remove('${fromUid}_$uid');
+    cloud.log.add('declineRequest');
+  }
+
+  @override
+  Future<void> removeFriend(String otherUid) async {
+    _gate(server: true);
+    cloud.checkFailure('removeFriend');
+    await cloud.writeGate?.future;
+    cloud.friendships.remove(FakeSocialCloud.pairId(uid, otherUid));
+    cloud.log.add('removeFriend');
+  }
+
+  Iterable<MapEntry<String, Map<String, dynamic>>> _received() =>
+      cloud.requests.entries.where((e) => e.value['to'] == uid);
+
+  Iterable<MapEntry<String, Map<String, dynamic>>> _friends() =>
+      cloud.friendships.entries.where((e) => (e.value['members'] as List).contains(uid));
+
+  @override
+  Future<int> countReceivedRequests() async {
+    _gate(server: true);
+    cloud.readLog.add('countReceived');
+    cloud.checkFailure('countReceived');
+    return _received().length.clamp(0, kMaxReceivedListed);
+  }
+
+  @override
+  Future<int> countFriends() async {
+    _gate(server: true);
+    cloud.readLog.add('countFriends');
+    cloud.checkFailure('countFriends');
+    return _friends().length.clamp(0, kMaxFriends);
+  }
+
+  RawSentPage _pageOf(List<MapEntry<String, Map<String, dynamic>>> all, Object? cursor, int limit) {
+    final start = cursor is int ? cursor : 0;
+    final slice = all.skip(start).take(limit + 1).toList();
+    final page = slice.take(limit).toList();
+    return RawSentPage(
+      docs: [
+        for (final e in page) (id: e.key, data: {...e.value}),
+      ],
+      cursor: start + page.length,
+      hasMore: slice.length > limit,
+      fromCache: cloud.offline,
+    );
+  }
+
+  @override
+  Future<RawSentPage> readReceivedPage({Object? cursor, required int limit}) async {
+    _gate(server: false);
+    cloud.readLog.add('received:page');
+    if (cloud.offline && !cloud.cacheAvailable) {
+      throw const SocialFailure(SocialFailureKind.offline);
+    }
+    cloud.checkFailure('receivedPage');
+    await cloud.pageGate?.future;
+    final all = _received().toList()
+      ..sort((a, b) {
+        final byTime = (b.value['createdAt'] as DateTime).compareTo(
+          a.value['createdAt'] as DateTime,
+        );
+        return byTime != 0 ? byTime : b.key.compareTo(a.key);
+      });
+    return _pageOf(all, cursor, limit);
+  }
+
+  @override
+  Future<RawSentPage> readFriendsPage({Object? cursor, required int limit}) async {
+    _gate(server: false);
+    cloud.readLog.add('friends:page');
+    if (cloud.offline && !cloud.cacheAvailable) {
+      throw const SocialFailure(SocialFailureKind.offline);
+    }
+    cloud.checkFailure('friendsPage');
+    await cloud.pageGate?.future;
+    final all = _friends().toList()..sort((a, b) => a.key.compareTo(b.key));
+    return _pageOf(all, cursor, limit);
   }
 
   @override
@@ -361,6 +524,7 @@ class InMemorySocialDataSource implements SocialDataSource {
     final cached = cloud.offline;
     if (cached && !cloud.cacheAvailable) throw const SocialFailure(SocialFailureKind.offline);
     cloud.checkFailure('sentPage');
+    await cloud.pageGate?.future;
     final all = _sent().toList()
       ..sort((a, b) {
         final byTime = (b.value['createdAt'] as DateTime).compareTo(

@@ -13,7 +13,7 @@ void main() {
     testWidgets('empty: explains, offers "Adicionar amigo", no placeholders for later slices', (
       tester,
     ) async {
-      final app = await pumpFriends(tester, start: '/friends');
+      final app = await pumpFriends(tester, start: '/friends?tab=pedidos');
       expect(find.text('Pedidos enviados'), findsOneWidget);
       expect(find.textContaining('Você não tem pedidos pendentes'), findsOneWidget);
       expect(find.textContaining('sem aviso'), findsOneWidget);
@@ -30,7 +30,7 @@ void main() {
       final semantics = tester.ensureSemantics();
       final app = await pumpFriends(
         tester,
-        start: '/friends',
+        start: '/friends?tab=pedidos',
         seed: (s) {
           s.requests['uid-ana_uid-bruno'] = {
             'from': 'uid-ana',
@@ -63,7 +63,7 @@ void main() {
     testWidgets('cancel asks first (focus on "Manter pedido"); confirming deletes', (tester) async {
       final app = await pumpFriends(
         tester,
-        start: '/friends',
+        start: '/friends?tab=pedidos',
         seed: (s) => s.seedRequest('uid-ana', 'uid-bruno', toName: 'Bruno'),
       );
       await tester.tap(find.text('Cancelar pedido'));
@@ -88,7 +88,7 @@ void main() {
     testWidgets('a cancel that fails keeps the item and says why', (tester) async {
       final app = await pumpFriends(
         tester,
-        start: '/friends',
+        start: '/friends?tab=pedidos',
         seed: (s) => s.seedRequest('uid-ana', 'uid-bruno', toName: 'Bruno'),
       );
       app.social.failures['cancelRequest'] = const SocialFailure(SocialFailureKind.offline);
@@ -106,7 +106,7 @@ void main() {
       final app = await pumpFriends(
         tester,
         size: const Size(800, 6000),
-        start: '/friends',
+        start: '/friends?tab=pedidos',
         seed: (s) => addSentRequests(s, 25),
       );
       expect(find.textContaining('Enviado em'), findsNWidgets(20));
@@ -122,7 +122,7 @@ void main() {
     testWidgets('error: honest message and "Tentar de novo"', (tester) async {
       final app = await pumpFriends(
         tester,
-        start: '/friends',
+        start: '/friends?tab=pedidos',
         seed: (s) => s.failures['sentPage'] = const SocialFailure(SocialFailureKind.quotaExceeded),
       );
       expect(find.text('Muitas operações hoje. Tente de novo amanhã.'), findsOneWidget);
@@ -135,7 +135,7 @@ void main() {
     testWidgets('offline: the saved list with the notice, cancel disabled', (tester) async {
       final app = await pumpFriends(
         tester,
-        start: '/friends',
+        start: '/friends?tab=pedidos',
         seed: (s) => s.seedRequest('uid-ana', 'uid-bruno', toName: 'Bruno'),
       );
       // Leave and come back while offline (the first copy was fresh: TTL 0 forces a re-read).
@@ -150,11 +150,11 @@ void main() {
     });
 
     testWidgets('leaving and returning within the TTL does not read again', (tester) async {
-      final app = await pumpFriends(tester, start: '/friends');
+      final app = await pumpFriends(tester, start: '/friends?tab=pedidos');
       expect(app.reads.where((r) => r == 'sent:page'), hasLength(1));
       app.router.go('/profile');
       await tester.pumpAndSettle();
-      app.router.go('/friends');
+      app.router.go('/friends?tab=pedidos');
       await tester.pumpAndSettle();
       expect(app.reads.where((r) => r == 'sent:page'), hasLength(1));
     });
@@ -190,13 +190,13 @@ void main() {
     testWidgets('"Adicionar amigo" opens the search with the back path to /friends', (
       tester,
     ) async {
-      await pumpFriends(tester, start: '/friends');
+      await pumpFriends(tester, start: '/friends?tab=pedidos');
       await tester.tap(find.text('Adicionar amigo'));
       await tester.pumpAndSettle();
       expect(find.byType(TextField), findsOneWidget); // the search screen
       await tester.tap(find.byTooltip('Voltar para Amigos'));
       await tester.pumpAndSettle();
-      expect(find.text('Pedidos enviados'), findsOneWidget);
+      expect(find.text('Adicionar amigo'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
     });
   });
@@ -330,7 +330,7 @@ void main() {
     ) async {
       final app = await pumpFriends(
         tester,
-        start: '/friends',
+        start: '/friends?tab=pedidos',
         seed: (s) => s.seedRequest('uid-ana', 'uid-bruno', toName: 'Bruno'),
       );
       app.router.go('/friends/add');
@@ -352,7 +352,7 @@ void main() {
       expect(cold.social.requests, hasLength(1));
     });
 
-    testWidgets('they already asked me (D4): says so, creates nothing, no friendship', (
+    testWidgets('they already asked me (D4): it becomes a friendship, nothing pending is left', (
       tester,
     ) async {
       final app = await pumpFriends(
@@ -363,11 +363,11 @@ void main() {
       await searchHandle(tester, 'bruno');
       await tester.tap(find.text('Enviar pedido'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('já enviou um pedido para você'), findsOneWidget);
-      expect(find.textContaining('chegam em breve'), findsOneWidget);
+      expect(find.textContaining('Vocês agora são amigos'), findsOneWidget);
+      expect(find.textContaining('chegam em breve'), findsNothing);
       expect(find.text('Enviar pedido'), findsNothing);
-      expect(app.social.requests.keys, ['uid-bruno_uid-ana']);
-      expect(app.social.friendships, isEmpty);
+      expect(app.social.requests, isEmpty);
+      expect(app.social.friendships.keys, ['uid-ana_uid-bruno']);
     });
 
     testWidgets('limit of 50: explains, writes nothing', (tester) async {
@@ -440,7 +440,7 @@ void main() {
               size: size,
               textScale: scale,
               brightness: brightness,
-              start: '/friends',
+              start: '/friends?tab=pedidos',
               seed: (s) {
                 addSentRequests(s, 3, name: (i) => i == 0 ? longName : 'Pessoa $i');
                 s.seedActive('uid-long', 'long', nickname: longName);
@@ -448,6 +448,11 @@ void main() {
             );
             expect(tester.takeException(), isNull);
             for (final label in ['Adicionar amigo', 'Cancelar pedido']) {
+              // The list is lazy: very large fonts push the sent requests below the fold.
+              for (var i = 0; i < 40 && find.text(label).evaluate().isEmpty; i++) {
+                await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+                await tester.pump();
+              }
               final size = tester.getSize(btn(label).first);
               expect(size.height, greaterThanOrEqualTo(48), reason: label);
               expect(size.width, greaterThanOrEqualTo(48), reason: label);

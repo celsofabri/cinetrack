@@ -33,7 +33,19 @@ class FriendsApp {
 
   GoRouter get router => container.read(routerProvider);
   String get location => router.routeInformationProvider.value.uri.path;
-  List<String> get reads => social.readLog;
+
+  /// Reads of the social state, lists and searches. The badge's aggregate
+  /// `count()` (slice 3, one per TTL while the icon shows) is separate:
+  /// [countReads].
+  List<String> get reads => [
+    for (final r in social.readLog)
+      if (r != 'countReceived') r,
+  ];
+
+  List<String> get countReads => [
+    for (final r in social.readLog)
+      if (r == 'countReceived') r,
+  ];
 }
 
 Future<FriendsApp> pumpFriends(
@@ -49,6 +61,7 @@ Future<FriendsApp> pumpFriends(
   FakeAuthRepository? authOverride,
   FakeLocalStore? store,
   void Function(FakeSocialCloud social)? seed,
+  List<Override> extraOverrides = const [],
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -79,6 +92,7 @@ Future<FriendsApp> pumpFriends(
     overrides: [
       ...cloudOverrides(auth: auth, cloud: cloud, socialCloud: social, store: store),
       sentRequestsTtlProvider.overrideWithValue(ttl),
+      ...extraOverrides,
     ],
   );
   addTearDown(container.dispose);
@@ -114,5 +128,28 @@ void addSentRequests(FakeSocialCloud social, int n, {String Function(int i)? nam
       'toName': name?.call(i) ?? 'Pessoa $i',
       'createdAt': base.add(Duration(hours: i)),
     };
+  }
+}
+
+/// [n] pending requests addressed to Ana from people who have friendships on.
+void addReceivedRequests(FakeSocialCloud social, int n, {String Function(int i)? name}) {
+  final base = DateTime.now().subtract(const Duration(days: 40));
+  for (var i = 0; i < n; i++) {
+    social.seedActive('uid-r$i', 'recebe$i', nickname: name?.call(i) ?? 'Remetente $i');
+    social.requests['uid-r${i}_uid-ana'] = {
+      'from': 'uid-r$i',
+      'to': 'uid-ana',
+      'fromName': name?.call(i) ?? 'Remetente $i',
+      'toName': 'Ana',
+      'createdAt': base.add(Duration(hours: i)),
+    };
+  }
+}
+
+/// [n] friends of Ana (names "Amigo 0".. unless [name]).
+void addFriends(FakeSocialCloud social, int n, {String Function(int i)? name}) {
+  for (var i = 0; i < n; i++) {
+    social.seedActive('uid-f$i', 'amigo$i', nickname: name?.call(i) ?? 'Amigo $i');
+    social.seedFriendship('uid-ana', 'uid-f$i', aName: 'Ana', bName: name?.call(i) ?? 'Amigo $i');
   }
 }

@@ -6,8 +6,10 @@ import '../models/discovery_category.dart';
 import '../widgets/account_widgets.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/continue_watching_section.dart';
+import '../widgets/count_badge.dart';
 import '../widgets/discovery_section.dart';
 import '../providers/providers.dart';
+import '../providers/social_lists_providers.dart';
 import '../providers/social_providers.dart';
 
 /// The app's entry screen: a vertical list of sections — local data
@@ -22,6 +24,8 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // The Amigos entry only exists for accounts with friendships on.
     final friends = ref.watch(socialActiveProvider);
+    final pending = ref.watch(receivedBadgeProvider);
+    refreshBadge(ref);
     final labelsMinWidth = kTopMenuLabelsMinWidth + (friends ? kTopMenuFriendsExtraWidth : 0);
     return Scaffold(
       appBar: MobileShellScope.active(context)
@@ -67,9 +71,12 @@ class HomeScreen extends ConsumerWidget {
                 if (friends)
                   _NavAction(
                     label: 'Amigos',
+                    semanticLabel: friendsSemanticLabel(pending),
+                    badge: pending,
                     labelsMinWidth: labelsMinWidth,
                     icon: Icons.people,
-                    onPressed: () => context.push('/friends'),
+                    onPressed: () =>
+                        context.push(pending > 0 ? '/friends?tab=pedidos' : '/friends'),
                   ),
                 const AccountAction(),
                 const SizedBox(width: 8),
@@ -105,11 +112,19 @@ class _NavAction extends StatelessWidget {
   final VoidCallback onPressed;
   final double labelsMinWidth;
 
+  /// Screen-reader text when it differs from [label] (starts with it).
+  final String? semanticLabel;
+
+  /// Pending count on a badge over the icon (0 = none).
+  final int badge;
+
   const _NavAction({
     required this.label,
     required this.icon,
     required this.onPressed,
     required this.labelsMinWidth,
+    this.semanticLabel,
+    this.badge = 0,
   });
 
   @override
@@ -120,8 +135,16 @@ class _NavAction extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(left: 4),
       child: wide
-          ? FilledButton.tonalIcon(onPressed: onPressed, icon: Icon(icon), label: Text(label))
-          : IconButton.filledTonal(tooltip: label, onPressed: onPressed, icon: Icon(icon)),
+          ? FilledButton.tonalIcon(
+              onPressed: onPressed,
+              icon: CountBadge(count: badge, child: Icon(icon)),
+              label: Text(label, semanticsLabel: semanticLabel),
+            )
+          : IconButton.filledTonal(
+              tooltip: semanticLabel ?? label,
+              onPressed: onPressed,
+              icon: CountBadge(count: badge, child: Icon(icon)),
+            ),
     );
   }
 }

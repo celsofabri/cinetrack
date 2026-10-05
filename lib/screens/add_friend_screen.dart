@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../providers/social_lists_providers.dart';
 import '../providers/social_providers.dart';
 import '../providers/sync_providers.dart';
 import '../repositories/social_repository.dart';
@@ -31,7 +32,7 @@ class AddFriendScreen extends StatelessWidget {
 
 enum _Phase { idle, searching, found, notFound, failed }
 
-enum _Send { ready, sending, sent, alreadySent, failed }
+enum _Send { ready, sending, sent, befriended, alreadySent, alreadyFriends, failed }
 
 class _AddFriendBody extends ConsumerStatefulWidget {
   final SocialProfile profile;
@@ -107,7 +108,9 @@ class _AddFriendBodyState extends ConsumerState<_AddFriendBody> {
             _phase = _Phase.found;
             // Free: the list may already be in memory; if not, the send
             // transaction detects it.
-            _send = ref.read(sentRequestsControllerProvider).contains(card.uid)
+            _send = ref.read(friendsControllerProvider.notifier).contains(card.uid)
+                ? _Send.alreadyFriends
+                : ref.read(sentRequestsControllerProvider).contains(card.uid)
                 ? _Send.alreadySent
                 : _Send.ready;
           case SearchNotFound():
@@ -137,11 +140,13 @@ class _AddFriendBodyState extends ConsumerState<_AddFriendBody> {
       _send = _Send.sending;
       _sendFailure = null;
     });
-    final failure = await ref.read(sentRequestsControllerProvider.notifier).send(card);
+    final result = await ref.read(sentRequestsControllerProvider.notifier).send(card);
+    final failure = result.failure;
     if (!mounted) return;
+    final friends = result.outcome == SendOutcome.becameFriends;
     setState(() {
       if (failure == null) {
-        _send = _Send.sent;
+        _send = friends ? _Send.befriended : _Send.sent;
       } else if (failure.kind == SocialFailureKind.alreadySent) {
         _send = _Send.alreadySent;
       } else {
@@ -149,7 +154,11 @@ class _AddFriendBodyState extends ConsumerState<_AddFriendBody> {
         _sendFailure = failure;
       }
     });
-    if (failure == null) messenger?.showSnackBar(const SnackBar(content: Text('Pedido enviado.')));
+    if (failure == null) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text(friends ? 'Amizade aceita.' : 'Pedido enviado.')),
+      );
+    }
   }
 
   @override
@@ -308,9 +317,7 @@ class _FoundCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final label = 'Enviar pedido para @${card.handle}';
-    final stopped =
-        failure?.kind == SocialFailureKind.incomingRequest ||
-        failure?.kind == SocialFailureKind.limitReached;
+    final stopped = failure?.kind == SocialFailureKind.limitReached;
     final showButton =
         send == _Send.ready || send == _Send.sending || (send == _Send.failed && !stopped);
 
@@ -372,11 +379,37 @@ class _FoundCard extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: TextButton(
                   style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-                  onPressed: () => context.go('/friends'),
+                  onPressed: () => context.go('/friends?tab=pedidos'),
                   child: const Text('Ver pedidos enviados'),
                 ),
               ),
             ],
+            if (send == _Send.befriended) ...[
+              Semantics(
+                liveRegion: true,
+                child: Row(
+                  children: [
+                    Icon(Icons.check_circle_outline, color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Essa pessoa já tinha pedido a sua amizade. Vocês agora são amigos.',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                  onPressed: () => context.go('/friends'),
+                  child: const Text('Ver amigos'),
+                ),
+              ),
+            ],
+            if (send == _Send.alreadyFriends)
+              Semantics(liveRegion: true, child: const Text('Vocês já são amigos.')),
             if (send == _Send.alreadySent)
               Semantics(
                 liveRegion: true,

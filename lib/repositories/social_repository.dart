@@ -17,6 +17,10 @@ class SocialLoad {
 /// Sent requests shown per page ("Ver mais" loads the next one).
 const kSentPageSize = 20;
 
+/// Received requests / friends shown per page.
+const kReceivedPageSize = 20;
+const kFriendsPageSize = 50;
+
 /// Answer of a search: someone to show, or nothing. There is deliberately no
 /// third case: missing, hidden, blocked and "yourself" are all [SearchNotFound].
 sealed class SearchOutcome {
@@ -164,8 +168,10 @@ class SocialRepository {
   /// Sends a friend request to [target]. Checks the 50 pending requests
   /// limit (one `count()` read), then one transaction that also detects "you
   /// already asked" and "they already asked you" (nothing is created then).
-  /// A denial by the rules is the one generic [SocialFailureKind.notSent].
-  Future<void> sendRequest(FriendCard target, {required SocialProfile me}) async {
+  /// A denial by the rules is the one generic [SocialFailureKind.notSent]. If
+  /// the other person had already asked, ONE batch makes it a friendship
+  /// ([SendOutcome.becameFriends], D4).
+  Future<SendOutcome> sendRequest(FriendCard target, {required SocialProfile me}) async {
     final fromName = SocialNickname.normalize(me.nickname);
     if (fromName == null) return _invalid('Defina um apelido antes de enviar pedidos.');
     final toName = SocialNickname.normalize(target.nickname) ?? '@${target.handle}';
@@ -174,7 +180,7 @@ class SocialRepository {
       if (pending >= kMaxSentRequests) {
         throw const SocialFailure(SocialFailureKind.limitReached);
       }
-      await _data.sendRequest(
+      return await _data.sendRequest(
         SendRequestDraft(
           toUid: target.uid,
           fromName: fromName,
@@ -189,6 +195,106 @@ class SocialRepository {
       }
       rethrow;
     }
+  }
+
+  /// Accepts [request]: ONE batch creates the friendship (the other half is
+  /// exactly what their request says) and consumes the request. The 300
+  /// friends limit is checked first (one `count()` read). A denial by the
+  /// rules (request gone, block...) is the one generic
+  /// [SocialFailureKind.notAccepted].
+  Future<void> acceptRequest(ReceivedRequest request, {required SocialProfile me}) async {
+    final myName = SocialNickname.normalize(me.nickname);
+    if (myName == null) return _invalid('Defina um apelido antes de aceitar pedidos.');
+    try {
+      if (await _data.countFriends() >= kMaxFriends) {
+        throw const SocialFailure(SocialFailureKind.friendsLimit);
+      }
+      await _data.acceptRequest(
+        AcceptDraft(
+          fromUid: request.fromUid,
+          fromName: request.rawFromName,
+          fromPhoto: request.rawFromPhoto,
+          myName: myName,
+          myPhoto: SocialPhoto.sanitize(me.photoUrl),
+        ),
+      );
+    } on SocialFailure catch (e) {
+      if (e.kind == SocialFailureKind.denied) {
+        throw SocialFailure(SocialFailureKind.notAccepted, code: e.code);
+      }
+      rethrow;
+    }
+  }
+
+  /// Declines a received request: one silent delete (the sender is not told).
+  Future<void> declineRequest(String fromUid) => _data.declineRequest(fromUid);
+
+  /// Removes a friendship (one delete; both sides lose it; nobody is told).
+  Future<void> removeFriend(String friendUid) => _data.removeFriend(friendUid);
+
+  /// Pending received requests for the badge: `count()`, at most
+  /// [kMaxReceivedListed].
+  Future<int> receivedCount() => _data.countReceivedRequests();
+
+  /// A page of received requests, newest first.
+  Future<ReceivedPage> receivedRequests({Object? cursor, int pageSize = kReceivedPageSize}) async {
+    final raw = await _data.readReceivedPage(cursor: cursor, limit: pageSize);
+    final items = <ReceivedRequest>[];
+    for (final doc in raw.docs) {
+      final from = doc.data['from'];
+      final fromUid = from is String && from.isNotEmpty ? from : doc.id.split('_').first;
+      final rawName = doc.data['fromName'];
+      if (fromUid.isEmpty || fromUid == _data.uid || rawName is! String) continue;
+      final name = SocialNickname.clean(rawName);
+      final photo = doc.data['fromPhoto'];
+      final at = doc.data['createdAt'];
+      items.add(
+        ReceivedRequest(
+          fromUid: fromUid,
+          fromName: name.isEmpty ? 'Usuário' : name,
+          rawFromName: rawName,
+          fromPhoto: photo is String ? SocialPhoto.sanitize(photo) : null,
+          rawFromPhoto: photo is String ? photo : null,
+          createdAt: at is DateTime ? at : null,
+        ),
+      );
+    }
+    return ReceivedPage(
+      items: items,
+      cursor: raw.cursor,
+      hasMore: raw.hasMore,
+      fromCache: raw.fromCache,
+    );
+  }
+
+  /// A page of friends (their half of the pair document).
+  Future<FriendsPage> friends({Object? cursor, int pageSize = kFriendsPageSize}) async {
+    final raw = await _data.readFriendsPage(cursor: cursor, limit: pageSize);
+    final items = <Friend>[];
+    for (final doc in raw.docs) {
+      final members = doc.data['members'];
+      if (members is! List || members.length != 2 || !members.contains(_data.uid)) continue;
+      final other = members[0] == _data.uid ? members[1] : members[0];
+      if (other is! String || other.isEmpty) continue;
+      final otherIsA = members[0] == other;
+      final name = SocialNickname.clean('${doc.data[otherIsA ? 'aName' : 'bName'] ?? ''}');
+      final photo = doc.data[otherIsA ? 'aPhoto' : 'bPhoto'];
+      final at = doc.data['createdAt'];
+      items.add(
+        Friend(
+          uid: other,
+          name: name.isEmpty ? 'Usuário' : name,
+          photoUrl: photo is String ? SocialPhoto.sanitize(photo) : null,
+          since: at is DateTime ? at : null,
+        ),
+      );
+    }
+    return FriendsPage(
+      items: items,
+      cursor: raw.cursor,
+      hasMore: raw.hasMore,
+      fromCache: raw.fromCache,
+    );
   }
 
   /// Cancels a request this user sent (one delete; idempotent).
