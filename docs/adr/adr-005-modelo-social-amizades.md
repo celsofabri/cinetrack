@@ -1,6 +1,6 @@
 # ADR-005: Modelo social de amizades sem Cloud Functions (Firestore Spark)
 
-Status: **Proposta** (aguarda o Manager) · Autor: Arquiteto · Data: 2026-10-05
+Status: **Aceita** (Manager, 2026-10-05) · Autor: Arquiteto · Data: 2026-10-05
 Relacionados: [ADR-003](./adr-003-firebase-auth-e-persistencia-na-nuvem.md) (Firebase/Spark, "regras como único guarda"), [ADR-004](./adr-004-biblioteca-e-favoritos.md), [docs/49](../49-especificacao-amizades.md), [docs/50](../50-design-amizades.md).
 
 ## Contexto
