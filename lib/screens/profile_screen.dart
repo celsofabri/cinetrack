@@ -10,6 +10,7 @@ import '../widgets/delete_account_dialog.dart';
 import '../widgets/export_data_section.dart';
 import '../widgets/nickname_dialog.dart';
 import '../widgets/privacy_summary.dart';
+import '../widgets/social_section.dart';
 import '../widgets/tmdb_attribution.dart';
 import '../widgets/profile_stats_card.dart';
 
@@ -67,6 +68,8 @@ class ProfileScreen extends ConsumerWidget {
                 ],
                 const SizedBox(height: 16),
                 const ProfileStatsCard(),
+                const SizedBox(height: 24),
+                const SocialSection(),
                 const SizedBox(height: 24),
                 const PrivacySummary(),
                 const SizedBox(height: 24),

@@ -11,11 +11,13 @@ import 'package:cinetrack/data/profile_data_source.dart';
 import 'package:cinetrack/models/favorite_doc.dart';
 import 'package:cinetrack/models/media_type.dart';
 import 'package:cinetrack/providers/account_providers.dart';
+import 'package:cinetrack/repositories/social_repository.dart';
 import 'package:cinetrack/providers/providers.dart';
 import 'package:cinetrack/providers/sync_providers.dart';
 
 import 'support/cloud_overrides.dart';
 import 'support/fake_auth_repository.dart';
+import 'support/fake_social_cloud.dart';
 import 'support/favorites_harness.dart';
 import 'support/in_memory_favorites_data_source.dart';
 
@@ -51,6 +53,7 @@ class _Rig {
     uid: 'uid-ana',
     auth: auth,
     profile: profile,
+    social: SocialRepository(InMemorySocialDataSource(FakeSocialCloud(), uid: 'uid-ana')),
     onBeforeUserDelete: () => expectedSignOut.add('expect'),
     onDeleteAborted: () => expectedSignOut.add('cancel'),
   );
@@ -193,7 +196,12 @@ void main() {
       final auth = FakeAuthRepository(initialUser: kAna);
       cloud.server['uid-ana'] = {'1-movie': _doc(1)};
       final profile = _SwitchingProfile(cloud, auth);
-      final deleter = AccountDeleter(uid: 'uid-ana', auth: auth, profile: profile);
+      final deleter = AccountDeleter(
+        uid: 'uid-ana',
+        auth: auth,
+        profile: profile,
+        social: SocialRepository(InMemorySocialDataSource(FakeSocialCloud(), uid: 'uid-ana')),
+      );
 
       await expectLater(
         deleter.run(),

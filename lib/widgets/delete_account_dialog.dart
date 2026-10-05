@@ -48,7 +48,9 @@ class DeleteAccountDialog extends ConsumerWidget {
             children: [
               const Text(
                 'Isso apaga para sempre seus favoritos, suas recomendações, seu progresso e seu '
-                'apelido, e exclui sua conta do CineTrack. Não dá para desfazer.',
+                'apelido, e exclui sua conta do CineTrack. Se você ativou as amizades, apaga também '
+                'seu identificador, seu cartão de busca, seus amigos (que deixam de ver você), '
+                'pedidos, bloqueios e convite. Não dá para desfazer.',
               ),
               const SizedBox(height: 8),
               const Text(

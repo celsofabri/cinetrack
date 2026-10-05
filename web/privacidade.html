@@ -25,7 +25,7 @@
 <body>
 <main>
   <h1>Política de privacidade do CineTrack</h1>
-  <p class="muted">Última atualização: 03/10/2026. <a href="./">Voltar ao app</a></p>
+  <p class="muted">Última atualização: 05/10/2026. <a href="./">Voltar ao app</a></p>
 
   <p>O CineTrack é um app gratuito para favoritar filmes e séries e acompanhar o progresso episódio
   por episódio. Esta página explica, em linguagem simples, quais dados são guardados, por quê, onde
@@ -37,18 +37,47 @@
     <tr><td>Identificador da sua conta (um código, não o seu nome)</td><td>Banco de dados na nuvem</td><td>Separar os seus dados dos de outras pessoas</td></tr>
     <tr><td>Seus favoritos, filmes assistidos e episódios assistidos (com a data em que foram marcados) e quais títulos você marcou como <strong>Recomendo</strong> (&ldquo;Minhas recomendações&rdquo;)</td><td>Banco de dados na nuvem</td><td>Mostrar a mesma lista em qualquer aparelho</td></tr>
     <tr><td>Apelido (opcional, de 1 a 40 caracteres)</td><td>Banco de dados na nuvem</td><td>Mostrar o nome que você escolheu</td></tr>
+    <tr><td><strong>Só se você ativar as amizades:</strong> identificador (@usuario), cartão de busca (identificador, apelido, endereço da foto do Google e a opção &ldquo;Aparecer na busca&rdquo;), e, nas próximas etapas, amigos, pedidos de amizade, bloqueios e convite</td><td>Banco de dados na nuvem</td><td>Permitir que outras pessoas encontrem você e vocês sejam amigos</td></tr>
   </table>
+  <h2>Amizades (opcional, desligado por padrão)</h2>
+  <p>As amizades só existem se <strong>você</strong> as ativar em Perfil &rarr; Amizades. Quem não
+  ativa não tem nada disso gravado, e ninguém consegue encontrar ou procurar por essa pessoa.</p>
+  <ul>
+    <li><strong>O que passa a ser copiado:</strong> ao tocar em &ldquo;Ativar amizades&rdquo;, o app
+    copia para o nosso banco o identificador que você escolheu, o apelido que você digitou e, se você
+    deixar marcado &ldquo;Mostrar minha foto&rdquo;, o <strong>endereço da sua foto do Google</strong>
+    (a foto em si continua no Google). O consentimento é dado nessa ação, com o texto na tela; você
+    pode desmarcar a foto. Seu nome e e-mail do Google continuam sem ser copiados.</li>
+    <li><strong>Quem vê o quê:</strong> quem digitar o seu identificador exato vê apelido e foto, mas
+    <strong>só se &ldquo;Aparecer na busca&rdquo; estiver ligado</strong>. Seus amigos (quando
+    existirem) veem apelido e foto. Ninguém vê seus favoritos, recomendações, progresso nem
+    e-mail. Não existe lista pública de usuários nem busca por nome.</li>
+    <li><strong>Bloquear:</strong> você poderá bloquear alguém; a pessoa bloqueada deixa de ver seu
+    cartão, não consegue pedir amizade e não é avisada.</li>
+    <li><strong>Desativar, exclusão e exportação:</strong> &ldquo;Desativar amizades&rdquo; apaga o
+    identificador, o cartão, seus amigos, pedidos, bloqueios e convite, e você some da lista dos
+    outros. &ldquo;Excluir minha conta e dados&rdquo; apaga tudo isso também, e
+    &ldquo;Exportar meus dados&rdquo; inclui o seu cartão e, por serem parte do vínculo, o
+    <strong>identificador interno (uid) e o apelido dos seus amigos</strong>, pedidos e bloqueados
+    (nunca as fotos deles).</li>
+    <li><strong>Sem servidor próprio:</strong> não usamos Cloud Functions nem rotinas no servidor; as
+    regras do banco e o app aplicam essas condições. Só contas Google podem ativar as amizades.</li>
+  </ul>
   <p>A lista <strong>Minhas recomendações</strong> é <strong>privada</strong>: só você a vê. Por
   enquanto ela não é compartilhada, publicada nem usada para recomendar títulos a outras pessoas.
   <strong>Pediremos seu consentimento antes de qualquer compartilhamento</strong> e atualizaremos
   esta política antes disso.</p>
   <p>Seu <strong>nome, e-mail e foto</strong> vêm da sua conta Google no momento do login e são
-  mostrados no app, mas <strong>não são copiados para o nosso banco de dados</strong>. Não pedimos
+  mostrados no app, mas <strong>não são copiados para o nosso banco de dados</strong>, com uma
+  única exceção: a foto (somente o endereço dela) e o apelido são copiados <strong>se e quando
+  você ativar as amizades</strong> (seção &ldquo;Amizades&rdquo; acima). Não pedimos
   telefone, endereço, data de nascimento nem localização.</p>
 
   <h2>Para que usamos</h2>
-  <p>Somente para o funcionamento do app: manter a sua conta e sincronizar suas listas entre
-  aparelhos. Não vendemos nem compartilhamos seus dados, não mostramos anúncios e não usamos
+  <p>Somente para o funcionamento do app: manter a sua conta, sincronizar suas listas entre
+  aparelhos e, <strong>apenas se você ativar as amizades</strong>, copiar seu apelido e o endereço
+  da sua foto para o cartão pelo qual outras pessoas encontram você (quem digitar seu identificador
+  exato, se &ldquo;Aparecer na busca&rdquo; estiver ligado) e, depois, seus amigos. Não vendemos nem compartilhamos seus dados, não mostramos anúncios e não usamos
   ferramentas de análise ou telemetria.</p>
 
   <h2>Quem processa os dados</h2>
@@ -77,7 +106,12 @@
 
   <h2>Dados no seu aparelho</h2>
   <p>Para funcionar sem internet, o app guarda uma cópia das suas listas e do catálogo no
-  armazenamento do navegador ou do aparelho. <strong>Sair da conta não apaga essa cópia.</strong>
+  armazenamento do navegador ou do aparelho. Se você ativou as amizades, essa cópia inclui o seu
+  cartão (identificador, apelido, endereço da foto e a opção &ldquo;Aparecer na busca&rdquo;) e, nas
+  próximas etapas, a lista de amigos e pedidos já carregados. <strong>Sair da conta não apaga essa cópia.</strong>
+  Ela fica até você limpar os dados do site; ao excluir a conta, ela é limpa na próxima vez que
+  você abrir o app. O aparelho também guarda, só se uma desativação das amizades não terminar, um
+  aviso para oferecer &ldquo;Concluir limpeza&rdquo;.
   Em computador ou aparelho compartilhado, use uma janela anônima ou limpe os dados do site depois
   de usar. O app só mostra os dados da conta que está conectada.</p>
 
@@ -87,7 +121,7 @@
 
   <h2>Como excluir seus dados</h2>
   <p>No app: <strong>Perfil &rarr; Excluir minha conta e dados</strong>. Pedimos para você entrar
-  com o Google de novo, apagamos seus favoritos, suas recomendações, seu progresso e seu apelido, e excluímos a sua
+  com o Google de novo, apagamos seus favoritos, suas recomendações, seu progresso, seu apelido e, se você ativou as amizades, seu identificador, cartão, amigos, pedidos, bloqueios e convite, e excluímos a sua
   conta. É definitivo e não dá para desfazer. Se a exclusão for interrompida (por exemplo, a
   internet cair), o app oferece concluir quando você entrar de novo.</p>
   <p>Depois de excluir, o provedor (Google) pode manter cópias técnicas temporárias por um curto
@@ -108,9 +142,9 @@
     <li><strong>Exclusão:</strong> use &ldquo;Excluir minha conta e dados&rdquo; no Perfil.</li>
     <li><strong>Portabilidade:</strong> use &ldquo;Exportar meus dados (JSON)&rdquo; no Perfil (versão web)
     para baixar uma cópia de tudo o que guardamos sobre você: seus favoritos com todo o progresso e as
-    datas, e o seu apelido. O arquivo é gerado no seu navegador a partir dos seus dados, vai direto para o
+    datas, o seu apelido e, se você ativou as amizades, os dados sociais (inclusive uid e apelido dos amigos). O arquivo é gerado no seu navegador a partir dos seus dados, vai direto para o
     seu aparelho, não é enviado a ninguém e não fica guardado no app. Ele contém dados pessoais:
-    guarde em lugar seguro. Ele não inclui seu e-mail nem sua foto, que não guardamos. Se o
+    guarde em lugar seguro. Ele não inclui seu e-mail, que não guardamos. Se você ativou as amizades, o cartão traz o endereço da sua própria foto do Google; fotos de amigos, de pedidos e de bloqueados nunca entram. Se o
     servidor estiver inacessível, o app avisa e só exporta os dados guardados no aparelho se você
     escolher, com o aviso de que podem estar incompletos. Fora da versão web, para receber uma cópia
     escreva para o contato abaixo.</li>

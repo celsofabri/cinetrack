@@ -21,8 +21,9 @@ class ExportDataSection extends ConsumerWidget {
         Semantics(header: true, child: Text('Seus dados', style: theme.textTheme.titleMedium)),
         const SizedBox(height: 8),
         const Text(
-          'Baixe uma cópia de tudo o que o CineTrack guarda sobre você (favoritos, progresso e '
-          'apelido) em um arquivo JSON. Isso não altera nem apaga nada.',
+          'Baixe uma cópia de tudo o que o CineTrack guarda sobre você (favoritos, progresso, '
+          'apelido e, se você ativou as amizades, identificador, amigos, pedidos e bloqueios) '
+          'em um arquivo JSON. Isso não altera nem apaga nada.',
         ),
         const SizedBox(height: 12),
         if (!supported)
@@ -55,8 +56,9 @@ class ExportDataSection extends ConsumerWidget {
         title: const Text('Exportar meus dados?'),
         content: const SingleChildScrollView(
           child: Text(
-            'Vamos gerar um arquivo JSON com seus favoritos, progresso e apelido, e baixá-lo '
-            'neste aparelho. O arquivo contém dados pessoais: guarde em lugar seguro e não '
+            'Vamos gerar um arquivo JSON com seus favoritos, progresso e apelido (e, se você '
+            'ativou as amizades, seu identificador e a lista de amigos com uid e apelido), e '
+            'baixá-lo neste aparelho. O arquivo contém dados pessoais: guarde em lugar seguro e não '
             'compartilhe com quem você não conhece.\n\n'
             'Nada é enviado a terceiros e o app não guarda uma cópia do arquivo.',
           ),

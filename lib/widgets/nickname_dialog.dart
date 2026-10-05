@@ -3,9 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/nickname.dart';
 import '../providers/account_providers.dart';
+import '../providers/social_providers.dart';
+import '../social/social_validation.dart';
 
 /// Edits the app nickname (1-40 characters, trimmed). The Google name is
-/// never changed. Saving does not wait for the server (works offline).
+/// never changed. Saving does not wait for the server (works offline) -
+/// except when friendships are on: the nickname is then also copied to the
+/// public card, which needs the server, and it cannot be removed.
 Future<void> showNicknameDialog(BuildContext context, {required String? current}) {
   return showDialog<void>(
     context: context,
@@ -25,6 +29,9 @@ class NicknameDialog extends ConsumerStatefulWidget {
 class _NicknameDialogState extends ConsumerState<NicknameDialog> {
   late final TextEditingController _controller = TextEditingController(text: widget.current);
   String? _error;
+  bool _saving = false;
+
+  bool get _socialActive => ref.read(socialControllerProvider).phase == SocialPhase.active;
 
   @override
   void dispose() {
@@ -32,7 +39,33 @@ class _NicknameDialogState extends ConsumerState<NicknameDialog> {
     super.dispose();
   }
 
+  Future<void> _saveWithSocial() async {
+    if (_saving) return;
+    final error = SocialNickname.errorFor(_controller.text);
+    if (error != null) {
+      setState(() => _error = error);
+      return;
+    }
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final navigator = Navigator.of(context);
+    setState(() => _saving = true);
+    final failure = await ref
+        .read(socialControllerProvider.notifier)
+        .updateNickname(_controller.text);
+    if (!mounted) return;
+    if (failure != null) {
+      setState(() {
+        _saving = false;
+        _error = failure.message;
+      });
+      return;
+    }
+    navigator.pop();
+    messenger?.showSnackBar(const SnackBar(content: Text('Apelido salvo.')));
+  }
+
   Future<void> _save() async {
+    if (_socialActive) return _saveWithSocial();
     final error = Nickname.errorFor(_controller.text);
     if (error != null) {
       setState(() => _error = error);
@@ -54,6 +87,7 @@ class _NicknameDialogState extends ConsumerState<NicknameDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final socialActive = ref.watch(socialControllerProvider).phase == SocialPhase.active;
     return AlertDialog(
       title: const Text('Apelido'),
       content: TextField(
@@ -67,15 +101,19 @@ class _NicknameDialogState extends ConsumerState<NicknameDialog> {
         },
         decoration: InputDecoration(
           labelText: 'Como quer ser chamado?',
-          helperText: 'Só aparece para você. O nome da sua conta Google não muda.',
+          helperText: socialActive
+              ? 'Também aparece para quem busca seu identificador e para seus amigos. O nome da '
+                  'sua conta Google não muda.'
+              : 'Só aparece para você. O nome da sua conta Google não muda.',
+          helperMaxLines: 3,
           errorText: _error,
         ),
       ),
       actions: [
-        if (widget.current != null)
+        if (widget.current != null && !socialActive)
           TextButton(onPressed: _useGoogleName, child: const Text('Usar nome do Google')),
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancelar')),
-        FilledButton(onPressed: _save, child: const Text('Salvar')),
+        FilledButton(onPressed: _saving ? null : _save, child: const Text('Salvar')),
       ],
     );
   }

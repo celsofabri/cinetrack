@@ -8,6 +8,7 @@ import '../data/firestore_profile_data_source.dart';
 import '../data/profile_data_source.dart';
 import '../models/profile_stats.dart';
 import 'providers.dart';
+import 'social_providers.dart';
 import 'sync_providers.dart';
 
 typedef ProfileDataSourceFactory = ProfileDataSource Function(String uid);
@@ -83,6 +84,7 @@ class AccountController extends Notifier<AccountDeletionState> {
       uid: uid,
       auth: ref.read(authRepositoryProvider),
       profile: ref.read(profileDataSourceProvider),
+      social: ref.read(socialRepositoryProvider),
       onBeforeUserDelete: expiry.expectSignOut,
       onDeleteAborted: expiry.cancelExpectedSignOut,
     );

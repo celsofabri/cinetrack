@@ -1,3 +1,5 @@
+import '../social/social_models.dart';
+
 /// One raw Firestore document: its id and ALL its fields exactly as stored
 /// (timestamps already converted to [DateTime] at the data source edge, any
 /// other value untouched). Unknown/future fields are therefore preserved.
@@ -49,4 +51,18 @@ abstract class ExportDataSource {
   /// Raw `users/{uid}` document, or null when it does not exist (or, from
   /// the device, is not stored there).
   Future<Map<String, dynamic>?> readProfile({required bool fromServer});
+
+  /// Raw `social/{uid}` and its handle card, or null when friendships are
+  /// not activated (also while the rules that allow them are not published:
+  /// then no social data can exist, and the export must still work).
+  Future<RawSocial?> readSocial({required bool fromServer});
+
+  /// Documents after [cursor] of one social list, at most [limit]: friendships
+  /// (`members` contains the user), requests sent / received, blocks.
+  Future<RawPage> readSocialPage(
+    SocialExportKind kind, {
+    String? cursor,
+    required int limit,
+    required bool fromServer,
+  });
 }

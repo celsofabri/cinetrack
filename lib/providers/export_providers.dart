@@ -116,6 +116,7 @@ class ExportController extends Notifier<ExportState> {
         from: from,
         now: now,
         isCurrent: current,
+        uid: uid,
         onProgress: (loaded) {
           if (current()) state = ExportState(phase: ExportPhase.running, loaded: loaded);
         },

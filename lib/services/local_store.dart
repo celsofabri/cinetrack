@@ -98,4 +98,13 @@ class LocalStore {
   Future<void> markFirestoreCachePurge() => _discoveryBox.put(_purgeFlagKey, true);
 
   Future<void> clearFirestoreCachePurgeFlag() => _discoveryBox.delete(_purgeFlagKey);
+
+  /// Friendships were turned off on this device but the final cleanup sweep
+  /// (friends, requests, blocks) did not finish. Per device and per uid; it
+  /// only drives the "Concluir limpeza" offer (account deletion always sweeps).
+  bool socialCleanupPending(String uid) => _discoveryBox.get('socialCleanup:$uid') == true;
+
+  Future<void> setSocialCleanupPending(String uid, bool pending) => pending
+      ? _discoveryBox.put('socialCleanup:$uid', true)
+      : _discoveryBox.delete('socialCleanup:$uid');
 }

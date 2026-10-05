@@ -5,11 +5,17 @@ import '../data/export_data_source.dart';
 import '../models/favorite_doc.dart';
 import '../models/media_type.dart';
 import '../services/favorite_mapper.dart';
+import 'social_export.dart';
 
 /// Name of the export format and its version. Bump [kExportSchemaVersion]
 /// when the layout of the file changes.
 const kExportSchemaId = 'cinetrack-export';
-const kExportSchemaVersion = 1;
+///
+/// Version 2 (friendships): adds the top-level `social` key (null when the
+/// user never turned friendships on). Purely additive: a version-1 file has
+/// no `social` key and every other field keeps its meaning, so readers that
+/// ignore unknown keys read both.
+const kExportSchemaVersion = 2;
 
 /// Must match `version:` in pubspec.yaml (a test enforces it).
 const kAppName = 'CineTrack';
@@ -101,12 +107,17 @@ String exportFileName(DateTime now) {
 /// Builds the export file incrementally (one document at a time), so a big
 /// collection can be processed page by page. Pure Dart, no Firebase types.
 ///
-/// File layout (schemaVersion 1): header fields, `profile`, `counts`,
+/// File layout (schemaVersion 2): header fields, `profile`, `social`
+/// (see [SocialExport]; null without friendships), `counts`,
 /// `issues`, and `favorites`: one entry per Firestore document, written on
 /// its own line, as `{"key": "doc id", "timestampFields": [...], "data":
 /// {all fields as stored}}`. Timestamps are ISO 8601 UTC strings;
 /// `timestampFields` lists which top-level fields were timestamps so a
-/// restore can turn them back. Not included on purpose: uid, e-mail, photo.
+/// restore can turn them back. Not included on purpose: the user's own uid and
+/// e-mail. When friendships are on, `social.card` is the user's own raw card,
+/// which includes the user's OWN photo URL (their data); the social lists have
+/// the uid and nickname of friends, requested and blocked people, never their
+/// photos.
 class ExportBuilder {
   final List<String> _lines = [];
   final List<ExportIssue> _issues = [];
@@ -117,6 +128,9 @@ class ExportBuilder {
   int _documents = 0;
 
   int get documents => _documents;
+
+  /// Social section (null = friendships not activated). Set before [build].
+  SocialExport? social;
 
   void add(RawDoc doc) {
     _documents++;
@@ -161,7 +175,7 @@ class ExportBuilder {
       series: _series,
       watchedMovies: _watchedMovies,
       watchedEpisodes: _watchedEpisodes,
-      issues: List.unmodifiable(_issues),
+      issues: List.unmodifiable([..._issues, ...?social?.issues]),
     );
     final complete = source == ExportSource.server && summary.lossless;
     final displayName = profile?['displayName'];
@@ -182,8 +196,9 @@ class ExportBuilder {
               ],
               'data': encodeValue(profile, <bool>[]),
             },
+      'social': social?.toJson(),
       'counts': summary.toJson(),
-      'issues': [for (final i in _issues) i.toJson()],
+      'issues': [for (final i in summary.issues) i.toJson()],
     };
     final buffer = StringBuffer('{\n');
     for (final e in header.entries) {

@@ -157,6 +157,7 @@ class FirebaseAuthRepository implements AuthRepository {
       email: user.email,
       photoUrl: user.photoURL,
       createdAt: user.metadata.creationTime,
+      isGoogle: user.providerData.any((info) => info.providerId == 'google.com'),
     );
   }
 }

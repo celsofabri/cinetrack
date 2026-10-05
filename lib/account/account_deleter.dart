@@ -1,6 +1,7 @@
 import '../auth/auth_failure.dart';
 import '../auth/auth_repository.dart';
 import '../data/profile_data_source.dart';
+import '../repositories/social_repository.dart';
 import 'account_deletion_failure.dart';
 
 enum AccountDeletionStep { reauthenticating, deletingData, deletingAccount }
@@ -12,8 +13,11 @@ enum AccountDeletionStep { reauthenticating, deletingData, deletingAccount }
 /// 1. re-authenticate the SAME account (also proves we are online);
 /// 2. confirm the server is reachable (nothing is written while offline);
 /// 3. mark `users/{uid}.deleting = true` (so the app can offer to resume);
-/// 4. delete the favorites in batches, then the profile document;
-/// 5. delete the Firebase user. If that fails, the marker is written again,
+/// 4. delete the social data (handle, card, friends, requests, blocks; a
+///    no-op for accounts that never turned friendships on), so the user
+///    disappears from other people's friend lists and nothing is orphaned;
+/// 5. delete the favorites in batches, then the profile document;
+/// 6. delete the Firebase user. If that fails, the marker is written again,
 ///    since the profile document is gone and a resume must stay possible
 ///    (but ONLY when the user is known to still exist: writing under a uid
 ///    whose account is already gone would create data nobody owns).
@@ -24,6 +28,7 @@ enum AccountDeletionStep { reauthenticating, deletingData, deletingAccount }
 class AccountDeleter {
   final AuthRepository _auth;
   final ProfileDataSource _profile;
+  final SocialRepository _social;
   final String uid;
 
   /// Called right before the Firebase user is deleted, and [onDeleteAborted]
@@ -36,6 +41,7 @@ class AccountDeleter {
     required this.uid,
     required this._auth,
     required this._profile,
+    required this._social,
     void Function()? onBeforeUserDelete,
     void Function()? onDeleteAborted,
   })  : onBeforeUserDelete = onBeforeUserDelete ?? _noop,
@@ -57,6 +63,7 @@ class AccountDeleter {
     onStep?.call(AccountDeletionStep.deletingData);
     await _profile.ensureOnline();
     await _profile.markDeleting();
+    await _social.wipeForAccountDeletion();
     await _profile.deleteAllFavorites();
     await _profile.deleteProfile();
 

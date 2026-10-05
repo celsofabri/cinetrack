@@ -51,8 +51,11 @@ class PrivacySummary extends StatelessWidget {
         const Text(
           'Guardamos o identificador da sua conta, o apelido (se você definir) e as suas '
           'listas (favoritos, recomendações e progresso) para sincronizar entre aparelhos. Suas '
-          'recomendações são privadas: só você as vê, por enquanto. Nome, e-mail e foto '
-          'vêm do Google e não são copiados para o banco. Não usamos anúncios nem telemetria. '
+          'listas e recomendações são privadas: só você as vê, por enquanto. Nome e e-mail '
+          'vêm do Google e não são copiados para o banco. A foto também não, a menos que você '
+          'ative as amizades e deixe a foto marcada: aí copiamos o endereço da foto, seu '
+          'apelido e seu identificador para o cartão que outras pessoas veem. Sem ativar as '
+          'amizades, nada disso é gravado. Não usamos anúncios nem telemetria. '
           'Você pode excluir sua conta e todos os dados a qualquer momento, aqui no perfil.',
         ),
         const Align(alignment: Alignment.centerLeft, child: PrivacyPolicyLink()),

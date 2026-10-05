@@ -9,12 +9,18 @@ class AppUser {
   /// "Membro desde" (account creation), when the provider reports it.
   final DateTime? createdAt;
 
+  /// Signed in with Google. Friendships exist only for Google accounts (the
+  /// security rules check the sign-in provider); the app only offers Google
+  /// login today, so this is true unless the provider says otherwise.
+  final bool isGoogle;
+
   const AppUser({
     required this.uid,
     this.displayName,
     this.email,
     this.photoUrl,
     this.createdAt,
+    this.isGoogle = true,
   });
 
   /// Name to show: Google name, else e-mail, else a generic label.

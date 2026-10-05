@@ -8,6 +8,7 @@ import 'package:cinetrack/export/data_exporter.dart';
 import 'package:cinetrack/export/export_serializer.dart';
 import 'package:cinetrack/models/favorite_doc.dart';
 import 'package:cinetrack/services/favorite_mapper.dart';
+import 'package:cinetrack/social/social_models.dart';
 
 import 'support/fake_export_data_source.dart';
 
@@ -57,7 +58,7 @@ void main() {
       final file = _build({'1-movie': fakeMovieDoc(1)}, profile: {'displayName': 'Ana'});
       final json = _decode(file);
       expect(json['schema'], 'cinetrack-export');
-      expect(json['schemaVersion'], 1);
+      expect(json['schemaVersion'], 2);
       expect(json['exportedAt'], '2026-10-03T12:00:00.000Z');
       expect(json['app'], {'name': 'CineTrack', 'version': kAppVersion});
       expect(json['source'], 'server');
@@ -307,4 +308,15 @@ class _StuckSource implements ExportDataSource {
 
   @override
   Future<Map<String, dynamic>?> readProfile({required bool fromServer}) async => null;
+
+  @override
+  Future<RawSocial?> readSocial({required bool fromServer}) async => null;
+
+  @override
+  Future<RawPage> readSocialPage(
+    SocialExportKind kind, {
+    String? cursor,
+    required int limit,
+    required bool fromServer,
+  }) async => const RawPage([]);
 }

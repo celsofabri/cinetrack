@@ -519,3 +519,6 @@ Regras de condução: a Fase 1 só termina com TODAS as fatias (0–5) implement
 - **Foto (cliente)**: enviar `photoURL` só se casar com `^https://lh[0-9]+[.]googleusercontent[.]com/` e tiver ≤ 512 caracteres; senão enviar `null` (as regras negam o resto e a gravação inteira falharia).
 - **Apelido (cliente)**: na entrada e na exibição, `trim`, normalizar para NFC e remover caracteres invisíveis/bidi (controle, U+200B/C, U+200E/F, U+202A–E, U+2066–9, U+2060, U+061C, U+FEFF, U+2028/9) e também NBSP, U+3000 e caracteres de tag (U+E0000–E007F), que as regras **não** barram. O limite de 40 conta unidades UTF-16 (igual a `String.length` do Dart): 40 CJK ou 20 emoji.
 - Só contas Google criam `social`, handle, pedido, par e convite (regra `isGoogle()`).
+
+## Decisão do Manager (2026-10-06): padrão de "Aparecer na busca"
+Ao ativar o perfil social, "Aparecer na busca" nasce **LIGADO** (o usuário que cria o perfil social quer interagir), com o interruptor visível na ativação e no Perfil, para **ocultar a qualquer momento**. Implementado como `kDiscoverableByDefault = true`.

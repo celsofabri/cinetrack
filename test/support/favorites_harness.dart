@@ -30,6 +30,15 @@ class FakeLocalStore extends LocalStore {
   @override
   Future<void> clearFirestoreCachePurgeFlag() async => purgePending = false;
 
+  final Set<String> socialCleanup = {};
+
+  @override
+  bool socialCleanupPending(String uid) => socialCleanup.contains(uid);
+
+  @override
+  Future<void> setSocialCleanupPending(String uid, bool pending) async =>
+      pending ? socialCleanup.add(uid) : socialCleanup.remove(uid);
+
   final Map<int, List<SeasonCache>> _catalog = {};
   final _controller = StreamController<void>.broadcast();
 

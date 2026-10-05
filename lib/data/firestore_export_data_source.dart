@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
+import '../social/social_models.dart';
 import 'export_data_source.dart';
 
 /// Firestore implementation of the read-only export: pages of
@@ -47,6 +48,63 @@ class FirestoreExportDataSource implements ExportDataSource {
       if (!fromServer) return null;
       rethrow;
     }
+  }
+
+  DocumentReference<Map<String, dynamic>> get _social => _db.collection('social').doc(uid);
+
+  @override
+  Future<RawSocial?> readSocial({required bool fromServer}) async {
+    try {
+      final options = _options(fromServer);
+      final pointer = (await _guard(() => _social.get(options))).data();
+      if (pointer == null) return null;
+      final handle = pointer['handle'];
+      Map<String, dynamic>? card;
+      if (handle is String && handle.isNotEmpty) {
+        card = (await _guard(() => _db.collection('handles').doc(handle).get(options))).data();
+      }
+      return RawSocial(social: convert(pointer), card: card == null ? null : convert(card));
+    } on ExportReadException catch (e) {
+      // Rules not published yet (denied): friendships cannot exist. A document
+      // that is not on this device is "not activated", not a failure.
+      if (e.kind == ExportReadFailureKind.denied || !fromServer) return null;
+      rethrow;
+    }
+  }
+
+  // The social lists are read without orderBy (documents come by id) and the
+  // cursor is the last snapshot of the previous page: the same query shapes as
+  // the account-deletion sweeps, so no composite index is needed.
+  final Map<SocialExportKind, DocumentSnapshot<Map<String, dynamic>>> _lastSocial = {};
+
+  @override
+  Future<RawPage> readSocialPage(
+    SocialExportKind kind, {
+    String? cursor,
+    required int limit,
+    required bool fromServer,
+  }) async {
+    Query<Map<String, dynamic>> query = switch (kind) {
+      SocialExportKind.friends =>
+        _db.collection('friendships').where('members', arrayContains: uid),
+      SocialExportKind.requestsSent =>
+        _db.collection('friend_requests').where('from', isEqualTo: uid),
+      SocialExportKind.requestsReceived =>
+        _db.collection('friend_requests').where('to', isEqualTo: uid),
+      SocialExportKind.blocks => _profile.collection('blocks'),
+    };
+    if (cursor == null) {
+      _lastSocial.remove(kind);
+    } else {
+      final last = _lastSocial[kind];
+      if (last == null || last.id != cursor) {
+        throw const ExportReadException(ExportReadFailureKind.unknown, code: 'cursor-lost');
+      }
+      query = query.startAfterDocument(last);
+    }
+    final snapshot = await _guard(() => query.limit(limit).get(_options(fromServer)));
+    if (snapshot.docs.isNotEmpty) _lastSocial[kind] = snapshot.docs.last;
+    return RawPage([for (final doc in snapshot.docs) RawDoc(doc.id, convert(doc.data()))]);
   }
 
   Future<T> _guard<T>(Future<T> Function() read) => guard(read, timeout);

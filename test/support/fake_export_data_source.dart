@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cinetrack/data/export_data_source.dart';
+import 'package:cinetrack/social/social_models.dart';
 
 /// Raw-document fake of the export source: keeps maps (so unknown fields
 /// survive), pages by id like Firestore's `orderBy(documentId)`, and can be
@@ -21,6 +22,15 @@ class FakeExportDataSource implements ExportDataSource {
   /// Runs once per page, after the gate.
   void Function(int call)? onPage;
 
+  /// Friendships activated: `social/{uid}` + card (null = not activated).
+  RawSocial? social;
+
+  /// Raw docs of each social list, by document id.
+  final Map<SocialExportKind, Map<String, Map<String, dynamic>>> socialLists = {};
+
+  /// Social list page calls: kind and cursor.
+  final socialCalls = <({SocialExportKind kind, String? cursor, bool fromServer})>[];
+
   final calls = <({String? cursor, int limit, bool fromServer})>[];
   int profileReads = 0;
 
@@ -33,6 +43,29 @@ class FakeExportDataSource implements ExportDataSource {
     onPage?.call(calls.length);
     if (fromServer && serverFailure != null) throw serverFailure!;
     final source = fromServer ? docs : (deviceDocs ?? docs);
+    final ids = source.keys.toList()..sort();
+    final remaining = cursor == null ? ids : ids.where((id) => id.compareTo(cursor) > 0).toList();
+    return RawPage([
+      for (final id in remaining.take(limit)) RawDoc(id, Map<String, dynamic>.of(source[id]!)),
+    ]);
+  }
+
+  @override
+  Future<RawSocial?> readSocial({required bool fromServer}) async {
+    if (fromServer && serverFailure != null) throw serverFailure!;
+    return social;
+  }
+
+  @override
+  Future<RawPage> readSocialPage(
+    SocialExportKind kind, {
+    String? cursor,
+    required int limit,
+    required bool fromServer,
+  }) async {
+    socialCalls.add((kind: kind, cursor: cursor, fromServer: fromServer));
+    if (fromServer && serverFailure != null) throw serverFailure!;
+    final source = socialLists[kind] ?? const <String, Map<String, dynamic>>{};
     final ids = source.keys.toList()..sort();
     final remaining = cursor == null ? ids : ids.where((id) => id.compareTo(cursor) > 0).toList();
     return RawPage([
