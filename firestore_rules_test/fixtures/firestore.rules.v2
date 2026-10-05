@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function validProfile() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['displayName', 'schemaVersion', 'updatedAt', 'deleting'])
+        && (!('updatedAt' in d) || d.updatedAt is timestamp)
+        && (!('displayName' in d) || (d.displayName is string
+              && d.displayName.trim().size() >= 1 && d.displayName.size() <= 40))
+        && (!('schemaVersion' in d) || d.schemaVersion is int)
+        && (!('deleting' in d) || d.deleting is bool);
+    }
+
+    function validFavorite(key) {
+      let d = request.resource.data;
+      return key.matches('^[0-9]{1,9}-(movie|tv)$')
+        && d.keys().hasOnly(['id', 'mediaType', 'title', 'posterPath', 'overview', 'addedAt',
+                             'lastWatchedAt', 'watchedMovie', 'seasonSummaries', 'eps', 'updatedAt',
+                             'recommended'])
+        && d.keys().hasAll(['id', 'mediaType', 'title', 'addedAt'])
+        && d.id is int && d.id == int(key.split('-')[0])
+        && d.mediaType in ['movie', 'tv'] && d.mediaType == key.split('-')[1]
+        && d.title is string && d.title.size() <= 300
+        && (!('overview' in d) || (d.overview is string && d.overview.size() <= 4000))
+        && (!('posterPath' in d) || d.posterPath == null
+              || (d.posterPath is string && d.posterPath.size() <= 200))
+        && d.addedAt is timestamp
+        && (!('lastWatchedAt' in d) || d.lastWatchedAt == null || d.lastWatchedAt is timestamp)
+        && (!('watchedMovie' in d) || d.watchedMovie is bool)
+        && (!('seasonSummaries' in d) || (d.seasonSummaries is list && d.seasonSummaries.size() <= 100))
+        && (!('eps' in d) || (d.eps is map && d.eps.size() <= 5000))
+        && (!('recommended' in d) || d.recommended is bool)
+        && (!('updatedAt' in d) || d.updatedAt is timestamp);
+        // Known limitation: rules cannot iterate, so the shape of individual
+        // `eps` keys/values and `seasonSummaries` elements is not enforced
+        // (only type and size; the 1 MiB document limit bounds the worst
+        // case). Only the owner can write their own data, so the risk is
+        // limited to the user's own dirty data / quota.
+    }
+
+    match /users/{uid} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validProfile();
+
+      match /favorites/{key} {
+        allow read, delete: if isOwner(uid);
+        allow create: if isOwner(uid) && validFavorite(key);
+        // addedAt can only decrease (never move forward)
+        allow update: if isOwner(uid) && validFavorite(key)
+          && request.resource.data.addedAt <= resource.data.addedAt;
+      }
+    }
+
+    // Everything not allowed above is denied (including future subcollections).
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -36,8 +36,8 @@ Convenções: `timestamp` = Firestore Timestamp; `createdAt`/`updatedAt` sempre 
 | Campo | Tipo | Regra |
 |---|---|---|
 | `uid` | string | `== auth.uid`, imutável |
-| `nickname` | string | 1 a 40 após `trim` (cópia do apelido; fonte de verdade continua `users/{uid}.displayName`) |
-| `photoURL` | string ou null (opcional) | `https://*.googleusercontent.com/...`, ≤ 512 |
+| `nickname` | string | 1 a 40 unidades UTF-16 (como `String.length` do Dart) após `trim`, sem controle/zero-width/bidi/U+2028-9 (cópia do apelido; fonte de verdade continua `users/{uid}.displayName`) |
+| `photoURL` | string ou null (opcional) | `^https://lh[0-9]+[.]googleusercontent[.]com/`, ≤ 512 |
 | `discoverable` | bool | "Aparecer na busca" |
 | `createdAt` | timestamp | imutável |
 | `updatedAt` | timestamp | `== request.time` |
@@ -93,6 +93,7 @@ Convenções: `timestamp` = Firestore Timestamp; `createdAt`/`updatedAt` sempre 
 | Busca | `get handles/{handle}` (nunca `list`) |
 
 ## 4. Regras concretas (`firestore.rules`)
+> **Texto de referência = `firestore.rules` + [docs/51](./51-regras-sociais-fatia-0.md)**: o trecho abaixo foi atualizado na revisão (reservados, host da foto, `validName`, `isGoogle()` e o convite estão no arquivo real e no docs/51).
 Trecho **aditivo**, inserido antes do `match /{document=**}` final. É exatamente o texto que o emulador validou (suíte em §11). `isOwner` já existe no arquivo atual.
 
 ```
@@ -133,18 +134,22 @@ Trecho **aditivo**, inserido antes do `match /{document=**}` final. É exatament
     }
 
     function validName(s) {
-      return s is string && s.trim().size() >= 1 && s.size() <= 40;
+      return s is string && s.trim().size() >= 1 && s.size() <= 40
+        && !s.matches('(?s).*[\\p{Cc}\\x{200B}\\x{200C}\\x{200E}\\x{200F}\\x{2028}\\x{2029}\\x{202A}-\\x{202E}\\x{2060}\\x{2066}-\\x{2069}\\x{061C}\\x{FEFF}].*');
     }
     function validPhoto(p) {
       return p == null
         || (p is string && p.size() <= 512
-            && p.matches('^https://[A-Za-z0-9-]+[.]googleusercontent[.]com/.*$'));
+            && p.matches('^https://lh[0-9]+[.]googleusercontent[.]com/.*$'));
     }
     function validHandle(h) {
       return h is string && h.matches('^[a-z0-9_]{3,20}$')
         && !h.matches('^_.*|.*_$')
         && !(h in ['admin', 'administrador', 'cinetrack', 'suporte', 'support', 'ajuda', 'help',
-                   'root', 'api', 'me', 'eu']);
+                   'root', 'api', 'me', 'eu', 'staff', 'oficial', 'official', 'moderador',
+                   'moderator', 'sistema', 'system', 'seguranca', 'security', 'privacidade',
+                   'privacy', 'contato', 'contact', 'equipe', 'team', 'null', 'undefined',
+                   'anonymous', 'anonimo', 'cine']);   // 31 reservados
     }
 
     // --- friend_requests/{from}_{to}: pedido direcional, imutavel ---
@@ -411,7 +416,7 @@ Orçamento: com 100 usuários sociais ativos/dia, 3 aberturas de Amigos + 3 sess
 - **`validProfile`**: não muda. Se um dia o apelido for removido com social ativo, o cartão perde a fonte: o app **não permite** apagar o apelido enquanto ativo (spec).
 
 ## 11. Validação das regras no emulador
-**O que rodou** (cópia descartável no scratchpad; projeto intocado; `firebase emulators:exec --only firestore`, JDK 24, projeto `demo-cinetrack`): `social.test.mjs` com **47 testes novos, todos passando**, mais a suíte existente do repositório (`firestore.rules.test.mjs` + `recommended.test.mjs`) **contra as regras novas: 76 testes, todos passando** (total 123/123). Cobertura dos novos:
+**O que rodou** (cópia descartável no scratchpad; projeto intocado; `firebase emulators:exec --only firestore`, JDK 24, projeto `demo-cinetrack`): `social.test.mjs` com **47 testes novos, todos passando**, mais a suíte existente do repositório (`firestore.rules.test.mjs` + `recommended.test.mjs`) **contra as regras novas: 64 testes, todos passando** (total 123/123). Cobertura dos novos:
 - **Handle**: criar por batch; segundo usuário com o mesmo handle negado; **3 transações concorrentes no mesmo handle ⇒ exatamente 1 vence**; formatos inválidos (curto, longo, maiúscula, espaço, `_` nas pontas, reservado `admin`, acento); ponteiro para handle alheio; cartão com uid de outro; campos extras; foto fora de `googleusercontent.com`; apelido vazio/41 caracteres; `discoverable` não booleano; dois handles para o mesmo usuário negado; troca dentro de 30 dias negada, após 30 dias ok (documento antigo semeado) e handle antigo reutilizável por outro; apagar só handle ou só ponteiro negado; `uid` imutável; terceiro não edita/apaga.
 - **Busca**: visível; oculto negado ao terceiro e liberado ao dono; `list` negado; inexistente = "não existe"; anônimo negado; bloqueado não encontra quem o bloqueou e o bloqueador também não vê o bloqueado; desbloquear restabelece.
 - **Pedido**: envio ok; remetente forjado, id divergente, auto-pedido, campo extra, destinatário sem `social`, data forjada, nome vazio: negados; duplicado negado; leitura só remetente/destinatário (get e list), terceiro/anônimo negados; cancelar (remetente) e recusar (destinatário) ok, terceiro negado, sem update.
@@ -451,7 +456,7 @@ Tab bar atual (≤768 px): Início, Explorar, Recomendo, Favoritos, Perfil (5, o
 ## 14. Rollout e rollback
 Ordem obrigatória (o Manager executa o que é do console):
 1. **Manager exporta a própria conta** (Fatia 0 do ciclo anterior) e anota os números do Perfil.
-2. **Publicar `firestore.rules`** (console ou `firebase deploy --only firestore:rules`). É aditivo: o app atual segue idêntico (a suíte existente de 76 testes passa nas regras novas).
+2. **Publicar `firestore.rules`** (console ou `firebase deploy --only firestore:rules`). É aditivo: o app atual segue idêntico (a suíte existente de 64 testes passa nas regras novas).
 3. **Publicar os índices** (`firebase deploy --only firestore:indexes` ou pelo link do console) e esperar "Enabled".
 4. Só então **merge/deploy do app** (Fatia 1 em diante, atrás de nada além da ativação opt-in: sem ativar, nenhum dado social é gravado).
 5. Cada feature seguinte (F2–F5) repete: regras → índices → app.
@@ -469,7 +474,7 @@ Sem telemetria (política do app). Verificação por: suíte de regras (contrato
 | 4 | Divergência emulador × produção | smoke manual em produção com 2 contas (Manager) antes de divulgar |
 | 5 | Spam de pedidos / assédio | sem contador no servidor; bloquear; limite de UI (D5); opção D7 |
 | 6 | Handles ofensivos / homógrafos | ASCII minúsculo, reservados; sem moderação (sem servidor) |
-| 7 | Foto do Google copiada | opt-in, só `googleusercontent.com`, texto de privacidade novo |
+| 7 | Foto do Google copiada | opt-in, só `lh<n>.googleusercontent.com`, texto de privacidade novo |
 | 8 | Dados de terceiros na exportação | só uid + apelido (D9) |
 | 9 | Exclusão parcial deixa pedido/par órfão | ordem: fechar a porta primeiro; passos idempotentes; teste no `AccountDeleter` |
 | 10 | Instantâneos desatualizados | fan-out raro (D8) ou aceitar |
@@ -499,10 +504,18 @@ Mesma lista do [docs/49](./49-especificacao-amizades.md#decisões-a-validar-com-
 | D7 | Recusar | apagar / marcar recusado 30 dias | **apagar** | sem estado extra |
 | D8 | Instantâneo de nome/foto | nunca / fan-out raro / ler fresco | **fan-out raro** | N escritas por mudança, 0 leitura de regra |
 | D9 | Exportar dados de amigos | uid+apelido / só uid | **uid+apelido** | texto de privacidade |
-| D10 | Foto | só Google / qualquer URL | **só `googleusercontent.com`** | regra de URL |
+| D10 | Foto | só Google / qualquer URL | **só `lh<n>.googleusercontent.com`** | regra de URL |
 | D11 | Cota/plano | seguir Spark / Blaze | **Spark, cache+TTL** | §9 |
 | D12 | Pedido a oculto | só com uid conhecido | **só com uid conhecido** | oculto ≠ mudo |
 
 ## Decisões do Manager (2026-10-05)
 Todas as decisões D1–D12 aprovadas com os **padrões recomendados** (handle exato agora + convite por link na fatia 5; `^[a-z0-9_]{3,20}$` com troca a cada 30 dias; não amigo vê handle, apelido e avatar só se o usuário permitir; pedido cruzado vira amizade; 300 amigos e 50 pedidos enviados só no app; ativação opt-in; recusar apaga em silêncio; fan-out raro de apelido/foto; exportação inclui uid e apelido dos amigos; sem Blaze, com cache/TTL; pedido a quem está oculto só com uid conhecido).
 Regras de condução: a Fase 1 só termina com TODAS as fatias (0–5) implementadas, revisadas com APROVADO limpo e publicadas; **as regras do Firestore devem ser FINAIS desde a fatia 0 (incluindo o convite por link da fatia 5)** para o Manager publicá-las uma única vez, antes do app; nenhuma fase seguinte começa antes disso. Restrições absolutas: ninguém perde dados atuais; ninguém precisa fazer nada; sem ressalvas.
+
+
+## Requisitos acrescentados na revisão das regras (docs/51)
+- **Mensagem genérica única**: ao criar pedido, ler cartão (`handles`) ou usar convite, qualquer negação (inexistente, oculto, bloqueado, expirado, `permission-denied`) mostra a mesma mensagem ("Não foi possível enviar"/"Nenhum usuário encontrado"). Criar pedido para quem me bloqueou é negado pelas regras e isso não pode ser distinguível na tela. Vale para as Fatias 2 e 5.
+- **Código do convite (Fatia 5)**: `Random.secure()`, ≥ 22 caracteres base62, nunca derivado de uid, hora ou contador.
+- **Foto (cliente)**: enviar `photoURL` só se casar com `^https://lh[0-9]+[.]googleusercontent[.]com/` e tiver ≤ 512 caracteres; senão enviar `null` (as regras negam o resto e a gravação inteira falharia).
+- **Apelido (cliente)**: na entrada e na exibição, `trim`, normalizar para NFC e remover caracteres invisíveis/bidi (controle, U+200B/C, U+200E/F, U+202A–E, U+2066–9, U+2060, U+061C, U+FEFF, U+2028/9) e também NBSP, U+3000 e caracteres de tag (U+E0000–E007F), que as regras **não** barram. O limite de 40 conta unidades UTF-16 (igual a `String.length` do Dart): 40 CJK ou 20 emoji.
+- Só contas Google criam `social`, handle, pedido, par e convite (regra `isGoogle()`).

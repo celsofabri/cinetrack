@@ -57,7 +57,7 @@ Eixo C: onde mora o cartão público (apelido/avatar/oculto).
 ## Consequências
 Positivas
 - Spark-compatível; nenhum servidor; `isFriend` de custo fixo (1 leitura de regra) e revogação **imediata**, bilateral, sem tocar nos dados das outras features.
-- Invariantes verificados no emulador do Firestore (47 testes novos + 76 existentes, ver docs/50 §11): um lado não cria amizade sozinho, não amigo não lê, bloqueio nos dois sentidos, pedido cruzado, schema, handle único sob concorrência, tentativas maliciosas.
+- Invariantes verificados no emulador do Firestore (47 testes novos + 64 existentes, ver docs/50 §11): um lado não cria amizade sozinho, não amigo não lê, bloqueio nos dois sentidos, pedido cruzado, schema, handle único sob concorrência, tentativas maliciosas.
 - Regras aditivas: documentos e app atuais não mudam (`validProfile` intocado; `users/{uid}/favorites` continua só do dono).
 - A exclusão de conta é uma varredura de 4 consultas + 1 batch; o usuário some dos outros porque o par é um documento só.
 
@@ -84,5 +84,5 @@ Resumo (detalhes, opções e consequências em [docs/49](../49-especificacao-ami
 | D7 | Recusar | Apaga o pedido, em silêncio (sem estado "recusado") |
 | D8 | Atualização do apelido/foto nos amigos | Fan-out raro e limitado, só quando muda |
 | D9 | Exportação inclui apelido/foto dos amigos | Sim, só uid + apelido |
-| D10 | Foto | Apenas URL do Google (`*.googleusercontent.com`) |
+| D10 | Foto | Apenas URL do Google (`lh<n>.googleusercontent.com`) |
 | D11 | Cota excedida/Blaze | Não ativar Blaze; mensagem e cache |

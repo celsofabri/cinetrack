@@ -4,7 +4,8 @@
   "description": "Security Rules tests for CineTrack. Run against the Firestore Emulator only.",
   "scripts": {
     "test": "firebase emulators:exec --only firestore --project demo-cinetrack \"node --test --test-concurrency=1\"",
-    "test:direct": "node --test --test-concurrency=1"
+    "test:direct": "node --test --test-concurrency=1",
+    "test:mutations": "firebase emulators:exec --only firestore --project demo-cinetrack \"node mutations.mjs\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.0",

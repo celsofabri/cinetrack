@@ -56,6 +56,290 @@ service cloud.firestore {
       }
     }
 
+    // ==================================================================
+    // Social (docs/50 + docs/51): amizades, pedidos, bloqueios, handles,
+    // convite por link. Reutilizaveis nas proximas features (F2-F5):
+    //   isFriend(a, b)  -> 1 exists()  (a e b sao amigos mutuos)
+    //   isBlocked(a, b) -> 1 exists()  (a bloqueou b; direcional)
+    // Invariante: amigo => nao bloqueado. Logo F2-F5 decidem leitura so com
+    // isFriend (1 consulta de regra por documento/autor).
+    // Estas regras sao aditivas: nada acima mudou de comportamento.
+    // ==================================================================
+
+    function pairId(a, b) {
+      return a < b ? a + '_' + b : b + '_' + a;
+    }
+    function friendshipPath(a, b) {
+      return /databases/$(database)/documents/friendships/$(pairId(a, b));
+    }
+    function requestPath(from, to) {
+      return /databases/$(database)/documents/friend_requests/$(from + '_' + to);
+    }
+    function blockPath(blocker, blocked) {
+      return /databases/$(database)/documents/users/$(blocker)/blocks/$(blocked);
+    }
+    function socialPath(uid) {
+      return /databases/$(database)/documents/social/$(uid);
+    }
+    function handlePath(h) {
+      return /databases/$(database)/documents/handles/$(h);
+    }
+    function invitePath(code) {
+      return /databases/$(database)/documents/invites/$(code);
+    }
+
+    // a e b sao amigos mutuos (amizade aceita pelos dois lados). 1 exists().
+    function isFriend(a, b) {
+      return a != b && exists(friendshipPath(a, b));
+    }
+    // a bloqueou b. 1 exists(). Direcional.
+    function isBlocked(a, b) {
+      return exists(blockPath(a, b));
+    }
+    function isBlockedEither(a, b) {
+      return isBlocked(a, b) || isBlocked(b, a);
+    }
+
+    // uid sem '_' (os ids compostos "a_b" ficam sem ambiguidade). Firebase Auth
+    // com Google gera uids alfanumericos; qualquer outro uid fica fora do social.
+    function validUid(u) {
+      return u is string && u.matches('^[^_/]{1,128}$');
+    }
+    // Social so para quem entrou com Google (impede squatting de handle por contas
+    // anonimas / e-mail-senha). Sem o claim, a expressao da erro = negado.
+    function isGoogle() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+    // 1-40 caracteres visiveis: sem controles, zero-width (exceto ZWJ de emoji), marcas bidi/RTL, BOM.
+    function validName(s) {
+      return s is string && s.trim().size() >= 1 && s.size() <= 40
+        && !s.matches('(?s).*[\\p{Cc}\\x{200B}\\x{200C}\\x{200E}\\x{200F}\\x{2028}\\x{2029}\\x{202A}-\\x{202E}\\x{2060}\\x{2066}-\\x{2069}\\x{061C}\\x{FEFF}].*');
+    }
+    function validPhoto(p) {
+      return p == null
+        || (p is string && p.size() <= 512
+            && p.matches('^https://lh[0-9]+[.]googleusercontent[.]com/.*$'));
+    }
+    function validHandle(h) {
+      return h is string && h.matches('^[a-z0-9_]{3,20}$')
+        && !h.matches('^_.*|.*_$')
+        && !(h in ['admin', 'administrador', 'cinetrack', 'suporte', 'support', 'ajuda', 'help',
+                   'root', 'api', 'me', 'eu', 'staff', 'oficial', 'official', 'moderador',
+                   'moderator', 'sistema', 'system', 'seguranca', 'security', 'privacidade',
+                   'privacy', 'contato', 'contact', 'equipe', 'team', 'null', 'undefined',
+                   'anonymous', 'anonimo', 'cine']);
+    }
+    // Codigo de convite: gerado pelo cliente com RNG seguro (>= 22 chars base62,
+    // ~131 bits). As regras so podem impor formato e tamanho, nao entropia.
+    function validInviteCode(c) {
+      return c is string && c.matches('^[A-Za-z0-9]{22,40}$');
+    }
+
+    // --- friend_requests/{from}_{to}: pedido direcional, imutavel ---
+    function validRequest(key) {
+      let d = request.resource.data;
+      let me = request.auth.uid;
+      return d.keys().hasOnly(['from', 'to', 'fromName', 'fromPhoto', 'toName', 'toPhoto', 'createdAt'])
+        && d.keys().hasAll(['from', 'to', 'fromName', 'toName', 'createdAt'])
+        && d.from == me && validUid(me) && validUid(d.to) && d.to != me
+        && key == d.from + '_' + d.to
+        && d.createdAt == request.time
+        && validName(d.fromName) && validName(d.toName)
+        && (!('fromPhoto' in d) || validPhoto(d.fromPhoto))
+        && (!('toPhoto' in d) || validPhoto(d.toPhoto))
+        && exists(socialPath(d.from)) && exists(socialPath(d.to))
+        && !isBlockedEither(d.from, d.to)
+        && !isFriend(d.from, d.to);
+    }
+
+    match /friend_requests/{key} {
+      allow get: if request.auth != null && request.auth.uid in key.split('_');
+      allow list: if request.auth != null
+        && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
+      allow create: if isGoogle() && validRequest(key);
+      allow update: if false;
+      // cancelar (remetente) ou recusar (destinatario). Apagar o que nao existe so
+      // e aceito para ids que contem o proprio uid (o batch de bloqueio apaga "no escuro").
+      allow delete: if request.auth != null
+        && (resource == null
+            ? request.auth.uid in key.split('_')
+            : request.auth.uid in [resource.data.from, resource.data.to]);
+    }
+
+    // --- friendships/{menorUid}_{maiorUid}: um documento por par, so existe se aceita ---
+    function validFriendshipCreate(key) {
+      let d = request.resource.data;
+      let me = request.auth.uid;
+      let other = d.members[0] == me ? d.members[1] : d.members[0];
+      let otherIsA = d.members[0] == other;
+      let req = get(requestPath(other, me)).data;
+      return d.keys().hasOnly(['members', 'createdAt', 'aName', 'aPhoto', 'bName', 'bPhoto'])
+        && d.keys().hasAll(['members', 'createdAt', 'aName', 'bName'])
+        && d.members is list && d.members.size() == 2 && me in d.members
+        && d.members[0] is string && d.members[1] is string && d.members[0] < d.members[1]
+        && validUid(d.members[0]) && validUid(d.members[1])
+        && key == d.members[0] + '_' + d.members[1]
+        && d.createdAt == request.time
+        && validName(d.aName) && validName(d.bName)
+        && (!('aPhoto' in d) || validPhoto(d.aPhoto))
+        && (!('bPhoto' in d) || validPhoto(d.bPhoto))
+        // a "metade" do outro lado e a que ELE gravou no pedido (ninguem forja o nome do outro)
+        && (otherIsA ? d.aName : d.bName) == req.fromName
+        && d.get(otherIsA ? 'aPhoto' : 'bPhoto', null) == req.get('fromPhoto', null)
+        && exists(socialPath(me)) && exists(socialPath(other))
+        && !isBlockedEither(me, other)
+        // o outro lado consentiu: existe o pedido dele para mim (get acima) ...
+        // ... e o mesmo batch o consome (nao sobra pedido pendente)
+        && !existsAfter(requestPath(other, me))
+        && !existsAfter(requestPath(me, other));
+    }
+
+    match /friendships/{key} {
+      allow get: if request.auth != null && request.auth.uid in key.split('_');
+      allow list: if request.auth != null && request.auth.uid in resource.data.members;
+      allow create: if isGoogle() && validFriendshipCreate(key);
+      // cada lado so atualiza a propria "metade" do instantaneo de nome/foto
+      allow update: if request.auth != null && request.auth.uid in resource.data.members
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+             request.auth.uid == resource.data.members[0] ? ['aName', 'aPhoto'] : ['bName', 'bPhoto'])
+        && validName(request.resource.data.aName) && validName(request.resource.data.bName)
+        && validPhoto(request.resource.data.get('aPhoto', null))
+        && validPhoto(request.resource.data.get('bPhoto', null));
+      // qualquer lado desfaz; remove para os dois
+      allow delete: if request.auth != null
+        && (resource == null
+            ? request.auth.uid in key.split('_')
+            : request.auth.uid in resource.data.members);
+    }
+
+    // --- users/{uid}/blocks/{blockedUid}: so o dono le; invariavel bloqueio x amizade ---
+    match /users/{uid}/blocks/{blocked} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['blockedName', 'blockedPhoto', 'createdAt'])
+        && request.resource.data.keys().hasAll(['createdAt'])
+        && request.resource.data.createdAt == request.time
+        && (!('blockedName' in request.resource.data) || validName(request.resource.data.blockedName))
+        && (!('blockedPhoto' in request.resource.data) || validPhoto(request.resource.data.blockedPhoto))
+        && validUid(blocked) && blocked != uid
+        // o mesmo batch precisa ter desfeito amizade e pedidos
+        && !existsAfter(friendshipPath(uid, blocked))
+        && !existsAfter(requestPath(uid, blocked))
+        && !existsAfter(requestPath(blocked, uid));
+      allow update: if false;
+      allow delete: if isOwner(uid);
+    }
+
+    // --- social/{uid}: ativacao do social + ponteiros unicos (handle, convite) ---
+    function validSocialWrite(uid) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['handle', 'handleChangedAt', 'schemaVersion', 'inviteCode'])
+        && d.keys().hasAll(['handle', 'handleChangedAt'])
+        && validUid(uid)
+        && (!('schemaVersion' in d) || d.schemaVersion is int)
+        && (!('inviteCode' in d) || validInviteCode(d.inviteCode))
+        && validHandle(d.handle);
+    }
+    // Ponteiro do convite so muda junto com o documento do convite (1 convite ativo por usuario).
+    function inviteTransitionOk(uid) {
+      let n = request.resource.data.get('inviteCode', null);
+      let o = resource.data.get('inviteCode', null);
+      return n == o
+        || ((n == null || getAfter(invitePath(n)).data.uid == uid)
+            && (o == null || !existsAfter(invitePath(o))));
+    }
+
+    match /social/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isGoogle() && isOwner(uid) && validSocialWrite(uid)
+        && request.resource.data.handleChangedAt == request.time
+        && getAfter(handlePath(request.resource.data.handle)).data.uid == uid
+        && (!('inviteCode' in request.resource.data)
+            || getAfter(invitePath(request.resource.data.inviteCode)).data.uid == uid);
+      allow update: if isOwner(uid) && validSocialWrite(uid)
+        && (request.resource.data.handle == resource.data.handle
+              ? request.resource.data.handleChangedAt == resource.data.handleChangedAt
+              : (request.resource.data.handleChangedAt == request.time
+                 && resource.data.handleChangedAt + duration.value(30, 'd') <= request.time
+                 && getAfter(handlePath(request.resource.data.handle)).data.uid == uid
+                 && !existsAfter(handlePath(resource.data.handle))))
+        && inviteTransitionOk(uid);
+      // desativar: so apaga se handle e convite foram liberados no mesmo batch
+      allow delete: if isOwner(uid) && !existsAfter(handlePath(resource.data.handle))
+        && (!('inviteCode' in resource.data) || !existsAfter(invitePath(resource.data.inviteCode)));
+    }
+
+    // --- handles/{handle}: reserva (unicidade) + cartao de busca ---
+    function validCard(uid) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['uid', 'nickname', 'photoURL', 'discoverable', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['uid', 'nickname', 'discoverable', 'createdAt', 'updatedAt'])
+        && d.uid == uid
+        && validName(d.nickname)
+        && validPhoto(d.get('photoURL', null))
+        && d.discoverable is bool
+        && d.createdAt is timestamp && d.updatedAt == request.time;
+    }
+
+    match /handles/{h} {
+      // So busca exata por id (sem list). Nao revela quem esta oculto ou bloqueou.
+      allow get: if request.auth != null
+        && (resource == null
+            || isOwner(resource.data.uid)
+            || (resource.data.discoverable == true
+                && !isBlockedEither(resource.data.uid, request.auth.uid)));
+      allow create: if isGoogle() && validHandle(h) && validCard(request.auth.uid)
+        && request.resource.data.createdAt == request.time
+        && getAfter(socialPath(request.auth.uid)).data.handle == h;
+      allow update: if request.auth != null && isOwner(resource.data.uid)
+        && validCard(resource.data.uid)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && getAfter(socialPath(request.auth.uid)).data.handle == h;
+      allow delete: if request.auth != null && isOwner(resource.data.uid)
+        && (!existsAfter(socialPath(request.auth.uid))
+            || getAfter(socialPath(request.auth.uid)).data.handle != h);
+    }
+
+    // --- invites/{code}: convite por link, revogavel (Fatia 5) ---
+    // O codigo e o segredo: so leitura por id (sem list), logo sem enumeracao.
+    // 1 convite ativo por usuario (ponteiro social/{uid}.inviteCode). Revogar = apagar
+    // o documento (efeito imediato). Expira em ate 30 dias. O convite so revela o
+    // cartao (uid, apelido, foto): usar o convite = enviar pedido normal (o dono ainda
+    // precisa aceitar); nao cria amizade sozinho e nao exige "aparecer na busca".
+    function validInviteCard(uid) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['uid', 'nickname', 'photoURL', 'createdAt', 'expiresAt'])
+        && d.keys().hasAll(['uid', 'nickname', 'createdAt', 'expiresAt'])
+        && d.uid == uid
+        && validName(d.nickname)
+        && validPhoto(d.get('photoURL', null))
+        && d.createdAt is timestamp
+        && d.expiresAt is timestamp
+        && d.expiresAt > request.time
+        && d.expiresAt <= request.time + duration.value(30, 'd');
+    }
+
+    match /invites/{code} {
+      // inexistente/revogado = "nao existe"; expirado ou de quem bloqueou = negado
+      allow get: if request.auth != null && validInviteCode(code)
+        && (resource == null
+            || isOwner(resource.data.uid)
+            || (resource.data.expiresAt > request.time
+                && !isBlockedEither(resource.data.uid, request.auth.uid)));
+      allow list: if false;
+      allow create: if isGoogle() && validInviteCode(code)
+        && validInviteCard(request.auth.uid)
+        && request.resource.data.createdAt == request.time
+        && getAfter(socialPath(request.auth.uid)).data.get('inviteCode', null) == code;
+      allow update: if request.auth != null && isOwner(resource.data.uid)
+        && validInviteCard(resource.data.uid)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && getAfter(socialPath(request.auth.uid)).data.get('inviteCode', null) == code;
+      allow delete: if request.auth != null && isOwner(resource.data.uid)
+        && (!existsAfter(socialPath(request.auth.uid))
+            || getAfter(socialPath(request.auth.uid)).data.get('inviteCode', null) != code);
+    }
+
     // Everything not allowed above is denied (including future subcollections).
     match /{document=**} {
       allow read, write: if false;

@@ -271,7 +271,7 @@ Cada decisão: opções, **recomendação (default)** e consequências.
 (d) **Handle exato agora + convite por link na Fatia 5 (default).** Consequência: quem desliga "Aparecer na busca" só é achado depois que o convite existir (até lá, ele ainda pode buscar e aceitar pedidos).
 
 **D2. Formato e unicidade do handle.**
-Default: `^[a-z0-9_]{3,20}$` (minúsculo ASCII, sem `_` no início/fim, lista de reservados: admin, cinetrack, suporte, ajuda...), exibido como `@handle`. Unicidade pela reserva `handles/{handle}` gravada no mesmo batch/transação do ponteiro `social/{uid}`; a regra nega criar sobre um handle alheio. **Troca: 1 vez a cada 30 dias**, handle antigo liberado na hora. Opções: permitir maiúsculas (risco de homógrafos), 7 dias de intervalo, quarentena do handle antigo (exigiria regra de tempo extra). Consequência: um handle liberado pode ser reivindicado por outra pessoa: como amizade é por uid, ninguém "herda" amigos, mas pode haver confusão visual.
+Default: `^[a-z0-9_]{3,20}$` (minúsculo ASCII, sem `_` no início/fim, lista de 31 reservados: admin, cinetrack, suporte, ajuda, staff, oficial, moderador, sistema, security, null, anonymous, cine...), exibido como `@handle`. Unicidade pela reserva `handles/{handle}` gravada no mesmo batch/transação do ponteiro `social/{uid}`; a regra nega criar sobre um handle alheio. **Troca: 1 vez a cada 30 dias**, handle antigo liberado na hora. Opções: permitir maiúsculas (risco de homógrafos), 7 dias de intervalo, quarentena do handle antigo (exigiria regra de tempo extra). Consequência: um handle liberado pode ser reivindicado por outra pessoa: como amizade é por uid, ninguém "herda" amigos, mas pode haver confusão visual.
 
 **D3. O que um não amigo vê na busca.**
 Default: **handle, apelido e avatar**, nada mais (sem estatísticas, sem número de amigos, sem amigos em comum). Opção: só handle+apelido, sem foto (menos dado). Consequência da foto: o app passa a **copiar a URL da foto do Google** para o banco (hoje não copia); exige texto novo e consentimento (D10).
@@ -295,10 +295,18 @@ Default: **fan-out raro**: ao mudar apelido/foto, o dono atualiza a própria "me
 Default: **sim, uid + apelido** (a foto não). É dado pessoal de terceiros, mas faz parte do vínculo do titular. Opção: só uids. Consequência: revisar texto de privacidade.
 
 **D10. Foto/avatar.**
-Default: aceitar **apenas URLs `https://*.googleusercontent.com/`** (anti-rastreamento por URL arbitrária) e dar ao usuário a escolha "Mostrar minha foto" (ligada por padrão na ativação, destacada). Sem foto, o avatar usa iniciais. Consequência: o cartão pode ficar com foto desatualizada até a próxima sessão do dono.
+Default: aceitar **apenas URLs `https://lh<n>.googleusercontent.com/` (ex.: `lh3`)** (anti-rastreamento por URL arbitrária) e dar ao usuário a escolha "Mostrar minha foto" (ligada por padrão na ativação, destacada). Sem foto, o avatar usa iniciais. Consequência: o cartão pode ficar com foto desatualizada até a próxima sessão do dono.
 
 **D11. Cota e plano.**
 Default: **não ativar Blaze**; cache + TTL de 5 min na lista, listener estreito só no contador de pedidos, mensagens de "tente amanhã". Consequência: a cota de 50 mil leituras/dia é do projeto inteiro (docs/50 §9 estima); com milhares de usuários ativos ela aperta e será preciso rever.
 
 **D12. (adicional, do Product Analyst) Pedido para quem está oculto.**
 Default: só é possível quando o remetente já tem o uid (por pedido do outro lado ou convite). Consequência: oculto = invisível na busca, mas não "mudo".
+
+
+## Requisitos acrescentados na revisão das regras (docs/51)
+- **Mensagem genérica única**: ao criar pedido, ler cartão (`handles`) ou usar convite, qualquer negação (inexistente, oculto, bloqueado, expirado, `permission-denied`) mostra a mesma mensagem ("Não foi possível enviar"/"Nenhum usuário encontrado"). Criar pedido para quem me bloqueou é negado pelas regras e isso não pode ser distinguível na tela. Vale para as Fatias 2 e 5.
+- **Código do convite (Fatia 5)**: `Random.secure()`, ≥ 22 caracteres base62, nunca derivado de uid, hora ou contador.
+- **Foto (cliente)**: enviar `photoURL` só se casar com `^https://lh[0-9]+[.]googleusercontent[.]com/` e tiver ≤ 512 caracteres; senão enviar `null` (as regras negam o resto e a gravação inteira falharia).
+- **Apelido (cliente)**: na entrada e na exibição, `trim`, normalizar para NFC e remover caracteres invisíveis/bidi (controle, U+200B/C, U+200E/F, U+202A–E, U+2066–9, U+2060, U+061C, U+FEFF, U+2028/9) e também NBSP, U+3000 e caracteres de tag (U+E0000–E007F), que as regras **não** barram. O limite de 40 conta unidades UTF-16 (igual a `String.length` do Dart): 40 CJK ou 20 emoji.
+- Só contas Google criam `social`, handle, pedido, par e convite (regra `isGoogle()`).
