@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
+import '../social/invite_code.dart';
 import '../social/social_models.dart';
 import 'export_data_source.dart';
 
@@ -63,7 +64,21 @@ class FirestoreExportDataSource implements ExportDataSource {
       if (handle is String && handle.isNotEmpty) {
         card = (await _guard(() => _db.collection('handles').doc(handle).get(options))).data();
       }
-      return RawSocial(social: convert(pointer), card: card == null ? null : convert(card));
+      // The user's own invite (their data): code and validity go in the export.
+      final code = pointer['inviteCode'];
+      Map<String, dynamic>? invite;
+      if (code is String && InviteCode.isValid(code)) {
+        try {
+          invite = (await _guard(() => _db.collection('invites').doc(code).get(options))).data();
+        } on ExportReadException {
+          if (fromServer) rethrow;
+        }
+      }
+      return RawSocial(
+        social: convert(pointer),
+        card: card == null ? null : convert(card),
+        invite: invite == null ? null : convert(invite),
+      );
     } on ExportReadException catch (e) {
       // Rules not published yet (denied): friendships cannot exist. A document
       // that is not on this device is "not activated", not a failure.

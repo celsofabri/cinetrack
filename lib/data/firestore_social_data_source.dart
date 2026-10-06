@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
+import '../social/invite_code.dart';
 import '../social/social_models.dart';
 import 'social_data_source.dart';
 import 'social_payloads.dart';
@@ -72,7 +73,24 @@ class FirestoreSocialDataSource implements SocialDataSource {
     if (handle is String && handle.isNotEmpty) {
       card = (await _handle(handle).get(options)).data();
     }
-    return RawSocial(social: convert(data), card: card == null ? null : convert(card));
+    // The invite is the user's own: always readable by the owner. A failure
+    // here must not hide the whole profile (it just shows "no invite data").
+    final code = data['inviteCode'];
+    Map<String, dynamic>? invite;
+    var inviteUnreadable = false;
+    if (code is String && InviteCode.isValid(code)) {
+      try {
+        invite = (await _invite(code).get(options)).data();
+      } on FirebaseException {
+        inviteUnreadable = true;
+      }
+    }
+    return RawSocial(
+      social: convert(data),
+      card: card == null ? null : convert(card),
+      invite: invite == null ? null : convert(invite),
+      inviteUnreadable: inviteUnreadable,
+    );
   }, write: false);
 
   @override
@@ -141,12 +159,82 @@ class FirestoreSocialDataSource implements SocialDataSource {
     if (patch.isEmpty) return Future.value();
     return _guard(
       () => _executePlanned((tx) async {
-        final handle = (await tx.get(_social)).data()?['handle'];
+        final social = (await tx.get(_social)).data();
+        final handle = social?['handle'];
         if (handle is! String) throw const SocialFailure(SocialFailureKind.notActive);
-        return SocialPayloads.updateCard(handle, patch);
+        String? inviteCode;
+        final pointer = social?['inviteCode'];
+        if ((patch.nickname != null || patch.changePhoto) &&
+            pointer is String &&
+            InviteCode.isValid(pointer)) {
+          // An expired invite is left alone (the rules check `expiresAt` on
+          // every update, so touching it would fail the whole card update).
+          final invite = (await tx.get(_invite(pointer))).data();
+          final expires = invite?['expiresAt'];
+          if (invite?['uid'] == uid &&
+              expires is Timestamp &&
+              expires.toDate().isAfter(DateTime.now().add(_inviteSlack))) {
+            inviteCode = pointer;
+          }
+        }
+        return SocialPayloads.updateCard(handle, patch, inviteCode: inviteCode);
       }),
       write: true,
     );
+  }
+
+  /// An invite that expires within this margin is not touched by a card update.
+  static const _inviteSlack = Duration(minutes: 5);
+
+  @override
+  Future<void> createInvite(InviteDraft draft) => _guard(
+    () => _executePlanned((tx) async {
+      final social = (await tx.get(_social)).data();
+      if (social?['handle'] is! String) throw const SocialFailure(SocialFailureKind.notActive);
+      String? replaces;
+      final pointer = social?['inviteCode'];
+      if (pointer is String && InviteCode.isValid(pointer)) {
+        // Deleting a document that does not exist is denied: only replace it
+        // when it is really there and ours.
+        final old = (await tx.get(_invite(pointer))).data();
+        if (old != null && old['uid'] == uid) replaces = pointer;
+      }
+      return SocialPayloads.createInvite(uid, draft, replacesCode: replaces);
+    }),
+    write: true,
+  );
+
+  @override
+  Future<void> revokeInvite() => _guard(
+    () => _executePlanned((tx) async {
+      final pointer = (await tx.get(_social)).data()?['inviteCode'];
+      if (pointer is! String || !InviteCode.isValid(pointer)) {
+        return const SocialWrite(SocialWriteMode.transaction, []);
+      }
+      final doc = (await tx.get(_invite(pointer))).data();
+      return SocialPayloads.revokeInvite(
+        uid,
+        pointer,
+        inviteExists: doc != null && doc['uid'] == uid,
+      );
+    }),
+    write: true,
+  );
+
+  @override
+  Future<RawInvite?> lookupInvite(String code) => _guard(() async {
+    final snapshot = await _doc(
+      SocialPayloads.lookupInvitePath(code),
+    ).get(const GetOptions(source: Source.server));
+    final data = snapshot.data();
+    if (!snapshot.exists || data == null) return null;
+    return RawInvite(code, convert(data));
+  }, write: false);
+
+  @override
+  Future<void> updateFriendHalves(List<FriendHalfUpdate> updates) {
+    if (updates.isEmpty) return Future.value();
+    return _guard(() => _execute(SocialPayloads.refreshHalves(updates)), write: true);
   }
 
   @override
@@ -334,7 +422,12 @@ class FirestoreSocialDataSource implements SocialDataSource {
     return query.limit(spec.limit);
   }
 
-  Object? _resolve(Object? v) => v is ServerTimestamp ? FieldValue.serverTimestamp() : v;
+  Object? _resolve(Object? v) => switch (v) {
+    ServerTimestamp() => FieldValue.serverTimestamp(),
+    ClientTimePlus() => Timestamp.fromDate(DateTime.now().add(v.offset)),
+    DeleteField() => FieldValue.delete(),
+    _ => v,
+  };
 
   Map<String, Object?> _resolved(Map<String, Object?> data) => {
     for (final e in data.entries) e.key: _resolve(e.value),

@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/firestore_social_data_source.dart';
 import '../data/social_data_source.dart';
 import '../repositories/social_repository.dart';
+import '../social/invite_code.dart';
 import '../social/social_models.dart';
 import '../social/social_validation.dart';
 import 'account_providers.dart';
 import 'social_lists_providers.dart';
+import 'social_refresh_providers.dart';
 import 'providers.dart';
 
 typedef SocialDataSourceFactory = SocialDataSource Function(String uid);
@@ -111,7 +113,9 @@ class SocialController extends Notifier<SocialState> {
     // A fresh local hint ("friendships on/off", at most [kSocialHintTtl] old)
     // lets the Amigos icon show without reading the server; the first screen
     // that needs the real state (Profile, /friends) calls [confirm].
-    final hinted = _freshHint(user.$1!) != null;
+    // A nickname / photo refresh that did not finish (flag on the device) needs the real state
+    // to continue: it skips the hint and loads now (1-2 reads, only for that account).
+    final hinted = _freshHint(user.$1!) != null && !_refreshFlag(user.$1!);
     _started = !hinted;
     if (!hinted) {
       Future.microtask(() {
@@ -183,6 +187,14 @@ class SocialController extends Notifier<SocialState> {
       if (!load.fromCache && uid != null) {
         await _rememberHint(uid, generation, load.profile != null);
       }
+      // A nickname / photo refresh that did not finish continues now (docs/68).
+      if (!load.fromCache && load.profile != null && generation == _generation) {
+        Future.microtask(() {
+          if (generation == _generation) {
+            ref.read(socialRefreshProvider.notifier).resumeIfPending();
+          }
+        });
+      }
     } on SocialFailure catch (e) {
       if (keepOnFailure) return;
       next = SocialState(
@@ -234,39 +246,79 @@ class SocialController extends Notifier<SocialState> {
     return _run(() => ref.read(socialRepositoryProvider).changeHandle(handle, current: current));
   }
 
-  Future<SocialFailure?> updateNickname(String nickname) => _run(() async {
-    await ref.read(socialRepositoryProvider).updateNickname(nickname);
-    await _syncAppNickname(nickname);
-  });
+  Future<SocialFailure?> updateNickname(String nickname) async {
+    final failure = await _run(() async {
+      await ref.read(socialRepositoryProvider).updateNickname(nickname);
+      await _syncAppNickname(nickname);
+    });
+    await _refreshFriendsAfter(failure);
+    return failure;
+  }
 
   Future<SocialFailure?> setDiscoverable(bool value) =>
       _run(() => ref.read(socialRepositoryProvider).setDiscoverable(value));
 
-  Future<SocialFailure?> setPhotoVisible(bool visible) {
+  Future<SocialFailure?> setPhotoVisible(bool visible) async {
     final photo = ref.read(currentUserProvider)?.photoUrl;
-    return _run(
+    final failure = await _run(
       () => ref.read(socialRepositoryProvider).setPhotoVisible(visible, googlePhotoUrl: photo),
     );
+    await _refreshFriendsAfter(failure);
+    return failure;
   }
+
+  /// The card changed: the copies in the friendships follow (D8), in the
+  /// background. An uncertain write may have gone through, so it counts too
+  /// (the refresh writes the card as it is, and skips what is up to date).
+  Future<void> _refreshFriendsAfter(SocialFailure? failure) async {
+    if (failure != null && failure.kind != SocialFailureKind.uncertain) return;
+    await ref.read(socialRefreshProvider.notifier).request();
+  }
+
+  /// Creates the invite link (or replaces the current one: 1 active invite).
+  /// [days] is one of [InviteValidity.options].
+  Future<SocialFailure?> createInvite({int days = InviteValidity.defaultDays}) {
+    final profile = state.profile;
+    if (profile == null) return Future.value(const SocialFailure(SocialFailureKind.notActive));
+    return _run(() => ref.read(socialRepositoryProvider).createInvite(me: profile, days: days));
+  }
+
+  /// Revokes the invite link (effective at once).
+  Future<SocialFailure?> revokeInvite() =>
+      _run(() => ref.read(socialRepositoryProvider).revokeInvite());
 
   /// Turns friendships off and deletes friends, requests, blocks and invite.
   Future<SocialFailure?> deactivate() async {
     final uid = ref.read(currentUidProvider);
     final generation = _generation;
+    // No friendship left to refresh: stop it before the sweep removes them.
+    ref.read(socialRefreshProvider.notifier).cancelRun();
     final failure = await _run(() => ref.read(socialRepositoryProvider).deactivate());
     // The pointer is gone in both cases (even if the last sweep did not
     // finish): friendships are off, the lists in memory are void.
     final off = failure == null || failure.code == SocialRepository.cleanupPendingCode;
     if (off) {
+      // Friendships are off: nothing left to refresh, forget the flag (only now).
+      await ref.read(socialRefreshProvider.notifier).cancelAndClear();
       if (uid != null) await _rememberHint(uid, generation, false);
       if (generation == _generation) ref.read(socialEpochProvider.notifier).state++;
     }
+    // A deactivation that failed before closing leaves friendships on: the refresh goes on.
+    if (!off) ref.read(socialRefreshProvider.notifier).resumeIfPending();
     if (failure == null) await _setCleanupFlag(false);
     if (failure?.code == SocialRepository.cleanupPendingCode) {
       await _setCleanupFlag(true);
       await _load(_generation, keepOnFailure: true);
     }
     return failure;
+  }
+
+  bool _refreshFlag(String uid) {
+    try {
+      return ref.read(localStoreProvider).socialRefreshPending(uid);
+    } catch (_) {
+      return false;
+    }
   }
 
   bool _cleanupFlag() {

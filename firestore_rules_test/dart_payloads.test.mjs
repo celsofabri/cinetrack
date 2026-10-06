@@ -8,10 +8,10 @@ import { readFileSync } from 'node:fs';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import {
-  collection, doc, getCountFromServer, getDoc, getDocs, limit, orderBy, query, runTransaction,
-  serverTimestamp, setDoc, startAfter, where, writeBatch,
+  Timestamp, collection, deleteField, doc, getCountFromServer, getDoc, getDocs, limit, orderBy,
+  query, runTransaction, serverTimestamp, setDoc, startAfter, where, writeBatch,
 } from 'firebase/firestore';
-import { PHOTO, U, agoDays, commit, makeTools, newEnv, pairId } from './social_helpers.mjs';
+import { CODE, CODE2, DAY, PHOTO, U, agoDays, commit, inDays, makeTools, newEnv, pairId } from './social_helpers.mjs';
 
 // FIXTURE_PATH lets the mutation harness (mutations.mjs) replay a deliberately broken copy.
 const fx = JSON.parse(
@@ -29,7 +29,16 @@ before(async () => {
 after(async () => env?.cleanup());
 beforeEach(async () => env.clearFirestore());
 
-const resolve = (v) => (v === fx.serverTimestamp ? serverTimestamp() : v);
+// Sentinels the Dart payloads use: the server's clock, "device clock + offset" (invites.expiresAt),
+// and "remove this field".
+const resolve = (v) => {
+  if (v === fx.serverTimestamp) return serverTimestamp();
+  if (v === fx.deleteField) return deleteField();
+  if (typeof v === 'string' && v.startsWith(fx.clientTimePlusPrefix)) {
+    return Timestamp.fromMillis(Date.now() + Number(v.slice(fx.clientTimePlusPrefix.length)));
+  }
+  return v;
+};
 const resolved = (data) => Object.fromEntries(Object.entries(data).map(([k, v]) => [k, resolve(v)]));
 const ref = (db, path) => doc(db, ...path.split('/'));
 
@@ -114,7 +123,7 @@ describe('Dart payloads (fixture) against the final rules', () => {
     });
   }
 
-  for (const name of Object.keys(S).filter((n) => n.startsWith('updateCard_'))) {
+  for (const name of Object.keys(S).filter((n) => n.startsWith('updateCard_') && !n.endsWith('_with_invite'))) {
     it(`${name}: accepted`, async () => {
       await t.seedSocial(ana, { handle: S[name].input.handle, nickname: 'Ana' });
       await assertSucceeds(run(t.db(ana), S[name].write));
@@ -1123,5 +1132,439 @@ describe('Dart payloads (fixture): block, unblock, blocked list (slice 4)', () =
       run(db, { mode: 'batch', ops: swept.docs.map((x) => ({ op: 'delete', path: `users/${ana}/blocks/${x.id}` })) }),
     );
     assert.equal(await has(blockPath), false);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Slice 5 (docs/68): invite link (create / replace / revoke / open / use) and the refresh of
+// nickname / photo in the friendships. Same fixture, same (final) rules.
+// ---------------------------------------------------------------------------------------------
+describe('Dart payloads (fixture): invite link and refresh of friendship halves (slice 5)', () => {
+  const { caio } = U;
+  const inv = (code) => ['invites', code];
+  const social = async (uid) => {
+    let data;
+    await t.seed(async (d) => {
+      const s = await getDoc(doc(d, 'social', uid));
+      data = s.exists() ? s.data() : undefined;
+    });
+    return data;
+  };
+  const getInvite = async (code) => {
+    let data;
+    await t.seed(async (d) => {
+      const s = await getDoc(doc(d, 'invites', code));
+      data = s.exists() ? s.data() : undefined;
+    });
+    return data;
+  };
+  const FPHOTO = S.updateCard_photo_on.input.photoUrl; // the photo the Dart golden uses
+  const nowPlus = (ms) => `${fx.clientTimePlusPrefix}${ms}`;
+  const withCode = (w, code) => {
+    const c = clone(w);
+    for (const op of c.ops) {
+      if (op.path.startsWith('invites/') && op.op === 'set') op.path = `invites/${code}`;
+      if (op.path === `social/${ana}` && op.data?.inviteCode) op.data.inviteCode = code;
+    }
+    return c;
+  };
+  const setOp = (w) => w.ops.find((o) => o.op === 'set' && o.path.startsWith('invites/'));
+
+  describe('create', () => {
+    for (const name of ['createInvite', 'createInvite_with_photo']) {
+      it(`${name}: invite + pointer in one transaction; others can read it by code`, async () => {
+        await t.seedSocial(ana, { handle: 'ana', photo: S[name].input.photoUrl ? PHOTO : undefined });
+        await assertSucceeds(run(t.db(ana), S[name].write));
+        const code = S[name].input.code;
+        assert.equal((await social(ana)).inviteCode, code);
+        const card = await getInvite(code);
+        assert.equal(card.uid, ana);
+        assert.equal(card.nickname, S[name].input.nickname);
+        const seen = await assertSucceeds(getDoc(doc(t.db(bruno), 'invites', code)));
+        assert.equal(seen.data().uid, ana);
+      });
+    }
+
+    it('declares the reads the app does (pointer, and the invite it replaces)', () => {
+      assert.deepEqual(S.createInvite.write.reads, [`social/${ana}`]);
+      assert.deepEqual(S.createInvite_replaces.write.reads, [
+        `social/${ana}`,
+        `invites/${S.createInvite_replaces.input.replacesCode}`,
+      ]);
+    });
+
+    it('the longest option keeps a margin below the 30-day cap (device clock ahead of the server)', () => {
+      const ms = Number(setOp(S.createInvite_with_photo.write).data.expiresAt.slice(fx.clientTimePlusPrefix.length));
+      assert.ok(ms < 30 * DAY, 'must be under 30 days');
+      assert.ok(ms > 29 * DAY, 'but close to it');
+      const week = Number(setOp(S.createInvite.write).data.expiresAt.slice(fx.clientTimePlusPrefix.length));
+      assert.equal(week, 7 * DAY);
+    });
+
+    it('replacing: the old invite is deleted in the same write, 1 active invite', async () => {
+      const i = S.createInvite_replaces.input;
+      await t.seedSocial(ana, { handle: 'ana', inviteCode: i.replacesCode });
+      await assertSucceeds(run(t.db(ana), S.createInvite_replaces.write));
+      assert.equal(await t.exists(inv(i.replacesCode)), false);
+      assert.equal(await t.exists(inv(i.code)), true);
+      assert.equal((await social(ana)).inviteCode, i.code);
+    });
+
+    it('a second ACTIVE invite (without replacing the first) is denied and creates nothing', async () => {
+      await t.seedSocial(ana, { handle: 'ana', inviteCode: CODE });
+      const second = withCode(S.createInvite.write, CODE2);
+      await assertFails(run(t.db(ana), second));
+      assert.equal(await t.exists(inv(CODE2)), false);
+      assert.equal((await social(ana)).inviteCode, CODE);
+    });
+
+    it('an orphan pointer (invite doc gone): creating a new one without a delete is accepted', async () => {
+      await t.seed((d) =>
+        Promise.all([
+          setDoc(doc(d, 'social', ana), { handle: 'ana', handleChangedAt: agoDays(60), schemaVersion: 1, inviteCode: CODE }),
+          setDoc(doc(d, 'handles', 'ana'), { uid: ana, nickname: 'Ana', discoverable: true, createdAt: agoDays(60), updatedAt: agoDays(60) }),
+        ]),
+      );
+      await assertSucceeds(run(t.db(ana), withCode(S.createInvite.write, CODE2)));
+    });
+
+    it('without friendships on, and with a non-Google session: denied', async () => {
+      await assert.rejects(run(t.db(ana), S.createInvite.write)); // no social/{uid} to point
+      await t.seedSocial(ana, { handle: 'ana' });
+      await assertFails(run(t.dbWith(ana, 'password'), S.createInvite.write));
+      await assertFails(run(t.dbWith(ana, 'anonymous'), S.createInvite.write));
+      assert.equal(await t.exists(inv(S.createInvite.input.code)), false);
+    });
+
+    it('someone else cannot create it under my uid', async () => {
+      await t.seedSocial(ana, { handle: 'ana' });
+      await t.seedSocial(bruno, { handle: 'bruno' });
+      await assertFails(run(t.db(bruno), S.createInvite.write));
+    });
+
+    it('derived from the fixture: short / long / non-base62 code, expiry past or > 30 days, extra field: denied', async () => {
+      await t.seedSocial(ana, { handle: 'ana' });
+      const db = t.db(ana);
+      for (const bad of ['AbCdEfGhIjKlMnOpQrStU', 'A'.repeat(41), 'AbCdEfGhIjKlMnOpQrStUv1_', 'AbCdEfGhIjKlMnOpQrStUv1-', 'AbCdEfGhIjKlMnOpQrStUv1.']) {
+        await assertFails(run(db, withCode(S.createInvite.write, bad)));
+      }
+      const exp = (ms) => {
+        const c = clone(S.createInvite.write);
+        setOp(c).data.expiresAt = nowPlus(ms);
+        return c;
+      };
+      await assertFails(run(db, exp(31 * DAY)));
+      await assertFails(run(db, exp(-1000)));
+      await assertFails(run(db, exp(0)));
+      const extra = clone(S.createInvite.write);
+      setOp(extra).data.admin = true;
+      await assertFails(run(db, extra));
+      const foreign = clone(S.createInvite.write);
+      setOp(foreign).data.uid = bruno;
+      await assertFails(run(db, foreign));
+      const badPhoto = clone(S.createInvite.write);
+      setOp(badPhoto).data.photoURL = 'https://evil.example/x.png';
+      await assertFails(run(db, badPhoto));
+      const badName = clone(S.createInvite.write);
+      setOp(badName).data.nickname = 'x'.repeat(41);
+      await assertFails(run(db, badName));
+      // the unmodified payload still passes after all of that
+      await assertSucceeds(run(db, S.createInvite.write));
+    });
+
+    it('24 and 22 characters (the bounds the app and the rules agree on) are accepted', async () => {
+      await t.seedSocial(ana, { handle: 'ana' });
+      await assertSucceeds(run(t.db(ana), withCode(S.createInvite.write, 'A'.repeat(22))));
+    });
+  });
+
+  describe('revoke', () => {
+    for (const name of ['revokeInvite']) {
+      it(`${name}: deletes the invite and clears the pointer; the link stops working at once`, async () => {
+        await t.seedSocial(ana, { handle: 'ana', inviteCode: CODE });
+        await assertSucceeds(getDoc(doc(t.db(bruno), 'invites', CODE)));
+        await assertSucceeds(run(t.db(ana), S[name].write));
+        assert.equal(await t.exists(inv(CODE)), false);
+        assert.equal((await social(ana)).inviteCode, undefined);
+        const after = await assertSucceeds(getDoc(doc(t.db(bruno), 'invites', CODE)));
+        assert.equal(after.exists(), false);
+        // the account still works: a new invite can be created
+        await assertSucceeds(run(t.db(ana), withCode(S.createInvite.write, CODE2)));
+      });
+    }
+
+    it('revokeInvite declares the reads the app does (pointer and invite)', () => {
+      assert.deepEqual(S.revokeInvite.write.reads, [`social/${ana}`, `invites/${CODE}`]);
+    });
+
+    it('only the pointer is left (invite doc gone): the pointer-only payload clears it; the full one is denied', async () => {
+      await t.seed((d) =>
+        Promise.all([
+          setDoc(doc(d, 'social', ana), { handle: 'ana', handleChangedAt: agoDays(60), schemaVersion: 1, inviteCode: CODE }),
+          setDoc(doc(d, 'handles', 'ana'), { uid: ana, nickname: 'Ana', discoverable: true, createdAt: agoDays(60), updatedAt: agoDays(60) }),
+        ]),
+      );
+      await assertFails(run(t.db(ana), S.revokeInvite.write)); // deleting what does not exist
+      await assertSucceeds(run(t.db(ana), S.revokeInvite_pointer_only.write));
+      assert.equal((await social(ana)).inviteCode, undefined);
+    });
+
+    it('somebody else cannot revoke it (nor move my pointer)', async () => {
+      await t.seedSocial(ana, { handle: 'ana', inviteCode: CODE });
+      await t.seedSocial(bruno, { handle: 'bruno' });
+      await assertFails(run(t.db(bruno), S.revokeInvite.write));
+      await assertFails(run(t.db(caio), S.revokeInvite.write));
+      assert.equal(await t.exists(inv(CODE)), true);
+    });
+
+    it('deleting the invite without moving the pointer (or the reverse) is denied', async () => {
+      await t.seedSocial(ana, { handle: 'ana', inviteCode: CODE });
+      const onlyDelete = clone(S.revokeInvite.write);
+      onlyDelete.ops = onlyDelete.ops.filter((o) => o.op === 'delete');
+      await assertFails(run(t.db(ana), onlyDelete));
+      const onlyPointer = clone(S.revokeInvite.write);
+      onlyPointer.ops = onlyPointer.ops.filter((o) => o.op === 'update');
+      await assertFails(run(t.db(ana), onlyPointer));
+      assert.equal(await t.exists(inv(CODE)), true);
+    });
+
+    it('revoke is idempotent from the app: with nothing to revoke the second run is just denied (the app does not send it)', async () => {
+      await t.seedSocial(ana, { handle: 'ana', inviteCode: CODE });
+      await assertSucceeds(run(t.db(ana), S.revokeInvite.write));
+      await assertFails(run(t.db(ana), S.revokeInvite.write));
+    });
+  });
+
+  describe('open and use the link', () => {
+    const getCode = async (db, code) => {
+      try {
+        const s = await getDoc(doc(db, 'invites', code));
+        return s.exists() ? 'ok' : 'missing';
+      } catch (e) {
+        return e.code;
+      }
+    };
+
+    it('lookups.invite is a single get by id', () => {
+      assert.equal(fx.lookups.invite.get, `invites/${fx.lookups.invite.code}`);
+    });
+
+    it('valid: any signed-in user reads the card (one get), even with "Aparecer na busca" off', async () => {
+      await t.seedSocial(ana, { handle: 'ana', inviteCode: CODE, discoverable: false });
+      const s = await assertSucceeds(getDoc(doc(t.db(bruno), ...fx.lookups.invite.get.split('/'))));
+      assert.equal(s.data().uid, ana);
+      // the handle card stays hidden: only the invite reveals the person
+      await assertFails(getDoc(doc(t.db(bruno), 'handles', 'ana')));
+    });
+
+    it('expired / revoked / never existed / blocked in either direction: expired and blocked are denied the SAME way', async () => {
+      await t.seedSocial(ana, { handle: 'ana', inviteCode: CODE, inviteExpires: agoDays(0.01) });
+      await t.seedSocial(caio, { handle: 'caio', inviteCode: CODE2 });
+      await t.seedBlock(caio, bruno); // caio blocked bruno
+      const expired = await getCode(t.db(bruno), CODE);
+      const blockedByOwner = await getCode(t.db(bruno), CODE2);
+      assert.equal(expired, 'permission-denied');
+      assert.equal(blockedByOwner, 'permission-denied');
+      assert.equal(await getCode(t.db(bruno), 'ZZZZZZZZZZZZZZZZZZZZZZZZ'), 'missing');
+      // I blocked the owner: also closed
+      await t.seedSocial(U.dora, { handle: 'dora', inviteCode: 'DoraDoraDoraDoraDoraDora' });
+      await t.seedBlock(bruno, U.dora);
+      assert.equal(await getCode(t.db(bruno), 'DoraDoraDoraDoraDoraDora'), 'permission-denied');
+      // the owner reads her own expired invite (the screen shows "expirou")
+      assert.equal(await getCode(t.db(ana), CODE), 'ok');
+      assert.equal(await getCode(t.anon(), CODE2), 'permission-denied');
+    });
+
+    it('a revoked invite reads as missing at once (no error)', async () => {
+      await t.seedSocial(ana, { handle: 'ana', inviteCode: CODE });
+      assert.equal(await getCode(t.db(bruno), CODE), 'ok');
+      await assertSucceeds(run(t.db(ana), S.revokeInvite.write));
+      assert.equal(await getCode(t.db(bruno), CODE), 'missing');
+    });
+
+    it('using it = a NORMAL request (derived from sendRequest): created, never a friendship; the owner must accept', async () => {
+      await t.seedSocial(ana, { handle: 'ana', inviteCode: CODE, discoverable: false });
+      await t.seedSocial(bruno, { handle: 'bruno' });
+      const w = clone(S.sendRequest.write);
+      w.ops[0].path = `friend_requests/${bruno}_${ana}`;
+      Object.assign(w.ops[0].data, { from: bruno, to: ana, fromName: 'Bruno', toName: 'Ana' });
+      w.reads = [`friend_requests/${bruno}_${ana}`, `friend_requests/${ana}_${bruno}`];
+      await assertSucceeds(run(t.db(bruno), w));
+      assert.equal(await t.exists(['friend_requests', `${bruno}_${ana}`]), true);
+      assert.equal(await t.exists(['friendships', pairId(ana, bruno)]), false);
+    });
+
+    it('a request to the owner of an invite who blocked me is denied (the screen says the generic message)', async () => {
+      await t.seedSocial(ana, { handle: 'ana', inviteCode: CODE });
+      await t.seedSocial(bruno, { handle: 'bruno' });
+      await t.seedBlock(ana, bruno);
+      const w = clone(S.sendRequest.write);
+      w.ops[0].path = `friend_requests/${bruno}_${ana}`;
+      Object.assign(w.ops[0].data, { from: bruno, to: ana, fromName: 'Bruno', toName: 'Ana' });
+      await assertFails(run(t.db(bruno), w));
+    });
+
+    it('no list, no enumeration of invites', async () => {
+      await t.seedSocial(ana, { handle: 'ana', inviteCode: CODE });
+      await assertFails(getDocs(collection(t.db(bruno), 'invites')));
+      await assertFails(getDocs(query(collection(t.db(ana), 'invites'), where('uid', '==', ana))));
+    });
+  });
+
+  describe('card changes follow into the invite', () => {
+    const seedWithInvite = (o = {}) => t.seedSocial(ana, { handle: 'ana', inviteCode: CODE, ...o });
+    for (const name of [
+      'updateCard_nickname_with_invite',
+      'updateCard_photo_on_with_invite',
+      'updateCard_photo_off_with_invite',
+      'updateCard_discoverable_with_invite',
+    ]) {
+      it(`${name}: card and invite change in ONE transaction`, async () => {
+        await seedWithInvite({ photo: PHOTO });
+        await assertSucceeds(run(t.db(ana), S[name].write));
+      });
+    }
+
+    it('the invite copy carries the new nickname and photo; the other fields are untouched', async () => {
+      await seedWithInvite();
+      const before = await getInvite(CODE);
+      await assertSucceeds(run(t.db(ana), S.updateCard_nickname_with_invite.write));
+      await assertSucceeds(run(t.db(ana), S.updateCard_photo_on_with_invite.write));
+      const after = await getInvite(CODE);
+      assert.equal(after.nickname, 'Nova');
+      assert.equal(after.photoURL, FPHOTO);
+      assert.equal(after.uid, ana);
+      assert.deepEqual(after.expiresAt, before.expiresAt);
+      assert.deepEqual(after.createdAt, before.createdAt);
+      await assertSucceeds(run(t.db(ana), S.updateCard_photo_off_with_invite.write));
+      assert.equal((await getInvite(CODE)).photoURL ?? null, null);
+    });
+
+    it('an EXPIRED invite cannot be touched by a card update (the app leaves it out): the same write with it is denied', async () => {
+      await seedWithInvite({ inviteExpires: agoDays(1) });
+      await assertFails(run(t.db(ana), S.updateCard_nickname_with_invite.write));
+      // what the app sends instead (no invite op) works
+      const plain = clone(S.updateCard_nickname_with_invite.write);
+      plain.ops = plain.ops.filter((o) => o.path.startsWith('handles/'));
+      await assertSucceeds(run(t.db(ana), plain));
+    });
+
+    it('somebody else cannot change my invite copy; an invite photo outside Google is denied', async () => {
+      await seedWithInvite();
+      await t.seedSocial(bruno, { handle: 'bruno' });
+      await assertFails(run(t.db(bruno), S.updateCard_nickname_with_invite.write));
+      const bad = clone(S.updateCard_photo_on_with_invite.write);
+      bad.ops[1].data.photoURL = 'https://evil.example/x.png';
+      await assertFails(run(t.db(ana), bad));
+    });
+  });
+
+  describe('refresh of my half in the friendships (D8)', () => {
+    const [h1, h2] = ['uid-ana_uid-bruno', 'uid-aaa_uid-ana'];
+    const seedPairs = (o = {}) =>
+      t.seed(async (d) => {
+        await setDoc(doc(d, 'friendships', h1), {
+          members: [ana, bruno], createdAt: agoDays(3), aName: 'Ana Velha', bName: 'Bruno',
+          ...(o.aPhoto ? { aPhoto: o.aPhoto } : {}),
+        });
+        await setDoc(doc(d, 'friendships', h2), {
+          members: ['uid-aaa', ana], createdAt: agoDays(3), aName: 'Aaa', bName: 'Ana Velha',
+        });
+      });
+    const read = async (id) => {
+      let data;
+      await t.seed(async (d) => {
+        data = (await getDoc(doc(d, 'friendships', id))).data();
+      });
+      return data;
+    };
+
+    it('refreshHalves: only MY half changes in each pair (as A and as B); the other half is untouched', async () => {
+      await seedPairs();
+      await assertSucceeds(run(t.db(ana), S.refreshHalves.write));
+      const one = await read(h1);
+      assert.equal(one.aName, 'Ana Nova');
+      assert.equal(one.bName, 'Bruno');
+      const two = await read(h2);
+      assert.equal(two.bName, 'Ana Nova');
+      assert.equal(two.bPhoto, FPHOTO);
+      assert.equal(two.aName, 'Aaa');
+      assert.deepEqual(one.members, [ana, bruno]);
+    });
+
+    it('a removed photo is written as null and the half is still valid', async () => {
+      await seedPairs({ aPhoto: PHOTO });
+      await assertSucceeds(run(t.db(ana), S.refreshHalves_photo_removed.write));
+      const one = await read(h1);
+      assert.equal(one.aName, 'Ana');
+      assert.equal(one.aPhoto, null);
+    });
+
+    it('repeating the same refresh is accepted (idempotent)', async () => {
+      await seedPairs();
+      await assertSucceeds(run(t.db(ana), S.refreshHalves.write));
+      await assertSucceeds(run(t.db(ana), S.refreshHalves.write));
+    });
+
+    it('NOT my half: the payload flipped to the other half is denied; so is the friend running mine', async () => {
+      await seedPairs();
+      const flipped = clone(S.refreshHalves.write);
+      flipped.ops[0].data = { bName: 'Forjado', bPhoto: null };
+      await assertFails(run(t.db(ana), flipped));
+      await assertFails(run(t.db(bruno), S.refreshHalves.write)); // bruno is B of h1: aName is not his
+      await assertFails(run(t.db(caio), S.refreshHalves.write));
+      assert.equal((await read(h1)).bName, 'Bruno');
+      assert.equal((await read(h1)).aName, 'Ana Velha');
+    });
+
+    it('invalid fields are denied: 41 chars, zero-width / bidi, photo outside Google, extra key, members', async () => {
+      await seedPairs();
+      const one = (data) => {
+        const c = clone(S.refreshHalves_photo_removed.write);
+        c.ops[0].data = data;
+        return c;
+      };
+      const db = t.db(ana);
+      await assertFails(run(db, one({ aName: 'x'.repeat(41), aPhoto: null })));
+      await assertFails(run(db, one({ aName: 'a​b', aPhoto: null })));
+      await assertFails(run(db, one({ aName: 'a‮b', aPhoto: null })));
+      await assertFails(run(db, one({ aName: '   ', aPhoto: null })));
+      await assertFails(run(db, one({ aName: 'Ok', aPhoto: 'https://evil.example/x.png' })));
+      await assertFails(run(db, one({ aName: 'Ok', aPhoto: null, createdAt: 0 })));
+      await assertFails(run(db, one({ aName: 'Ok', aPhoto: null, members: [ana, caio] })));
+      await assertSucceeds(run(db, one({ aName: '\u{1F3AC}'.repeat(20), aPhoto: null })));
+    });
+
+    it('a pair that no longer exists makes the batch fail whole (the app re-reads the page); nothing is half-applied', async () => {
+      await seedPairs();
+      await t.seed((d) => import('firebase/firestore').then(({ deleteDoc }) => deleteDoc(doc(d, 'friendships', h2))));
+      await assertFails(run(t.db(ana), S.refreshHalves.write));
+      assert.equal((await read(h1)).aName, 'Ana Velha');
+    });
+
+    it('a page of 100 pairs in ONE batch is accepted (the rule makes no extra call per update)', async () => {
+      await t.seed(async (d) => {
+        for (let i = 0; i < 100; i += 1) {
+          const other = `uid-f${String(i).padStart(3, '0')}`;
+          const [x, y] = ana < other ? [ana, other] : [other, ana];
+          await setDoc(doc(d, 'friendships', `${x}_${y}`), { members: [x, y], createdAt: agoDays(1), aName: 'A', bName: 'B' });
+        }
+      });
+      const updates = [];
+      for (let i = 0; i < 100; i += 1) {
+        const other = `uid-f${String(i).padStart(3, '0')}`;
+        const meIsA = ana < other;
+        const [x, y] = meIsA ? [ana, other] : [other, ana];
+        updates.push({ op: 'update', path: `friendships/${x}_${y}`, data: meIsA ? { aName: 'Nome Novo', aPhoto: null } : { bName: 'Nome Novo', bPhoto: null } });
+      }
+      await assertSucceeds(run(t.db(ana), { mode: 'batch', ops: updates }));
+    });
+
+    it('the refresh keeps working after the nickname changed on the card (handle card update is a separate, allowed write)', async () => {
+      await t.seedSocial(ana, { handle: 'ana', nickname: 'Ana Velha' });
+      await seedPairs();
+      await assertSucceeds(run(t.db(ana), { ...S.updateCard_nickname, write: S.updateCard_nickname.write }.write));
+      await assertSucceeds(run(t.db(ana), S.refreshHalves.write));
+    });
   });
 });

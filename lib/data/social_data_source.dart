@@ -46,6 +46,25 @@ abstract class SocialDataSource {
   /// Updates the card (nickname, photo, "Aparecer na busca").
   Future<void> updateCard(CardPatch patch);
 
+  /// Creates the invite link ([draft]): the invite document and the pointer in
+  /// ONE transaction, replacing the one that exists (1 active invite per user).
+  /// Throws [SocialFailureKind.notActive] / [SocialFailureKind.denied].
+  Future<void> createInvite(InviteDraft draft);
+
+  /// Revokes the invite: deletes it and clears the pointer in one transaction.
+  /// Idempotent (nothing to revoke is not an error).
+  Future<void> revokeInvite();
+
+  /// Opening a link: ONE `get` of `invites/{code}` (never a list). Null = it
+  /// does not exist (or was revoked). An expired invite, or one of somebody
+  /// who blocked this user (or the reverse), is answered by the rules with
+  /// [SocialFailureKind.denied]; callers must treat all of them alike.
+  Future<RawInvite?> lookupInvite(String code);
+
+  /// Updates this user's half of the friendships listed in [updates] (D8): ONE
+  /// batch; the rules only accept the user's own half.
+  Future<void> updateFriendHalves(List<FriendHalfUpdate> updates);
+
   /// Frees the handle (and invite, if any) and removes the card and the
   /// pointer in one batch. Returns false when there was nothing to remove.
   /// Idempotent. Reads from the server.
@@ -141,6 +160,21 @@ class SignedOutSocialDataSource implements SocialDataSource {
 
   @override
   Future<void> updateCard(CardPatch patch) =>
+      Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<void> createInvite(InviteDraft draft) =>
+      Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<void> revokeInvite() =>
+      Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<RawInvite?> lookupInvite(String code) async => null;
+
+  @override
+  Future<void> updateFriendHalves(List<FriendHalfUpdate> updates) =>
       Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
 
   @override

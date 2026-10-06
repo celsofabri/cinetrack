@@ -11,6 +11,7 @@ import '../social/social_models.dart';
 import '../social/social_validation.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/block_dialogs.dart';
+import '../widgets/invite_code_dialog.dart';
 import '../widgets/person_avatar.dart';
 import '../widgets/social_gate.dart';
 import 'friends_screen.dart' show kBlockedMessage;
@@ -267,6 +268,15 @@ class _AddFriendBodyState extends ConsumerState<_AddFriendBody> {
               onPressed: canSearch ? _search : null,
               icon: const Icon(Icons.search),
               label: const Text('Buscar'),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                onPressed: () => showUseInviteDialog(context),
+                icon: const Icon(Icons.mail_outline),
+                label: const Text('Tenho um convite'),
+              ),
             ),
             if (offline) ...[
               const SizedBox(height: 8),

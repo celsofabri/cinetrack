@@ -114,6 +114,7 @@ class AccountController extends Notifier<AccountDeletionState> {
       // The uid is gone for good: its "limpeza pendente" flag (docs/58) too.
       try {
         await ref.read(localStoreProvider).setSocialCleanupPending(uid, false);
+        await ref.read(localStoreProvider).setSocialRefreshPending(uid, false);
         await ref.read(localStoreProvider).setSocialHint(uid, null);
       } catch (_) {}
       state = const AccountDeletionState();

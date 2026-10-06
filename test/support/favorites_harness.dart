@@ -39,6 +39,15 @@ class FakeLocalStore extends LocalStore {
   Future<void> setSocialCleanupPending(String uid, bool pending) async =>
       pending ? socialCleanup.add(uid) : socialCleanup.remove(uid);
 
+  final Set<String> socialRefresh = {};
+
+  @override
+  bool socialRefreshPending(String uid) => socialRefresh.contains(uid);
+
+  @override
+  Future<void> setSocialRefreshPending(String uid, bool pending) async =>
+      pending ? socialRefresh.add(uid) : socialRefresh.remove(uid);
+
   final Map<String, ({bool active, DateTime at})> socialHints = {};
 
   @override

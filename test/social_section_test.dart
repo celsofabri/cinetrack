@@ -61,6 +61,14 @@ class _Rig {
 Finder _btn(String label) =>
     find.ancestor(of: find.text(label), matching: find.bySubtype<ButtonStyleButton>());
 
+/// The active card grew (slice 5: invite section), so its buttons can be below the 600 px
+/// test surface: scroll to one before tapping.
+Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+  await tester.tap(finder);
+}
+
 Future<void> _open(WidgetTester tester, Widget app) async {
   await tester.pumpWidget(app);
   await tester.pumpAndSettle();
@@ -195,10 +203,10 @@ void main() {
       final rig = active();
       await _open(tester, rig.app());
       expect(find.text('@ana'), findsOneWidget);
-      await tester.tap(find.text('Aparecer na busca'));
+      await _tapVisible(tester, find.text('Aparecer na busca'));
       await tester.pumpAndSettle();
       expect(rig.social.handles['ana']!['discoverable'], false);
-      await tester.tap(find.text('Mostrar minha foto'));
+      await _tapVisible(tester, find.text('Mostrar minha foto'));
       await tester.pumpAndSettle();
       expect(rig.social.handles['ana']!['photoURL'], isNull);
     });
@@ -215,7 +223,7 @@ void main() {
     testWidgets('changes the handle after 30 days', (tester) async {
       final rig = active();
       await _open(tester, rig.app());
-      await tester.tap(find.text('Trocar identificador'));
+      await _tapVisible(tester, find.text('Trocar identificador'));
       await tester.pumpAndSettle();
       expect(find.textContaining('uma vez a cada 30 dias'), findsWidgets);
       await tester.enterText(find.widgetWithText(TextField, 'Novo identificador'), 'ana_nova');
@@ -235,7 +243,7 @@ void main() {
         ..seedRequest('uid-x', 'uid-ana')
         ..seedBlock('uid-ana', 'uid-y');
       await _open(tester, rig.app());
-      await tester.tap(find.text('Desativar amizades'));
+      await _tapVisible(tester, find.text('Desativar amizades'));
       await tester.pumpAndSettle();
       expect(find.textContaining('amigos'), findsWidgets);
       // docs/66 🟢: the blocks are erased too, and the dialog says what that means
@@ -244,7 +252,11 @@ void main() {
         find.textContaining('quem você bloqueou poderá encontrar você de novo'),
         findsOneWidget,
       );
-      expect(find.textContaining('convite'), findsOneWidget);
+      // scoped to the dialog: the invite section behind it also says "convite"
+      expect(
+        find.descendant(of: find.byType(AlertDialog), matching: find.textContaining('convite')),
+        findsOneWidget,
+      );
       final cancel = tester.widget<TextButton>(_btn('Cancelar'));
       expect(cancel.autofocus, isTrue);
 
@@ -253,7 +265,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(rig.social.social.containsKey('uid-ana'), isTrue);
 
-      await tester.tap(find.text('Desativar amizades'));
+      await _tapVisible(tester, find.text('Desativar amizades'));
       await tester.pumpAndSettle();
       await tester.tap(_btn('Desativar amizades').last);
       await tester.pumpAndSettle();
@@ -266,7 +278,7 @@ void main() {
       rig.social.seedFriendship('uid-ana', 'uid-bruno');
       rig.social.failOnDeleteCall = 1;
       await _open(tester, rig.app());
-      await tester.tap(find.text('Desativar amizades'));
+      await _tapVisible(tester, find.text('Desativar amizades'));
       await tester.pumpAndSettle();
       await tester.tap(_btn('Desativar amizades').last);
       await tester.pumpAndSettle();
@@ -280,7 +292,7 @@ void main() {
     testWidgets('nickname dialog also updates the card and cannot be cleared', (tester) async {
       final rig = active();
       await _open(tester, rig.app());
-      await tester.tap(find.text('Editar apelido'));
+      await _tapVisible(tester, find.text('Editar apelido'));
       await tester.pumpAndSettle();
       expect(find.text('Usar nome do Google'), findsNothing);
       await tester.enterText(find.byType(TextField), 'Ana Nova');
@@ -335,7 +347,7 @@ void main() {
       rig.social.beforeClose = null;
     };
     await _open(tester, rig.app());
-    await tester.tap(find.text('Desativar amizades'));
+    await _tapVisible(tester, find.text('Desativar amizades'));
     await tester.pumpAndSettle();
     await tester.tap(_btn('Desativar amizades').last);
     await tester.pumpAndSettle();

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cinetrack/data/social_data_source.dart';
+import 'package:cinetrack/social/invite_code.dart';
 import 'package:cinetrack/social/social_models.dart';
 import 'package:cinetrack/social/social_validation.dart';
 
@@ -58,6 +59,13 @@ class FakeSocialCloud {
   /// 'cancelRequest', 'sentPage', 'acceptRequest', 'declineRequest',
   /// 'removeFriend', 'countReceived', 'countFriends', 'receivedPage', 'friendsPage'.
   final Map<String, SocialFailure> failures = {};
+
+  /// Runs at the start of every `updateFriendHalves` batch (to fail the Nth one).
+  void Function()? beforeUpdateHalves;
+
+  /// The friends pages are answered "from the device" even when online (a
+  /// refresh must refuse them).
+  bool cachedPages = false;
 
   /// Number of `deleteRefs` calls so far, and the 1-based call that fails once.
   /// Runs inside `closeSocial`, right before the pointer is removed (simulates a
@@ -205,7 +213,14 @@ class InMemorySocialDataSource implements SocialDataSource {
     await cloud.readGate?.future;
     final social = _copy(cloud.social[uid]);
     final handle = social?['handle'];
-    return RawSocial(social: social, card: handle is String ? _copy(cloud.handles[handle]) : null);
+    final code = social?['inviteCode'];
+    final unreadable = code is String && cloud.failures.remove('inviteRead') != null;
+    return RawSocial(
+      inviteUnreadable: unreadable,
+      social: social,
+      card: handle is String ? _copy(cloud.handles[handle]) : null,
+      invite: code is String ? _copy(cloud.invites[code]) : null,
+    );
   }
 
   @override
@@ -282,7 +297,115 @@ class InMemorySocialDataSource implements SocialDataSource {
     }
     card['updatedAt'] = cloud.now();
     cloud.handles[handle] = card;
+    // The invite copy follows in the same write, unless it is (nearly) expired:
+    // the rules check `expiresAt` on every update of the invite.
+    final code = cloud.social[uid]?['inviteCode'];
+    final invite = code is String ? cloud.invites[code] : null;
+    if (invite != null &&
+        (patch.nickname != null || patch.changePhoto) &&
+        (invite['expiresAt'] as DateTime).isAfter(cloud.now().add(const Duration(minutes: 5)))) {
+      cloud.invites[code as String] = {
+        ...invite,
+        if (patch.nickname != null) 'nickname': patch.nickname,
+        if (patch.changePhoto) 'photoURL': patch.photoUrl,
+      };
+    }
     cloud.log.add('updateCard');
+  }
+
+  /// `invites/{code}` create + pointer under the rules (format, active social,
+  /// <= 30 days ahead, valid card copy). The invite that exists is replaced.
+  @override
+  Future<void> createInvite(InviteDraft draft) async {
+    _gate(server: true);
+    cloud.checkFailure('createInvite');
+    await cloud.writeGate?.future;
+    final social = cloud.social[uid];
+    if (social?['handle'] is! String) throw const SocialFailure(SocialFailureKind.notActive);
+    final expires = cloud.now().add(draft.validity);
+    final ok =
+        InviteCode.isValid(draft.code) &&
+        !cloud.invites.containsKey(draft.code) &&
+        FakeSocialCloud.validName(draft.nickname) &&
+        FakeSocialCloud.validPhoto(draft.photoUrl) &&
+        draft.validity > Duration.zero &&
+        draft.validity <= const Duration(days: 30);
+    if (!ok) throw const SocialFailure(SocialFailureKind.denied, code: 'permission-denied');
+    final old = social!['inviteCode'];
+    if (old is String && cloud.invites[old]?['uid'] == uid) cloud.invites.remove(old);
+    cloud.invites[draft.code] = {
+      'uid': uid,
+      'nickname': draft.nickname,
+      if (draft.photoUrl != null) 'photoURL': draft.photoUrl,
+      'createdAt': cloud.now(),
+      'expiresAt': expires,
+    };
+    cloud.social[uid] = {...social, 'inviteCode': draft.code};
+    cloud.log.add('createInvite');
+  }
+
+  @override
+  Future<void> revokeInvite() async {
+    _gate(server: true);
+    cloud.checkFailure('revokeInvite');
+    await cloud.writeGate?.future;
+    final social = cloud.social[uid];
+    final code = social?['inviteCode'];
+    if (code is! String) return;
+    if (cloud.invites[code]?['uid'] == uid) cloud.invites.remove(code);
+    cloud.social[uid] = {...social!}..remove('inviteCode');
+    cloud.log.add('revokeInvite');
+  }
+
+  /// `get invites/{code}` under the rules: missing = null; expired or blocked
+  /// either way = denied (the owner always reads their own).
+  @override
+  Future<RawInvite?> lookupInvite(String code) async {
+    _gate(server: true);
+    cloud.readLog.add('lookupInvite');
+    cloud.checkFailure('lookupInvite');
+    if (!InviteCode.isValid(code)) {
+      throw const SocialFailure(SocialFailureKind.denied, code: 'permission-denied');
+    }
+    final invite = cloud.invites[code];
+    if (invite == null) return null;
+    final owner = invite['uid'] as String;
+    if (owner != uid &&
+        (!(invite['expiresAt'] as DateTime).isAfter(cloud.now()) || _blockedEither(owner, uid))) {
+      throw const SocialFailure(SocialFailureKind.denied, code: 'permission-denied');
+    }
+    return RawInvite(code, {...invite});
+  }
+
+  /// One batch of `update friendships/{pair}`: only MY half, only existing
+  /// pairs I belong to, valid name / photo; otherwise nothing is applied.
+  @override
+  Future<void> updateFriendHalves(List<FriendHalfUpdate> updates) async {
+    _gate(server: true);
+    cloud.beforeUpdateHalves?.call();
+    cloud.checkFailure('updateHalves');
+    await cloud.writeGate?.future;
+    if (updates.length > 400) throw StateError('batch too large');
+    for (final u in updates) {
+      final doc = cloud.friendships[u.pairKey];
+      // The real rules answer an update of a missing document with permission-denied.
+      if (doc == null) {
+        throw const SocialFailure(SocialFailureKind.denied, code: 'permission-denied');
+      }
+      final members = doc['members'] as List;
+      if (members[u.meIsA ? 0 : 1] != uid ||
+          !FakeSocialCloud.validName(u.name) ||
+          !FakeSocialCloud.validPhoto(u.photo)) {
+        throw const SocialFailure(SocialFailureKind.denied, code: 'permission-denied');
+      }
+    }
+    for (final u in updates) {
+      final doc = {...cloud.friendships[u.pairKey]!};
+      doc[u.meIsA ? 'aName' : 'bName'] = u.name;
+      doc[u.meIsA ? 'aPhoto' : 'bPhoto'] = u.photo;
+      cloud.friendships[u.pairKey] = doc;
+    }
+    cloud.log.add('refreshHalves:${updates.length}');
   }
 
   @override
@@ -540,7 +663,7 @@ class InMemorySocialDataSource implements SocialDataSource {
       ],
       cursor: start + page.length,
       hasMore: slice.length > limit,
-      fromCache: cloud.offline,
+      fromCache: cloud.offline || cloud.cachedPages,
     );
   }
 

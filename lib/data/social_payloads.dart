@@ -16,6 +16,32 @@ const serverTimestamp = ServerTimestamp();
 /// How [serverTimestamp] appears in `firestore_rules_test/fixtures/social_payloads.json`.
 const kServerTimestampJson = r'$serverTimestamp';
 
+/// "A moment relative to the device clock", for `invites.expiresAt` (the rules
+/// need it in the future and at most 30 days ahead of the server clock, and a
+/// server timestamp cannot be offset). The Firestore data source turns it into
+/// a `Timestamp`; the fixture writes it as [kClientTimePlusPrefix] + ms.
+class ClientTimePlus {
+  final Duration offset;
+
+  const ClientTimePlus(this.offset);
+
+  @override
+  String toString() => '$kClientTimePlusPrefix${offset.inMilliseconds}';
+}
+
+const kClientTimePlusPrefix = r'$now+';
+
+/// Removes a field (`FieldValue.delete()`); the fixture writes [kDeleteFieldJson].
+class DeleteField {
+  const DeleteField();
+
+  @override
+  String toString() => kDeleteFieldJson;
+}
+
+const deleteField = DeleteField();
+const kDeleteFieldJson = r'$deleteField';
+
 /// One write: `set` / `update` / `delete` of the document at [path]
 /// (`collection/id[/collection/id]`).
 class SocialOp {
@@ -33,7 +59,8 @@ class SocialOp {
     if (data != null) 'data': {for (final e in data!.entries) e.key: _json(e.value)},
   };
 
-  static Object? _json(Object? v) => v is ServerTimestamp ? kServerTimestampJson : v;
+  static Object? _json(Object? v) =>
+      v is ServerTimestamp || v is ClientTimePlus || v is DeleteField ? v.toString() : v;
 }
 
 /// A group of writes that must be atomic.
@@ -149,8 +176,10 @@ class SocialPayloads {
     }),
   ]);
 
-  /// Update only what changed on the card.
-  static SocialWrite updateCard(String handle, CardPatch patch) =>
+  /// Update only what changed on the card. When the user has a live invite
+  /// ([inviteCode]) its copy of the nickname / photo follows in the same
+  /// transaction ("Aparecer na busca" is not on the invite).
+  static SocialWrite updateCard(String handle, CardPatch patch, {String? inviteCode}) =>
       SocialWrite(SocialWriteMode.transaction, [
         SocialOp.update(handlePath(handle), {
           'nickname': ?patch.nickname,
@@ -158,6 +187,62 @@ class SocialPayloads {
           'discoverable': ?patch.discoverable,
           'updatedAt': serverTimestamp,
         }),
+        if (inviteCode != null && (patch.nickname != null || patch.changePhoto))
+          SocialOp.update(invitePath(inviteCode), {
+            'nickname': ?patch.nickname,
+            if (patch.changePhoto) 'photoURL': patch.photoUrl,
+          }),
+      ]);
+
+  /// Create the invite link: the invite document and the pointer in
+  /// `social/{uid}` in ONE transaction. [replacesCode] (the invite that exists
+  /// now) is deleted in the same write: 1 active invite per user (rotation).
+  /// `photoURL` is left out when there is no photo. The transaction first
+  /// reads the pointer (and the old invite) to know what to replace.
+  static SocialWrite createInvite(String uid, InviteDraft draft, {String? replacesCode}) =>
+      SocialWrite(
+        SocialWriteMode.transaction,
+        [
+          if (replacesCode != null) SocialOp.delete(invitePath(replacesCode)),
+          SocialOp.set(invitePath(draft.code), {
+            'uid': uid,
+            'nickname': draft.nickname,
+            if (draft.photoUrl != null) 'photoURL': draft.photoUrl,
+            'createdAt': serverTimestamp,
+            'expiresAt': ClientTimePlus(draft.validity),
+          }),
+          SocialOp.update(socialPath(uid), {'inviteCode': draft.code}),
+        ],
+        reads: [socialPath(uid), if (replacesCode != null) invitePath(replacesCode)],
+      );
+
+  /// Revoke: delete the invite document (immediate effect) and clear the
+  /// pointer in the same write. [inviteExists] false = only the pointer is
+  /// left over (a delete of a missing document is denied by the rules).
+  static SocialWrite revokeInvite(String uid, String code, {bool inviteExists = true}) =>
+      SocialWrite(
+        SocialWriteMode.transaction,
+        [
+          if (inviteExists) SocialOp.delete(invitePath(code)),
+          SocialOp.update(socialPath(uid), {'inviteCode': deleteField}),
+        ],
+        reads: [socialPath(uid), invitePath(code)],
+      );
+
+  /// Opening a link: the ONE document read (`get`, never a list).
+  static String lookupInvitePath(String code) => invitePath(code);
+
+  /// Refresh of nickname / photo in the friendships (D8): each `update` touches
+  /// only THIS user's half (`aName`+`aPhoto` or `bName`+`bPhoto`); the rules
+  /// refuse the other half and make no extra call for it. A removed photo is
+  /// `null` (accepted by `validPhoto`, read as "no photo"). One batch per page.
+  static SocialWrite refreshHalves(List<FriendHalfUpdate> updates) =>
+      SocialWrite(SocialWriteMode.batch, [
+        for (final u in updates)
+          SocialOp.update('friendships/${u.pairKey}', {
+            u.meIsA ? 'aName' : 'bName': u.name,
+            u.meIsA ? 'aPhoto' : 'bPhoto': u.photo,
+          }),
       ]);
 
   /// Free the handle (and invite) and remove the pointer: one batch. Only

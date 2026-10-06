@@ -554,7 +554,11 @@ class BlockedController extends PagedListController<BlockedUser> {
     required String name,
     String? photo,
   }) async {
+    // Same guard as the other actions: one block of the same person at a time (the UI
+    // disables the button, a second call is never "success"; docs/67 🟢).
+    if (state.busy.contains(uid)) return kBusyFailure;
     final generation = _generation;
+    state = state.copyWith(busy: {...state.busy, uid});
     SocialFailure? failure;
     try {
       await ref.read(socialRepositoryProvider).blockUser(uid: uid, name: name, photo: photo);
@@ -564,6 +568,7 @@ class BlockedController extends PagedListController<BlockedUser> {
       failure = const SocialFailure(SocialFailureKind.unknown);
     }
     if (generation != _generation) return failure;
+    state = state.copyWith(busy: {...state.busy}..remove(uid));
     return afterBlock(ref, uid: uid, name: name, photo: photo, failure: failure);
   }
 

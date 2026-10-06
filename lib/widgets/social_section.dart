@@ -4,10 +4,12 @@ import 'package:go_router/go_router.dart';
 
 import '../providers/social_lists_providers.dart';
 import '../providers/social_providers.dart';
+import '../providers/social_refresh_providers.dart';
 import '../providers/sync_providers.dart';
 import '../social/social_models.dart';
 import '../social/social_validation.dart';
 import 'count_badge.dart';
+import 'invite_section.dart';
 import 'nickname_dialog.dart';
 import 'person_avatar.dart';
 import 'social_dialogs.dart';
@@ -247,7 +249,9 @@ class _Active extends ConsumerWidget {
                     '${formatSocialDate(profile.nextHandleChange!)}.',
           style: theme.textTheme.bodySmall,
         ),
-        const SizedBox(height: 8),
+        const Divider(height: 24),
+        InviteSection(profile: profile, offline: offline, busy: busy),
+        const Divider(height: 24),
         if (offline) ...[const _OfflineNote(), const SizedBox(height: 8)],
         Wrap(
           spacing: 12,
@@ -290,7 +294,64 @@ class _Active extends ConsumerWidget {
             ),
           ],
         ),
+        const _RefreshNote(),
       ],
     );
+  }
+}
+
+/// Discreet note while the nickname / photo are being copied into the friendships
+/// (D8): shown only while it runs or after it failed; it sits at the very end of
+/// the card, so nothing above it moves when it appears.
+class _RefreshNote extends ConsumerWidget {
+  const _RefreshNote();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(socialRefreshProvider);
+    final theme = Theme.of(context);
+    switch (state.phase) {
+      case SocialRefreshPhase.idle:
+        return const SizedBox.shrink();
+      case SocialRefreshPhase.running:
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Row(
+            children: [
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Atualizando seu nome e foto para os amigos...',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+        );
+      case SocialRefreshPhase.failed:
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            children: [
+              Text(
+                'Seu novo nome ou foto ainda não chegou a todos os amigos.',
+                style: theme.textTheme.bodySmall,
+              ),
+              TextButton(
+                style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                onPressed: () => ref.read(socialRefreshProvider.notifier).retry(),
+                child: const Text('Tentar de novo'),
+              ),
+            ],
+          ),
+        );
+    }
   }
 }

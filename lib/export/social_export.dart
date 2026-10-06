@@ -113,6 +113,18 @@ class SocialExport {
           'data': ExportBuilder.encodeValue(data, <bool>[]),
         };
 
+  Map<String, Object?>? _invite() {
+    final info = InviteInfo.fromRaw(raw.social?['inviteCode'], raw.invite);
+    if (info == null) return null;
+    return {
+      'code': info.code,
+      'createdAt': _iso(info.createdAt),
+      'expiresAt': _iso(info.expiresAt),
+      // Whether the invite document still exists (false: only the pointer is left).
+      'exists': !info.missing,
+    };
+  }
+
   Map<String, Object?> toJson() {
     final profile = SocialProfile.fromRaw(raw.social, raw.card);
     List<Map<String, Object?>> sorted(SocialExportKind kind) =>
@@ -123,6 +135,10 @@ class SocialExport {
       'photoVisible': profile?.photoVisible ?? false,
       'pointer': _rawDoc(raw.social),
       'card': _rawDoc(raw.card),
+      // The active invite link (code + validity). The code is a secret that opens the
+      // user's card to whoever has it: the file is theirs, treat it like the link. Absent
+      // key / null = no invite (older files and readers simply do not have it).
+      'invite': _invite(),
       'counts': {
         'friends': _entries[SocialExportKind.friends]!.length,
         'requestsSent': _entries[SocialExportKind.requestsSent]!.length,

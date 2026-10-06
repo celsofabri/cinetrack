@@ -232,6 +232,8 @@ void main() {
       await _scrollTo(tester, find.text('Privacidade'));
 
       expect(find.textContaining('Não usamos anúncios nem telemetria'), findsOneWidget);
+      // the summary grew with the invite text (slice 5): bring the link into view first
+      await _scrollTo(tester, find.text('Política de privacidade'));
       await tester.tap(find.text('Política de privacidade'));
       await tester.pumpAndSettle();
 

@@ -1,5 +1,8 @@
+import 'dart:math';
+
 import '../account/account_deletion_failure.dart';
 import '../data/social_data_source.dart';
+import '../social/invite_code.dart';
 import '../social/social_models.dart';
 import '../social/social_validation.dart';
 
@@ -22,6 +25,11 @@ const kReceivedPageSize = 20;
 const kBlockedPageSize = 20;
 const kFriendsPageSize = 50;
 
+/// Friendship documents read (and written, in ONE batch) per step of the
+/// nickname / photo refresh: 300 friends = 3 pages. Far below the 500 writes
+/// of a batch; the update rule makes no extra call, so no rules budget either.
+const kRefreshPageSize = 100;
+
 /// Answer of a search: someone to show, or nothing. There is deliberately no
 /// third case: missing, hidden, blocked and "yourself" are all [SearchNotFound].
 sealed class SearchOutcome {
@@ -36,6 +44,34 @@ class SearchFound extends SearchOutcome {
 
 class SearchNotFound extends SearchOutcome {
   const SearchNotFound();
+}
+
+/// Answer of opening an invite link: a card, or ONE "unavailable" for every
+/// reason (bad format, never existed, revoked, expired, blocked, hidden by the
+/// rules, your own). There is deliberately no other case.
+sealed class InviteOutcome {
+  const InviteOutcome();
+}
+
+class InviteFound extends InviteOutcome {
+  /// The card the invite shows; its `handle` is empty (an invite carries only
+  /// uid, nickname and photo).
+  final FriendCard card;
+
+  const InviteFound(this.card);
+}
+
+class InviteUnavailable extends InviteOutcome {
+  const InviteUnavailable();
+}
+
+/// What a refresh of nickname / photo in the friendships did.
+class RefreshResult {
+  /// Friendship documents looked at / documents written.
+  final int scanned;
+  final int updated;
+
+  const RefreshResult({this.scanned = 0, this.updated = 0});
 }
 
 /// Rules of the friendships feature for the signed-in user, over a
@@ -54,8 +90,17 @@ class SocialRepository {
   /// Guard so a bug can never loop forever (400 * 500 = 200k documents).
   final int maxPages;
 
-  SocialRepository(this._data, {DateTime Function()? now, this.pageSize = 400, this.maxPages = 500})
-    : _now = now ?? DateTime.now;
+  /// Source of invite codes: tests only. Production MUST leave it null, which
+  /// means [Random.secure].
+  final Random? random;
+
+  SocialRepository(
+    this._data, {
+    DateTime Function()? now,
+    this.pageSize = 400,
+    this.maxPages = 500,
+    this.random,
+  }) : _now = now ?? DateTime.now;
 
   /// Server first; when the server cannot be reached, whatever the device has.
   /// Throws [SocialFailure] ([SocialFailureKind.denied] = the rules that allow
@@ -63,12 +108,27 @@ class SocialRepository {
   Future<SocialLoad> load() async {
     try {
       final raw = await _data.read(fromServer: true);
-      return SocialLoad(profile: SocialProfile.fromRaw(raw.social, raw.card));
+      return SocialLoad(
+        profile: SocialProfile.fromRaw(
+          raw.social,
+          raw.card,
+          invite: raw.invite,
+          inviteUnreadable: raw.inviteUnreadable,
+        ),
+      );
     } on SocialFailure catch (e) {
       if (e.kind != SocialFailureKind.offline && e.kind != SocialFailureKind.uncertain) rethrow;
       try {
         final raw = await _data.read(fromServer: false);
-        return SocialLoad(profile: SocialProfile.fromRaw(raw.social, raw.card), fromCache: true);
+        return SocialLoad(
+          profile: SocialProfile.fromRaw(
+            raw.social,
+            raw.card,
+            invite: raw.invite,
+            inviteUnreadable: raw.inviteUnreadable,
+          ),
+          fromCache: true,
+        );
       } on SocialFailure {
         throw e;
       }
@@ -166,6 +226,154 @@ class SocialRepository {
     );
   }
 
+  /// Creates (or replaces) the invite link: ONE transaction writes the invite
+  /// and the pointer; the code comes from [Random.secure]. The nickname / photo
+  /// copied are the ones on the user's card. [days] is one of
+  /// [InviteValidity.options] (default [InviteValidity.defaultDays]).
+  Future<void> createInvite({
+    required SocialProfile me,
+    int days = InviteValidity.defaultDays,
+  }) async {
+    final nickname = SocialNickname.normalize(me.nickname);
+    if (nickname == null) return _invalid('Defina um apelido antes de criar um convite.');
+    try {
+      await _data.createInvite(
+        InviteDraft(
+          code: InviteCode.generate(random: random),
+          nickname: nickname,
+          photoUrl: SocialPhoto.sanitize(me.photoUrl),
+          validity: InviteValidity.duration(days),
+        ),
+      );
+    } on SocialFailure catch (e) {
+      if (e.kind == SocialFailureKind.denied) {
+        // The rules judge `expiresAt` with the server clock: a device clock that is behind
+        // (even 1 day) or far ahead is a likely cause, so say where to look.
+        throw SocialFailure(
+          SocialFailureKind.inviteFailed,
+          code: e.code,
+          detail:
+              'Não foi possível criar o convite. Verifique a data e a hora do aparelho e tente '
+              'de novo.',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// Revokes the invite link: effective at once (the document is deleted).
+  Future<void> revokeInvite() async {
+    try {
+      await _data.revokeInvite();
+    } on SocialFailure catch (e) {
+      if (e.kind == SocialFailureKind.denied) {
+        throw SocialFailure(SocialFailureKind.inviteFailed, code: e.code);
+      }
+      rethrow;
+    }
+  }
+
+  /// Opening an invite link: ONE `get`. Every way of "nothing to show" is the
+  /// same [InviteUnavailable]; only transport problems (offline, quota...)
+  /// throw. A malformed code does not even reach the server.
+  Future<InviteOutcome> openInvite(String rawCode) async {
+    final code = rawCode.trim();
+    if (!InviteCode.isValid(code)) return const InviteUnavailable();
+    final RawInvite? raw;
+    try {
+      raw = await _data.lookupInvite(code);
+    } on SocialFailure catch (e) {
+      if (e.kind == SocialFailureKind.denied) return const InviteUnavailable();
+      rethrow;
+    }
+    final data = raw?.data;
+    final uid = data?['uid'];
+    final expires = data?['expiresAt'];
+    if (data == null || uid is! String || uid.isEmpty || uid == _data.uid) {
+      return const InviteUnavailable();
+    }
+    if (expires is! DateTime || !expires.isAfter(_now())) return const InviteUnavailable();
+    final nickname = SocialNickname.clean('${data['nickname'] ?? ''}');
+    final photo = data['photoURL'];
+    return InviteFound(
+      FriendCard(
+        uid: uid,
+        handle: '',
+        nickname: nickname.isEmpty ? 'Usuário' : nickname,
+        photoUrl: photo is String ? SocialPhoto.sanitize(photo) : null,
+      ),
+    );
+  }
+
+  /// Refresh of nickname / photo in the friendships (D8): writes THIS user's
+  /// half of every pair whose half differs from the card now. Reads the card
+  /// once, then the pairs page by page from the SERVER (a cached page would
+  /// hide stale halves), one batch per page. Idempotent and safe to repeat or
+  /// resume: it always writes the card as it is at that moment, and a pair
+  /// already up to date costs a read but no write. Nobody is told. A friend
+  /// removed in between makes that batch fail with `not-found`: the page is read
+  /// again (twice at most). [cancelled] is checked between steps.
+  Future<RefreshResult> refreshFriendHalves({bool Function()? cancelled}) async {
+    bool stop() => cancelled?.call() ?? false;
+    final raw = await _data.read(fromServer: true);
+    final profile = SocialProfile.fromRaw(raw.social, raw.card);
+    if (profile == null) return const RefreshResult();
+    final name = SocialNickname.normalize(profile.nickname);
+    if (name == null) return _invalid('Defina um apelido válido.');
+    final photo = SocialPhoto.sanitize(profile.photoUrl);
+
+    var scanned = 0;
+    var updated = 0;
+    Object? cursor;
+    for (var page = 0; page < maxPages; page++) {
+      if (stop()) break;
+      RawSentPage? read;
+      RawSentPage? reuse;
+      for (var attempt = 0; attempt < 3; attempt++) {
+        read = reuse ?? await _data.readFriendsPage(cursor: cursor, limit: kRefreshPageSize);
+        reuse = null;
+        if (read.fromCache) throw const SocialFailure(SocialFailureKind.offline, code: 'cache');
+        final changes = _halvesToRefresh(read, name, photo);
+        if (stop()) return RefreshResult(scanned: scanned, updated: updated);
+        if (changes.isEmpty) break;
+        try {
+          await _data.updateFriendHalves(changes);
+          updated += changes.length;
+          break;
+        } on SocialFailure catch (e) {
+          // A pair removed in between fails the whole batch: the rules answer an update of a
+          // missing document with permission-denied (the fake / SDK may say not-found). Only
+          // when the page read again REALLY lost a pair do we go on with the fresh page; if
+          // every pair is still there the denial is real and shows.
+          final gone = e.code == 'not-found' || e.kind == SocialFailureKind.denied;
+          if (!gone || attempt == 2) rethrow;
+          final fresh = await _data.readFriendsPage(cursor: cursor, limit: kRefreshPageSize);
+          final ids = {for (final d in fresh.docs) d.id};
+          if (fresh.fromCache || changes.every((c) => ids.contains(c.pairKey))) rethrow;
+          reuse = fresh;
+        }
+      }
+      scanned += read!.docs.length;
+      if (!read.hasMore) break;
+      cursor = read.cursor;
+    }
+    return RefreshResult(scanned: scanned, updated: updated);
+  }
+
+  List<FriendHalfUpdate> _halvesToRefresh(RawSentPage page, String name, String? photo) {
+    final changes = <FriendHalfUpdate>[];
+    for (final doc in page.docs) {
+      final members = doc.data['members'];
+      if (members is! List || members.length != 2 || !members.contains(_data.uid)) continue;
+      final meIsA = members[0] == _data.uid;
+      final storedName = doc.data[meIsA ? 'aName' : 'bName'];
+      final storedPhoto = doc.data[meIsA ? 'aPhoto' : 'bPhoto'];
+      if (storedName == name && (storedPhoto is String ? storedPhoto : null) == photo) continue;
+      changes.add(FriendHalfUpdate(pairKey: doc.id, meIsA: meIsA, name: name, photo: photo));
+    }
+    return changes;
+  }
+
   /// Sends a friend request to [target]. Checks the 50 pending requests
   /// limit (one `count()` read), then one transaction that also detects "you
   /// already asked" and "they already asked you" (nothing is created then).
@@ -175,7 +383,9 @@ class SocialRepository {
   Future<SendOutcome> sendRequest(FriendCard target, {required SocialProfile me}) async {
     final fromName = SocialNickname.normalize(me.nickname);
     if (fromName == null) return _invalid('Defina um apelido antes de enviar pedidos.');
-    final toName = SocialNickname.normalize(target.nickname) ?? '@${target.handle}';
+    final toName =
+        SocialNickname.normalize(target.nickname) ??
+        (target.handle.isEmpty ? 'Usuário' : '@${target.handle}');
     try {
       final pending = await _data.countSentRequests();
       if (pending >= kMaxSentRequests) {

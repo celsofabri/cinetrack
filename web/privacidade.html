@@ -38,7 +38,7 @@
     <tr><td>Identificador da sua conta (um código, não o seu nome)</td><td>Banco de dados na nuvem</td><td>Separar os seus dados dos de outras pessoas</td></tr>
     <tr><td>Seus favoritos, filmes assistidos e episódios assistidos (com a data em que foram marcados) e quais títulos você marcou como <strong>Recomendo</strong> (&ldquo;Minhas recomendações&rdquo;)</td><td>Banco de dados na nuvem</td><td>Mostrar a mesma lista em qualquer aparelho</td></tr>
     <tr><td>Apelido (opcional, de 1 a 40 caracteres)</td><td>Banco de dados na nuvem</td><td>Mostrar o nome que você escolheu</td></tr>
-    <tr><td><strong>Só se você ativar as amizades:</strong> identificador (@usuario), cartão de busca (identificador, apelido, endereço da foto do Google e a opção &ldquo;Aparecer na busca&rdquo;), os <strong>pedidos de amizade</strong> que você envia e recebe (quem pediu e para quem, o apelido e a foto dos dois como estavam nos cartões, e a data), as <strong>amizades</strong> (os dois identificadores, o apelido e a foto de cada um como estavam nos cartões, e a data), os <strong>bloqueios</strong> que você fizer (o identificador interno da pessoa bloqueada e o apelido e a foto dela como apareciam no cartão que você viu, e a data) e, na próxima etapa, o convite</td><td>Banco de dados na nuvem</td><td>Permitir que outras pessoas encontrem você e vocês sejam amigos</td></tr>
+    <tr><td><strong>Só se você ativar as amizades:</strong> identificador (@usuario), cartão de busca (identificador, apelido, endereço da foto do Google e a opção &ldquo;Aparecer na busca&rdquo;), os <strong>pedidos de amizade</strong> que você envia e recebe (quem pediu e para quem, o apelido e a foto dos dois como estavam nos cartões, e a data), as <strong>amizades</strong> (os dois identificadores, o apelido e a foto de cada um como estavam nos cartões, e a data), os <strong>bloqueios</strong> que você fizer (o identificador interno da pessoa bloqueada e o apelido e a foto dela como apareciam no cartão que você viu, e a data), o <strong>convite por link</strong>, se você criar um (código secreto, apelido e foto como estão no seu cartão, data de criação e validade) e, enquanto uma atualização de apelido ou foto nos seus amigos não termina, só um aviso no seu aparelho</td><td>Banco de dados na nuvem</td><td>Permitir que outras pessoas encontrem você e vocês sejam amigos</td></tr>
   </table>
   <h2>Amizades (opcional, desligado por padrão)</h2>
   <p>As amizades só existem se <strong>você</strong> as ativar em Perfil &rarr; Amizades. Quem não
@@ -82,6 +82,29 @@
     registro; <strong>a amizade e os pedidos antigos não voltam</strong> (seria preciso pedir e
     aceitar de novo). Se a pessoa bloqueada apagar a conta, o apelido que você guardou continua só
     no seu registro até você desbloquear.</li>
+    <li><strong>Convite por link:</strong> em Perfil &rarr; Amizades você pode criar <strong>um</strong>
+    link de convite (e o código dele), válido por 1, 7 ou 30 dias (a opção padrão é 7). Quem tiver o
+    link ou o código, estando conectado, <strong>vê o seu apelido e a sua foto</strong> (o mesmo
+    cartão dos seus amigos) e pode <strong>pedir amizade</strong>; isso é um pedido comum, que
+    <strong>você ainda precisa aceitar</strong>. O link <strong>não dá acesso a mais nenhum dado seu</strong>
+    (nem favoritos, recomendações, progresso ou e-mail) e <strong>funciona mesmo com &ldquo;Aparecer na
+    busca&rdquo; desligado</strong>, por isso compartilhe só com quem você quer convidar. O código é
+    sorteado pelo aparelho com gerador seguro e <strong>não é derivado do seu identificador, do seu
+    apelido nem da hora</strong>; não dá para listar nem adivinhar convites. Você pode
+    <strong>revogar</strong> quando quiser: o convite é apagado e o link para de funcionar na hora
+    (quem já pediu amizade por ele continua com o pedido). Criar um novo link também apaga o anterior;
+    o link também deixa de funcionar quando expira. Se alguém bloqueou você, ou você bloqueou a pessoa,
+    o link dela não abre. Para qualquer problema (link errado, revogado, expirado, bloqueio ou o seu
+    próprio link) o app mostra sempre a mesma mensagem, &ldquo;Este convite não está
+    disponível&rdquo;. O convite (código e validade) entra na exportação e é apagado ao desativar as
+    amizades ou excluir a conta. Abrir um link exige estar conectado com o Google e com as amizades
+    ativadas; sem isso o app guarda o código só na tela, enquanto você entra.</li>
+    <li><strong>Apelido e foto nos seus amigos:</strong> o cartão de cada amigo guarda a sua metade
+    (apelido e foto) como estava no momento. Quando você muda o apelido ou a foto, o app atualiza a
+    <strong>sua</strong> metade em cada amizade, em segundo plano, sem avisar ninguém (cada atualização
+    é uma gravação por amigo). Pedidos já enviados e bloqueios <strong>não mudam</strong>: guardam o
+    apelido e a foto de quando foram feitos. Enquanto isso não termina, o app guarda no aparelho só um
+    marcador (sim/não) para continuar depois.</li>
     <li><strong>Desativar, exclusão e exportação:</strong> &ldquo;Desativar amizades&rdquo; apaga o
     identificador, o cartão, seus amigos, pedidos enviados e recebidos, bloqueios e convite, e você some da lista dos
     outros (o registro da amizade é apagado para os dois lados). &ldquo;Excluir minha conta e dados&rdquo; apaga tudo isso também, e
@@ -135,7 +158,7 @@
   <h2>Dados no seu aparelho</h2>
   <p>Para funcionar sem internet, o app guarda uma cópia das suas listas e do catálogo no
   armazenamento do navegador ou do aparelho. Se você ativou as amizades, essa cópia inclui o seu
-  cartão (identificador, apelido, endereço da foto e a opção &ldquo;Aparecer na busca&rdquo;), a lista
+  cartão (identificador, apelido, endereço da foto e a opção &ldquo;Aparecer na busca&rdquo;), o seu convite ativo (com o código), a lista
   de amigos, de pedidos recebidos e de pedidos enviados já carregadas. <strong>Sair da conta não apaga essa cópia.</strong>
   Ela fica até você limpar os dados do site; ao excluir a conta, ela é limpa na próxima vez que
   você abrir o app. O aparelho também guarda um indicador simples (sim/não, com a data) de que você

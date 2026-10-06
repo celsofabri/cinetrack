@@ -11,6 +11,7 @@ import 'screens/catalog_screen.dart';
 import 'screens/favorites_screen.dart';
 import 'screens/friends_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/invite_screen.dart';
 import 'screens/movie_details_screen.dart';
 import 'screens/not_found_screen.dart';
 import 'screens/person_screen.dart';
@@ -66,6 +67,12 @@ final routerProvider = Provider<GoRouter>((ref) {
           // A sibling, not a child: a nested route keeps the parent page alive under it, and the
           // list behind the search would be read although the search must read nothing.
           GoRoute(path: '/friends/add', builder: (context, state) => const AddFriendScreen()),
+          // Public on purpose (no redirect): somebody signed out opens a link and the code stays
+          // in the address while they sign in / turn friendships on (docs/68).
+          GoRoute(
+            path: '/invite/:code',
+            builder: (context, state) => InviteScreen(code: state.pathParameters['code'] ?? ''),
+          ),
         ],
       ),
       // Detail screens sit outside the shell: no tab bar, back button kept.

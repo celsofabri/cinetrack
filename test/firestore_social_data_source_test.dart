@@ -173,4 +173,24 @@ void main() {
       );
     });
   });
+  group('refresh of friendship halves on the real data source (docs/68)', () {
+    test('updateFriendHalves is ONE batch with exactly the payload, my half only', () async {
+      final rig = _Rig();
+      rig.docs['friendships/uid-ana_uid-bruno'] = {'aName': 'Velha', 'bName': 'Bruno'};
+      const updates = [FriendHalfUpdate(pairKey: 'uid-ana_uid-bruno', meIsA: true, name: 'Ana')];
+      await rig.source.updateFriendHalves(updates);
+      expect(rig.executed, hasLength(1));
+      final write = rig.executed.single.write;
+      expect(write.mode, SocialWriteMode.batch);
+      expect(write.reads, isEmpty);
+      expect(write.toJson(), SocialPayloads.refreshHalves(updates).toJson());
+      expect(rig.docs['friendships/uid-ana_uid-bruno'], {'aName': 'Ana', 'aPhoto': null});
+    });
+
+    test('nothing to update: no write at all', () async {
+      final rig = _Rig();
+      await rig.source.updateFriendHalves(const []);
+      expect(rig.executed, isEmpty);
+    });
+  });
 }

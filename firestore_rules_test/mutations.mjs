@@ -70,6 +70,17 @@ const MUTATIONS = [
     [["      allow update: if false;\n      allow delete: if isOwner(uid);\n    }\n\n    // --- social", "      allow update: if isOwner(uid);\n      allow delete: if isOwner(uid);\n    }\n\n    // --- social"]], true],
   ['M33 block name not validated (zero-width / 41 chars accepted)',
     [["        && (!('blockedName' in request.resource.data) || validName(request.resource.data.blockedName))\n", "\n"]], true],
+  // Slice 5 (docs/68): invite link; killed by social.test.mjs and/or the replay of the payloads.
+  ['M34 invite expiry capped at 30 days removed (an invite that never expires)',
+    [["        && d.expiresAt > request.time\n        && d.expiresAt <= request.time + duration.value(30, 'd');", "        && d.expiresAt > request.time;"]], true],
+  ['M35 the invite of somebody who blocked me (or whom I blocked) is readable',
+    [["            || (resource.data.expiresAt > request.time\n                && !isBlockedEither(resource.data.uid, request.auth.uid)));\n      allow list: if false;", "            || (resource.data.expiresAt > request.time));\n      allow list: if false;"]], true],
+  ['M36 revoking (deleting) an invite does not require moving the pointer',
+    [["      allow delete: if request.auth != null && isOwner(resource.data.uid)\n        && (!existsAfter(socialPath(request.auth.uid))\n            || getAfter(socialPath(request.auth.uid)).data.get('inviteCode', null) != code);", "      allow delete: if request.auth != null && isOwner(resource.data.uid);"]], true],
+  ['M37 the pointer can move to another invite without deleting the old one (2 active invites)',
+    [["            && (o == null || !existsAfter(invitePath(o))));", "            );"]], true],
+  ['M38 the invite format allows a short code (8 characters)',
+    [["c.matches('^[A-Za-z0-9]{22,40}$')", "c.matches('^[A-Za-z0-9]{8,40}$')"]], true],
 ];
 
 // Mutations of the PAYLOADS (the Dart side) instead of the rules: a deliberately broken copy of the
@@ -87,6 +98,50 @@ const FIXTURE_MUTATIONS = [
       for (const n of ['blockUser', 'blockUser_with_photo', 'blockUser_bare']) {
         fx.scenarios[n].write.ops[0].path = 'users/uid-bruno/blocks/uid-ana';
       }
+    }],
+  // Slice 5 (docs/68): invite link and refresh of halves.
+  ['F5 invite payload uses a SHORT code (21 characters)',
+    (fx) => {
+      for (const n of ['createInvite', 'createInvite_with_photo', 'createInvite_replaces']) {
+        const w = fx.scenarios[n].write;
+        const short = fx.scenarios[n].input.code.slice(0, 21);
+        for (const op of w.ops) {
+          if (op.op === 'set' && op.path.startsWith('invites/')) op.path = `invites/${short}`;
+          if (op.data?.inviteCode) op.data.inviteCode = short;
+        }
+      }
+    }],
+  ['F6 invite payload expires in 31 days (over the 30-day cap)',
+    (fx) => {
+      for (const n of ['createInvite', 'createInvite_with_photo', 'createInvite_replaces']) {
+        for (const op of fx.scenarios[n].write.ops) {
+          if (op.data?.expiresAt) op.data.expiresAt = `${fx.clientTimePlusPrefix}${31 * 24 * 3600 * 1000}`;
+        }
+      }
+    }],
+  ['F7 revoke deletes the invite but does not move the pointer',
+    (fx) => {
+      const w = fx.scenarios.revokeInvite.write;
+      w.ops = w.ops.filter((o) => o.op !== 'update');
+    }],
+  ['F8 refresh writes the OTHER person\'s half of the friendship',
+    (fx) => {
+      for (const n of ['refreshHalves', 'refreshHalves_photo_removed']) {
+        for (const op of fx.scenarios[n].write.ops) {
+          op.data = Object.fromEntries(
+            Object.entries(op.data).map(([k, v]) => [k.startsWith('a') ? `b${k.slice(1)}` : `a${k.slice(1)}`, v]),
+          );
+        }
+      }
+    }],
+  ['F9 replacing an invite forgets to delete the old one',
+    (fx) => {
+      const w = fx.scenarios.createInvite_replaces.write;
+      w.ops = w.ops.filter((o) => o.op !== 'delete');
+    }],
+  ['F10 invite document written with a foreign uid',
+    (fx) => {
+      fx.scenarios.createInvite.write.ops.find((o) => o.op === 'set').data.uid = 'uid-bruno';
     }],
 ];
 function dropOp(fx, prefix) {

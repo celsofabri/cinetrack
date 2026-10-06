@@ -108,6 +108,15 @@ class LocalStore {
       ? _discoveryBox.put('socialCleanup:$uid', true)
       : _discoveryBox.delete('socialCleanup:$uid');
 
+  /// The nickname / photo of [uid] changed and the copies kept in the
+  /// friendships (D8) were not all refreshed yet: drives the resume of the
+  /// refresh (docs/68). Per device and per uid; a boolean, no personal data.
+  bool socialRefreshPending(String uid) => _discoveryBox.get('socialRefresh:$uid') == true;
+
+  Future<void> setSocialRefreshPending(String uid, bool pending) => pending
+      ? _discoveryBox.put('socialRefresh:$uid', true)
+      : _discoveryBox.delete('socialRefresh:$uid');
+
   /// Last answer the server gave about "friendships on?" for [uid] and when
   /// (docs/59): lets the Amigos icon appear without reading the server on
   /// every session. A boolean per uid, no personal data. Null = never known.
