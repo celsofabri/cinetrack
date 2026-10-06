@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../repositories/social_repository.dart';
 import '../social/social_models.dart';
+import '../social/social_validation.dart';
 import 'providers.dart';
 import 'social_providers.dart';
 
@@ -40,6 +41,9 @@ class PagedState<T> {
   /// Keys (uids) whose action is running right now.
   final Set<String> busy;
 
+  /// The subset of [busy] that is a BLOCK (the others are remove / answer).
+  final Set<String> blocking;
+
   /// When the first page was read from the server (null = never / from cache).
   final DateTime? loadedAt;
 
@@ -53,6 +57,7 @@ class PagedState<T> {
     this.moreFailure,
     this.failure,
     this.busy = const {},
+    this.blocking = const {},
     this.loadedAt,
   });
 
@@ -66,6 +71,7 @@ class PagedState<T> {
     SocialFailure? moreFailure,
     bool clearMoreFailure = false,
     Set<String>? busy,
+    Set<String>? blocking,
     DateTime? loadedAt,
   }) => PagedState<T>(
     phase: phase ?? this.phase,
@@ -77,6 +83,7 @@ class PagedState<T> {
     moreFailure: clearMoreFailure ? null : (moreFailure ?? this.moreFailure),
     failure: failure,
     busy: busy ?? this.busy,
+    blocking: blocking ?? this.blocking,
     loadedAt: loadedAt ?? this.loadedAt,
   );
 }
@@ -141,14 +148,33 @@ abstract class PagedListController<T> extends Notifier<PagedState<T>> {
   }
 
   /// The "Atualizar" button: a read, unless the list was read a moment ago.
-  Future<void> refresh() async {
+  /// Returns false when it did nothing because of that cooldown (the screen
+  /// then says so: a silent button looks broken).
+  Future<bool> refresh() async {
     final at = state.loadedAt;
     if (at != null &&
         state.phase == SentPhase.loaded &&
         ref.read(socialClockProvider)().difference(at) < ref.read(refreshCooldownProvider)) {
-      return;
+      return false;
     }
     await reload();
+    return true;
+  }
+
+  /// Removes the item with [key] from the list in memory (no read).
+  bool dropLocal(String key) {
+    final items = [
+      for (final r in state.items)
+        if (keyOf(r) != key) r,
+    ];
+    if (items.length == state.items.length) return false;
+    state = state.copyWith(items: items);
+    return true;
+  }
+
+  /// Reads the first page again, only if this list was ever loaded.
+  void reloadIfLoaded() {
+    if (state.phase == SentPhase.loaded) reload();
   }
 
   Future<void> reload() async {
@@ -238,10 +264,14 @@ abstract class PagedListController<T> extends Notifier<PagedState<T>> {
     Future<void> Function() action, {
     bool removeOnSuccess = true,
     bool Function(SocialFailureKind kind) removeOnKinds = _never,
+    bool blocking = false,
   }) async {
     if (state.busy.contains(key)) return null;
     final generation = _generation;
-    state = state.copyWith(busy: {...state.busy, key});
+    state = state.copyWith(
+      busy: {...state.busy, key},
+      blocking: blocking ? {...state.blocking, key} : null,
+    );
     SocialFailure? failure;
     try {
       await action();
@@ -255,6 +285,7 @@ abstract class PagedListController<T> extends Notifier<PagedState<T>> {
     final remove = failure == null ? removeOnSuccess : removeOnKinds(failure.kind);
     state = state.copyWith(
       busy: left,
+      blocking: {...state.blocking}..remove(key),
       items: remove
           ? [
               for (final r in state.items)
@@ -326,6 +357,48 @@ class ReceivedRequestsController extends PagedListController<ReceivedRequest> {
     final failure = await runFor(request.fromUid, () => repository.declineRequest(request.fromUid));
     if (failure == null) ref.read(receivedCountControllerProvider.notifier).adjust(-1);
     return failure;
+  }
+
+  /// Blocks the sender of [request] (docs/65). On success the request is gone
+  /// (the same batch deleted it) and every other list forgets the person.
+  Future<SocialFailure?> blockSender(ReceivedRequest request) async {
+    final repository = ref.read(socialRepositoryProvider);
+    if (state.busy.contains(request.fromUid)) return kBusyFailure;
+    final generation = _generation;
+    final inList = state.items.any((r) => r.fromUid == request.fromUid);
+    final failure = await runFor(
+      request.fromUid,
+      () => repository.blockUser(
+        uid: request.fromUid,
+        name: request.fromName,
+        photo: request.fromPhoto,
+      ),
+      blocking: true,
+    );
+    if (generation != _generation) return failure; // another account / period: touch nothing
+    return afterBlock(
+      ref,
+      uid: request.fromUid,
+      name: request.fromName,
+      photo: request.fromPhoto,
+      failure: failure,
+      alreadyDroppedReceived: inList,
+      ownList: 'received',
+    );
+  }
+
+  /// The sender was blocked: their request is gone (the block batch deleted it).
+  /// [alreadyCounted]: the request was in the list when the block started and the
+  /// controller already removed it, so the badge only needs the decrement.
+  void dropBlocked(String fromUid, {required bool alreadyCounted, bool mayHavePending = true}) {
+    final removedNow = dropLocal(fromUid);
+    final counts = ref.read(receivedCountControllerProvider.notifier);
+    if (removedNow || alreadyCounted) {
+      counts.adjust(-1);
+    } else if (mayHavePending && state.phase != SentPhase.loaded) {
+      // The list was not loaded: the number may or may not have included them.
+      counts.invalidate();
+    }
   }
 
   /// A crossed request became a friendship: their request is gone.
@@ -406,6 +479,29 @@ class FriendsController extends PagedListController<Friend> {
     state = state.copyWith(items: items);
   }
 
+  /// Blocks [friend] (docs/65): the same batch ends the friendship and cancels
+  /// pending requests; the person is not told.
+  Future<SocialFailure?> block(Friend friend) async {
+    if (state.busy.contains(friend.uid)) return kBusyFailure;
+    final generation = _generation;
+    final repository = ref.read(socialRepositoryProvider);
+    final failure = await runFor(
+      friend.uid,
+      () => repository.blockUser(uid: friend.uid, name: friend.name, photo: friend.photoUrl),
+      blocking: true,
+    );
+    if (generation != _generation) return failure; // another account / period: touch nothing
+    return afterBlock(
+      ref,
+      uid: friend.uid,
+      name: friend.name,
+      photo: friend.photoUrl,
+      failure: failure,
+      mayHavePendingRequest: false, // a friend has no pending request (rules invariant)
+      ownList: 'friends',
+    );
+  }
+
   /// Removes the friendship (both sides lose it; nobody is told).
   Future<SocialFailure?> remove(Friend friend) {
     final repository = ref.read(socialRepositoryProvider);
@@ -416,6 +512,124 @@ class FriendsController extends PagedListController<Friend> {
 final friendsControllerProvider = NotifierProvider<FriendsController, PagedState<Friend>>(
   FriendsController.new,
 );
+
+/// The people this user blocked ("Bloqueados"), newest block first. Same
+/// rules as the other lists: nothing is read until the tab opens, no
+/// listener, a TTL, every write confirmed by the server.
+class BlockedController extends PagedListController<BlockedUser> {
+  @override
+  int get pageSize => kBlockedPageSize;
+
+  @override
+  String keyOf(BlockedUser item) => item.uid;
+
+  @override
+  void watchScope() {}
+
+  @override
+  Future<PageData<BlockedUser>> fetch(Object? cursor, int limit) async {
+    final page = await ref
+        .read(socialRepositoryProvider)
+        .blockedUsers(cursor: cursor, pageSize: limit);
+    return PageData(page.items, page.cursor, page.hasMore, page.fromCache);
+  }
+
+  /// A block just made by this device: shown first without a read. If the list
+  /// was never loaded nothing is kept: opening the tab reads it.
+  void addLocal(BlockedUser user) {
+    if (state.phase != SentPhase.loaded) return;
+    state = state.copyWith(
+      items: [
+        user,
+        for (final u in state.items)
+          if (u.uid != user.uid) u,
+      ],
+    );
+  }
+
+  /// Blocks somebody who is not in any list on screen (a search result): one
+  /// batch, then every list forgets the person. Returns the failure to show.
+  Future<SocialFailure?> blockPerson({
+    required String uid,
+    required String name,
+    String? photo,
+  }) async {
+    final generation = _generation;
+    SocialFailure? failure;
+    try {
+      await ref.read(socialRepositoryProvider).blockUser(uid: uid, name: name, photo: photo);
+    } on SocialFailure catch (e) {
+      failure = e;
+    } catch (_) {
+      failure = const SocialFailure(SocialFailureKind.unknown);
+    }
+    if (generation != _generation) return failure;
+    return afterBlock(ref, uid: uid, name: name, photo: photo, failure: failure);
+  }
+
+  /// Unblocks: one delete. Friendship and requests do NOT come back; the
+  /// person is not told.
+  Future<SocialFailure?> unblock(BlockedUser user) {
+    final repository = ref.read(socialRepositoryProvider);
+    return runFor(user.uid, () => repository.unblockUser(user.uid));
+  }
+}
+
+final blockedControllerProvider = NotifierProvider<BlockedController, PagedState<BlockedUser>>(
+  BlockedController.new,
+);
+
+/// Answer for an action asked while the same person already has one running
+/// (the UI disables the buttons, so this is only a guard): never "success".
+const kBusyFailure = SocialFailure(SocialFailureKind.unknown, code: 'busy');
+
+/// What every list must do once a block was attempted (from a friend card, a
+/// received request or a search result). On success the person disappears from
+/// friends, received and sent lists, the badge is corrected and the blocked list
+/// shows them; on a failure that left the outcome unknown (rules denied it,
+/// no confirmation) the lists that are loaded are read again. Returns [failure].
+SocialFailure? afterBlock(
+  Ref ref, {
+  required String uid,
+  required String name,
+  String? photo,
+  required SocialFailure? failure,
+  bool alreadyDroppedReceived = false,
+  bool mayHavePendingRequest = true,
+  String? ownList,
+}) {
+  if (failure == null) {
+    // Same cleaning as the "Bloqueados" list, so nothing changes at the next read.
+    name = SocialNickname.normalize(name) ?? 'Usuário';
+    photo = SocialPhoto.sanitize(photo);
+    ref.read(friendsControllerProvider.notifier).dropLocal(uid);
+    ref
+        .read(receivedRequestsControllerProvider.notifier)
+        .dropBlocked(
+          uid,
+          alreadyCounted: alreadyDroppedReceived,
+          mayHavePending: mayHavePendingRequest,
+        );
+    ref.read(sentRequestsControllerProvider.notifier).dropLocal(uid);
+    ref
+        .read(blockedControllerProvider.notifier)
+        .addLocal(BlockedUser(uid: uid, name: name, photoUrl: photo, since: DateTime.now()));
+    return null;
+  }
+  if (failure.kind == SocialFailureKind.notBlocked || failure.kind == SocialFailureKind.uncertain) {
+    // `runFor` already read the caller's own list again on `uncertain`.
+    final skip = failure.kind == SocialFailureKind.uncertain ? ownList : null;
+    for (final entry in {
+      'friends': ref.read(friendsControllerProvider.notifier).reloadIfLoaded,
+      'received': ref.read(receivedRequestsControllerProvider.notifier).reloadIfLoaded,
+      'sent': ref.read(sentRequestsControllerProvider.notifier).reloadIfLoaded,
+      'blocked': ref.read(blockedControllerProvider.notifier).reloadIfLoaded,
+    }.entries) {
+      if (entry.key != skip) entry.value();
+    }
+  }
+  return failure;
+}
 
 /// How long the badge number is trusted before the next screen that shows it
 /// asks again (one `count()` read). Tests override.
@@ -472,6 +686,12 @@ class ReceivedCountController extends Notifier<ReceivedCountState> {
       count: complete ? shown : (shown > known ? shown : known),
       loadedAt: ref.read(socialClockProvider)(),
     );
+  }
+
+  /// The number may be wrong (a block removed a request that may or may not
+  /// have been counted): the next screen that shows the badge asks again.
+  void invalidate() {
+    state = ReceivedCountState(count: state.count);
   }
 
   void adjust(int delta) {

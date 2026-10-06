@@ -142,6 +142,11 @@ enum SocialFailureKind {
   /// was cancelled, a block, friendships off: the rules answer the same).
   notAccepted,
 
+  /// Blocking failed for a reason the screen must NOT explain (the rules
+  /// answer the same for "already blocked", friendships off, rules not
+  /// published...). The lists are read again.
+  notBlocked,
+
   /// 300 friends (docs/49 D5; client-side limit).
   friendsLimit,
 
@@ -195,6 +200,8 @@ class SocialFailure implements Exception {
     SocialFailureKind.alreadySent => 'Você já enviou um pedido para essa pessoa.',
     SocialFailureKind.notAccepted =>
       'Não foi possível aceitar o pedido. Ele pode ter sido cancelado. Atualizamos a lista.',
+    SocialFailureKind.notBlocked =>
+      'Não foi possível bloquear agora. Atualizamos as listas; confira e tente de novo.',
     SocialFailureKind.friendsLimit =>
       'Você atingiu o limite de $kMaxFriends amigos. Remova alguém para adicionar outro amigo.',
     SocialFailureKind.limitReached =>
@@ -335,6 +342,44 @@ enum SendOutcome {
 
   /// The other person had already asked: it became a friendship (D4).
   becameFriends,
+}
+
+/// What to write to block somebody: the card the user already knows (a
+/// friend, a received request or a search result). Name and photo are the
+/// snapshot the "Bloqueados" list shows; both are optional in the rules.
+class BlockDraft {
+  final String blockedUid;
+
+  /// Cleaned nickname, or null when it does not pass the rules' name check.
+  final String? name;
+  final String? photo;
+
+  const BlockDraft({required this.blockedUid, this.name, this.photo});
+}
+
+/// Somebody this user blocked, as the block document shows them.
+class BlockedUser {
+  final String uid;
+  final String name;
+  final String? photoUrl;
+  final DateTime? since;
+
+  const BlockedUser({required this.uid, required this.name, this.photoUrl, this.since});
+}
+
+/// One page of blocked people, newest block first.
+class BlockedPage {
+  final List<BlockedUser> items;
+  final Object? cursor;
+  final bool hasMore;
+  final bool fromCache;
+
+  const BlockedPage({
+    required this.items,
+    this.cursor,
+    this.hasMore = false,
+    this.fromCache = false,
+  });
 }
 
 /// What to write to accept a request (names already as the rules need them).

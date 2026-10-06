@@ -79,6 +79,17 @@ abstract class SocialDataSource {
   /// Removes the friendship with [otherUid] for both sides (idempotent).
   Future<void> removeFriend(String otherUid);
 
+  /// Blocks [BlockDraft.blockedUid]: ONE batch (block + friendship and both
+  /// requests deleted). [SocialFailureKind.denied] when the rules refuse
+  /// (e.g. already blocked: the second create would be an update).
+  Future<void> blockUser(BlockDraft draft);
+
+  /// Deletes the block of [blockedUid] (idempotent). Restores nothing.
+  Future<void> unblockUser(String blockedUid);
+
+  /// A page of blocked people, newest first (server, else the device).
+  Future<RawSentPage> readBlockedPage({Object? cursor, required int limit});
+
   /// Number of pending requests received (aggregate `count()`, at most
   /// [kMaxReceivedListed]); server read.
   Future<int> countReceivedRequests();
@@ -156,6 +167,18 @@ class SignedOutSocialDataSource implements SocialDataSource {
   @override
   Future<void> removeFriend(String otherUid) =>
       Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<void> blockUser(BlockDraft draft) =>
+      Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<void> unblockUser(String blockedUid) =>
+      Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<RawSentPage> readBlockedPage({Object? cursor, required int limit}) async =>
+      const RawSentPage(docs: []);
 
   @override
   Future<int> countReceivedRequests() async => 0;

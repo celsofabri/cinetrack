@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cinetrack/data/social_data_source.dart';
 import 'package:cinetrack/data/social_payloads.dart';
 import 'package:cinetrack/repositories/social_repository.dart'
-    show kFriendsPageSize, kReceivedPageSize, kSentPageSize;
+    show kBlockedPageSize, kFriendsPageSize, kReceivedPageSize, kSentPageSize;
 import 'package:cinetrack/social/social_models.dart';
 
 /// Golden test: what the Dart app writes and queries (SocialPayloads) must
@@ -89,7 +89,25 @@ Map<String, Object?> _scenarios() {
     'myName': d.myName,
     'myPhoto': d.myPhoto,
   };
+  const block = BlockDraft(blockedUid: to, name: 'Bruno');
+  const blockPhoto = BlockDraft(
+    blockedUid: to,
+    name: 'Bruno',
+    photo: 'https://lh4.googleusercontent.com/a/bruno',
+  );
+  // No usable name / photo on the card: both optional keys are left out.
+  const blockBare = BlockDraft(blockedUid: to);
+  Map<String, Object?> blockIn(BlockDraft d) => {
+    'uid': _uid,
+    'blockedUid': d.blockedUid,
+    'name': d.name,
+    'photo': d.photo,
+  };
   return {
+    'blockUser': entry(blockIn(block), SocialPayloads.blockUser(_uid, block)),
+    'blockUser_with_photo': entry(blockIn(blockPhoto), SocialPayloads.blockUser(_uid, blockPhoto)),
+    'blockUser_bare': entry(blockIn(blockBare), SocialPayloads.blockUser(_uid, blockBare)),
+    'unblockUser': entry({'uid': _uid, 'blockedUid': to}, SocialPayloads.unblockUser(_uid, to)),
     'acceptRequest': entry(acceptIn(_uid, accept), SocialPayloads.acceptRequest(_uid, accept)),
     'acceptRequest_with_photos': entry(
       acceptIn(_uid, acceptPhotos),
@@ -172,6 +190,10 @@ Map<String, Object?> _requestQueries() => {
     'query': SocialPayloads.friendsQuery(_uid, kFriendsPageSize + 1).toJson(),
   },
   'friendsCount': {'uid': _uid, 'query': SocialPayloads.friendsCountQuery(_uid).toJson()},
+  'blocked': {
+    'uid': _uid,
+    'query': SocialPayloads.blocksQuery(_uid, kBlockedPageSize + 1).toJson(),
+  },
 };
 
 Map<String, Object?> _lookups() => {

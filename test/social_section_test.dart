@@ -238,7 +238,12 @@ void main() {
       await tester.tap(find.text('Desativar amizades'));
       await tester.pumpAndSettle();
       expect(find.textContaining('amigos'), findsWidgets);
-      expect(find.textContaining('bloqueios'), findsOneWidget);
+      // docs/66 🟢: the blocks are erased too, and the dialog says what that means
+      expect(find.textContaining('bloqueios'), findsNWidgets(2));
+      expect(
+        find.textContaining('quem você bloqueou poderá encontrar você de novo'),
+        findsOneWidget,
+      );
       expect(find.textContaining('convite'), findsOneWidget);
       final cancel = tester.widget<TextButton>(_btn('Cancelar'));
       expect(cancel.autofocus, isTrue);

@@ -377,7 +377,8 @@ class _DeactivateSocialDialogState extends ConsumerState<DeactivateSocialDialog>
             const SizedBox(height: 8),
             const Text(
               'Seus favoritos, recomendações e progresso não mudam. Você precisa estar online. '
-              'Se ativar de novo depois, terá de refazer as amizades.',
+              'Se ativar de novo depois, terá de refazer as amizades. Os bloqueios também são '
+              'apagados: quem você bloqueou poderá encontrar você de novo.',
             ),
             if (_busy) ...[
               const SizedBox(height: 12),

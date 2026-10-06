@@ -127,8 +127,18 @@ class FakeSocialCloud {
     };
   }
 
-  void seedBlock(String uid, String blocked, {String name = 'Bloqueado'}) {
-    (blocks[uid] ??= {})[blocked] = {'blockedName': name, 'createdAt': now()};
+  void seedBlock(
+    String uid,
+    String blocked, {
+    String? name = 'Bloqueado',
+    String? photo,
+    DateTime? at,
+  }) {
+    (blocks[uid] ??= {})[blocked] = {
+      'blockedName': ?name,
+      'blockedPhoto': ?photo,
+      'createdAt': at ?? now(),
+    };
   }
 
   /// Everything the cloud holds that involves [uid] (for "nothing orphaned").
@@ -339,6 +349,7 @@ class InMemorySocialDataSource implements SocialDataSource {
   Future<SendOutcome> sendRequest(SendRequestDraft draft) async {
     _gate(server: true);
     cloud.checkFailure('sendRequest');
+    await cloud.writeGate?.future;
     final to = draft.toUid;
     cloud.readLog.add('tx:get:${uid}_$to');
     cloud.readLog.add('tx:get:${to}_$uid');
@@ -439,6 +450,62 @@ class InMemorySocialDataSource implements SocialDataSource {
     await cloud.writeGate?.future;
     cloud.friendships.remove(FakeSocialCloud.pairId(uid, otherUid));
     cloud.log.add('removeFriend');
+  }
+
+  /// `users/{me}/blocks/{other}` create under the rules: the same batch
+  /// deletes the friendship and both requests; a second create on an existing
+  /// block is an update, which the rules refuse; self-block and bad
+  /// name / photo are refused too.
+  @override
+  Future<void> blockUser(BlockDraft draft) async {
+    _gate(server: true);
+    cloud.checkFailure('blockUser');
+    await cloud.writeGate?.future;
+    final other = draft.blockedUid;
+    final ok =
+        other != uid &&
+        RegExp(r'^[^_/]{1,128}$').hasMatch(other) &&
+        !(cloud.blocks[uid]?.containsKey(other) ?? false) &&
+        (draft.name == null || FakeSocialCloud.validName(draft.name)) &&
+        FakeSocialCloud.validPhoto(draft.photo);
+    if (!ok) throw const SocialFailure(SocialFailureKind.denied, code: 'permission-denied');
+    cloud.friendships.remove(FakeSocialCloud.pairId(uid, other));
+    cloud.requests.remove('${uid}_$other');
+    cloud.requests.remove('${other}_$uid');
+    (cloud.blocks[uid] ??= {})[other] = {
+      'blockedName': ?draft.name,
+      'blockedPhoto': ?draft.photo,
+      'createdAt': cloud.now(),
+    };
+    cloud.log.add('blockUser');
+  }
+
+  @override
+  Future<void> unblockUser(String blockedUid) async {
+    _gate(server: true);
+    cloud.checkFailure('unblockUser');
+    await cloud.writeGate?.future;
+    cloud.blocks[uid]?.remove(blockedUid);
+    cloud.log.add('unblockUser');
+  }
+
+  @override
+  Future<RawSentPage> readBlockedPage({Object? cursor, required int limit}) async {
+    _gate(server: false);
+    cloud.readLog.add('blocked:page');
+    if (cloud.offline && !cloud.cacheAvailable) {
+      throw const SocialFailure(SocialFailureKind.offline);
+    }
+    cloud.checkFailure('blockedPage');
+    await cloud.pageGate?.future;
+    final all = (cloud.blocks[uid] ?? {}).entries.toList()
+      ..sort((a, b) {
+        final byTime = (b.value['createdAt'] as DateTime).compareTo(
+          a.value['createdAt'] as DateTime,
+        );
+        return byTime != 0 ? byTime : b.key.compareTo(a.key);
+      });
+    return _pageOf(all, cursor, limit);
   }
 
   Iterable<MapEntry<String, Map<String, dynamic>>> _received() =>

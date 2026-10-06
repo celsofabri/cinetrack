@@ -233,6 +233,36 @@ class SocialPayloads {
   static SocialWrite removeFriend(String uid, String otherUid) =>
       SocialWrite(SocialWriteMode.batch, [SocialOp.delete(friendshipPath(uid, otherUid))]);
 
+  static String blockPath(String blocker, String blocked) => 'users/$blocker/blocks/$blocked';
+
+  /// "Bloquear": ONE batch. Creates `users/{me}/blocks/{other}` and, in the
+  /// same batch, deletes the friendship and BOTH requests: the rules refuse the
+  /// block unless none of the three exists afterwards (`existsAfter`). The
+  /// deletes are sent whether or not the documents exist: deleting a missing
+  /// document is allowed because every id contains my uid, so the app needs no
+  /// read to decide (0 reads). Name and photo are optional snapshots.
+  static SocialWrite blockUser(String uid, BlockDraft draft) {
+    final other = draft.blockedUid;
+    return SocialWrite(SocialWriteMode.batch, [
+      SocialOp.set(blockPath(uid, other), {
+        'blockedName': ?draft.name,
+        'blockedPhoto': ?draft.photo,
+        'createdAt': serverTimestamp,
+      }),
+      SocialOp.delete(friendshipPath(uid, other)),
+      SocialOp.delete(requestPath(uid, other)),
+      SocialOp.delete(requestPath(other, uid)),
+    ]);
+  }
+
+  /// "Desbloquear": deletes the block document. Does not bring anything back.
+  static SocialWrite unblockUser(String uid, String blockedUid) =>
+      SocialWrite(SocialWriteMode.batch, [SocialOp.delete(blockPath(uid, blockedUid))]);
+
+  /// The blocked list, newest block first (automatic single-field index).
+  static SocialQuerySpec blocksQuery(String uid, int limit) =>
+      SocialQuerySpec('users/$uid/blocks', const [], limit, orderBy: ('createdAt', true));
+
   /// Pending requests received, newest first (index `to ASC, createdAt DESC`).
   static SocialQuerySpec receivedQuery(String uid, int limit) =>
       SocialQuerySpec('friend_requests', [('to', '==', uid)], limit, orderBy: ('createdAt', true));

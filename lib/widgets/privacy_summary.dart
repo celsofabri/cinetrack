@@ -57,7 +57,9 @@ class PrivacySummary extends StatelessWidget {
           'apelido e seu identificador para o cartão que outras pessoas veem. Se você pedir '
           'amizade a alguém, o pedido guarda seu apelido e foto e os da pessoa até ela '
           'responder ou você cancelar; ninguém é avisado de uma recusa. Quem vira seu amigo '
-          'vê só o seu cartão (apelido e foto), e remover um amigo não o avisa. Sem ativar as '
+          'vê só o seu cartão (apelido e foto), e remover um amigo não o avisa. Se você bloquear '
+          'alguém, guardamos o apelido e a foto dessa pessoa só para a sua lista de bloqueados '
+          '(só você a vê) e ela não é avisada. Sem ativar as '
           'amizades, nada disso é gravado. Não usamos anúncios nem telemetria. '
           'Você pode excluir sua conta e todos os dados a qualquer momento, aqui no perfil.',
         ),

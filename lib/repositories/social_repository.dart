@@ -19,6 +19,7 @@ const kSentPageSize = 20;
 
 /// Received requests / friends shown per page.
 const kReceivedPageSize = 20;
+const kBlockedPageSize = 20;
 const kFriendsPageSize = 50;
 
 /// Answer of a search: someone to show, or nothing. There is deliberately no
@@ -231,6 +232,59 @@ class SocialRepository {
 
   /// Removes a friendship (one delete; both sides lose it; nobody is told).
   Future<void> removeFriend(String friendUid) => _data.removeFriend(friendUid);
+
+  /// Blocks [target] (a friend, a received request or a search result): ONE
+  /// batch creates the block and deletes the friendship and both pending
+  /// requests, with no read. The person is not told. A denial by the rules is
+  /// the one generic [SocialFailureKind.notBlocked].
+  Future<void> blockUser({required String uid, String? name, String? photo}) async {
+    if (uid.isEmpty || uid == _data.uid) {
+      throw const SocialFailure(SocialFailureKind.notBlocked);
+    }
+    try {
+      await _data.blockUser(
+        BlockDraft(
+          blockedUid: uid,
+          name: name == null ? null : SocialNickname.normalize(name),
+          photo: SocialPhoto.sanitize(photo),
+        ),
+      );
+    } on SocialFailure catch (e) {
+      if (e.kind == SocialFailureKind.denied) {
+        throw SocialFailure(SocialFailureKind.notBlocked, code: e.code);
+      }
+      rethrow;
+    }
+  }
+
+  /// Unblocks: one delete. Friendship and requests are NOT restored.
+  Future<void> unblockUser(String uid) => _data.unblockUser(uid);
+
+  /// A page of blocked people, newest block first.
+  Future<BlockedPage> blockedUsers({Object? cursor, int pageSize = kBlockedPageSize}) async {
+    final raw = await _data.readBlockedPage(cursor: cursor, limit: pageSize);
+    final items = <BlockedUser>[];
+    for (final doc in raw.docs) {
+      if (doc.id.isEmpty || doc.id == _data.uid) continue;
+      final name = SocialNickname.clean('${doc.data['blockedName'] ?? ''}');
+      final photo = doc.data['blockedPhoto'];
+      final at = doc.data['createdAt'];
+      items.add(
+        BlockedUser(
+          uid: doc.id,
+          name: name.isEmpty ? 'Usuário' : name,
+          photoUrl: photo is String ? SocialPhoto.sanitize(photo) : null,
+          since: at is DateTime ? at : null,
+        ),
+      );
+    }
+    return BlockedPage(
+      items: items,
+      cursor: raw.cursor,
+      hasMore: raw.hasMore,
+      fromCache: raw.fromCache,
+    );
+  }
 
   /// Pending received requests for the badge: `count()`, at most
   /// [kMaxReceivedListed].

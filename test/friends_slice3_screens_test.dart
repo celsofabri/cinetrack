@@ -18,7 +18,7 @@ import 'support/friends_harness.dart';
 
 bool _tabSelected(WidgetTester tester, String label) {
   final tabs = tester.widget<FriendsTabs>(find.byType(FriendsTabs));
-  return tabs.selected == (label == 'Amigos' ? FriendsTab.friends : FriendsTab.requests);
+  return tabs.selected == FriendsTab.values.firstWhere((tab) => tab.label == label);
 }
 
 Finder _tabLabel(String label) =>
@@ -36,7 +36,7 @@ Finder _topBarIcon([String tooltip = 'Amigos']) =>
     find.descendant(of: find.byType(MobileTopBar), matching: find.byTooltip(tooltip));
 
 void main() {
-  group('tabs: Amigos | Pedidos', () {
+  group('tabs: Amigos | Pedidos | Bloqueados', () {
     testWidgets(
       'opens on Amigos and reads ONLY the friends list; Pedidos reads received + sent once',
       (tester) async {
@@ -92,19 +92,25 @@ void main() {
       await tester.pumpAndSettle();
       expect(_tabSelected(tester, 'Pedidos'), isTrue);
       expect(find.text('Pedidos recebidos'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pumpAndSettle();
+      expect(_tabSelected(tester, 'Bloqueados'), isTrue);
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight); // wraps
       await tester.pumpAndSettle();
       expect(_tabSelected(tester, 'Amigos'), isTrue);
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft); // wraps back
       await tester.pumpAndSettle();
-      expect(_tabSelected(tester, 'Pedidos'), isTrue);
+      expect(_tabSelected(tester, 'Bloqueados'), isTrue);
       await tester.sendKeyEvent(LogicalKeyboardKey.home);
       await tester.pumpAndSettle();
       expect(_tabSelected(tester, 'Amigos'), isTrue);
       await tester.sendKeyEvent(LogicalKeyboardKey.end);
       await tester.pumpAndSettle();
-      expect(_tabSelected(tester, 'Pedidos'), isTrue);
+      expect(_tabSelected(tester, 'Bloqueados'), isTrue);
       // the focused control is a tab (roving focus), and Enter/Space select it
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pumpAndSettle();
+      expect(_tabSelected(tester, 'Pedidos'), isTrue);
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
       await tester.pumpAndSettle();
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
@@ -120,49 +126,52 @@ void main() {
           )
           .where((f) => f.onKeyEvent != null)
           .toList();
-      expect(focusNodes, hasLength(2));
+      expect(focusNodes, hasLength(3));
       expect(focusNodes[0].skipTraversal, isFalse); // Amigos (selected)
       expect(focusNodes[1].skipTraversal, isTrue); // Pedidos
+      expect(focusNodes[2].skipTraversal, isTrue); // Bloqueados
     });
 
-    testWidgets('semantics: tab bar with two tabs, the selected one flagged, count in the label', (
-      tester,
-    ) async {
-      final semantics = tester.ensureSemantics();
-      await pumpFriends(tester, start: '/friends', seed: (s) => addReceivedRequests(s, 2));
-      expect(find.bySemanticsLabel('Pedidos, 2 pedidos recebidos'), findsOneWidget);
-      final amigos = tester.getSemantics(
-        find.byWidgetPredicate((w) => w is Semantics && w.properties.label == 'Amigos'),
-      );
-      expect(amigos.flagsCollection.isSelected, Tristate.isTrue);
-      final pedidos = tester.getSemantics(find.bySemanticsLabel('Pedidos, 2 pedidos recebidos'));
-      expect(pedidos.flagsCollection.isSelected, isNot(Tristate.isTrue));
-      semantics.dispose();
-    });
+    testWidgets(
+      'semantics: tab bar with three tabs, the selected one flagged, count in the label',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        await pumpFriends(tester, start: '/friends', seed: (s) => addReceivedRequests(s, 2));
+        expect(find.bySemanticsLabel('Pedidos, 2 pedidos recebidos'), findsOneWidget);
+        final amigos = tester.getSemantics(
+          find.byWidgetPredicate((w) => w is Semantics && w.properties.label == 'Amigos'),
+        );
+        expect(amigos.flagsCollection.isSelected, Tristate.isTrue);
+        final pedidos = tester.getSemantics(find.bySemanticsLabel('Pedidos, 2 pedidos recebidos'));
+        expect(pedidos.flagsCollection.isSelected, isNot(Tristate.isTrue));
+        semantics.dispose();
+      },
+    );
 
-    testWidgets('48 px targets for both tabs from 320 to 1440 px and fonts 1x to 3x, no overflow', (
-      tester,
-    ) async {
-      for (final width in [320.0, 360.0, 768.0, 1440.0]) {
-        for (final scale in [1.0, 2.0, 3.0]) {
-          await pumpFriends(
-            tester,
-            size: Size(width, 2400),
-            textScale: scale,
-            start: '/friends',
-            seed: (s) => addReceivedRequests(s, 3),
-          );
-          expect(tester.takeException(), isNull, reason: '$width x $scale');
-          for (final label in ['Amigos', 'Pedidos']) {
-            final box = tester.getSize(
-              find.ancestor(of: _tabLabel(label), matching: find.byType(InkWell)).first,
+    testWidgets(
+      '48 px targets for the three tabs from 320 to 1440 px and fonts 1x to 3x, no overflow',
+      (tester) async {
+        for (final width in [320.0, 360.0, 768.0, 1440.0]) {
+          for (final scale in [1.0, 2.0, 3.0]) {
+            await pumpFriends(
+              tester,
+              size: Size(width, 2400),
+              textScale: scale,
+              start: '/friends',
+              seed: (s) => addReceivedRequests(s, 3),
             );
-            expect(box.height, greaterThanOrEqualTo(48), reason: '$label $width x $scale');
-            expect(box.width, greaterThanOrEqualTo(48), reason: '$label $width x $scale');
+            expect(tester.takeException(), isNull, reason: '$width x $scale');
+            for (final label in ['Amigos', 'Pedidos', 'Bloqueados']) {
+              final box = tester.getSize(
+                find.ancestor(of: _tabLabel(label), matching: find.byType(InkWell)).first,
+              );
+              expect(box.height, greaterThanOrEqualTo(48), reason: '$label $width x $scale');
+              expect(box.width, greaterThanOrEqualTo(48), reason: '$label $width x $scale');
+            }
           }
         }
-      }
-    });
+      },
+    );
   });
 
   group('Amigos: list, states, remove', () {

@@ -10,8 +10,10 @@ import '../repositories/social_repository.dart';
 import '../social/social_models.dart';
 import '../social/social_validation.dart';
 import '../widgets/app_shell.dart';
+import '../widgets/block_dialogs.dart';
 import '../widgets/person_avatar.dart';
 import '../widgets/social_gate.dart';
+import 'friends_screen.dart' show kBlockedMessage;
 
 /// "Adicionar amigo" (`/friends/add`): exact search by handle and "Enviar
 /// pedido". Opening it reads NOTHING; one `get` happens per search (docs/59).
@@ -32,7 +34,17 @@ class AddFriendScreen extends StatelessWidget {
 
 enum _Phase { idle, searching, found, notFound, failed }
 
-enum _Send { ready, sending, sent, befriended, alreadySent, alreadyFriends, failed }
+enum _Send {
+  ready,
+  sending,
+  sent,
+  befriended,
+  alreadySent,
+  alreadyFriends,
+  failed,
+  blocking,
+  blocked,
+}
 
 class _AddFriendBody extends ConsumerStatefulWidget {
   final SocialProfile profile;
@@ -144,21 +156,55 @@ class _AddFriendBodyState extends ConsumerState<_AddFriendBody> {
     final failure = result.failure;
     if (!mounted) return;
     final friends = result.outcome == SendOutcome.becameFriends;
-    setState(() {
-      if (failure == null) {
-        _send = friends ? _Send.befriended : _Send.sent;
-      } else if (failure.kind == SocialFailureKind.alreadySent) {
-        _send = _Send.alreadySent;
-      } else {
-        _send = _Send.failed;
-        _sendFailure = failure;
-      }
-    });
+    // The search may have moved on to somebody else while this was in flight:
+    // the answer is about [card], never about the card on screen now.
+    if (_card?.uid == card.uid) {
+      setState(() {
+        if (failure == null) {
+          _send = friends ? _Send.befriended : _Send.sent;
+        } else if (failure.kind == SocialFailureKind.alreadySent) {
+          _send = _Send.alreadySent;
+        } else {
+          _send = _Send.failed;
+          _sendFailure = failure;
+        }
+      });
+    }
     if (failure == null) {
       messenger?.showSnackBar(
         SnackBar(content: Text(friends ? 'Amizade aceita.' : 'Pedido enviado.')),
       );
     }
+  }
+
+  Future<void> _block() async {
+    final card = _card;
+    if (card == null || _send == _Send.sending || _send == _Send.blocking) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (!await confirmBlock(context, card.nickname)) return;
+    if (!mounted) return;
+    final before = _send;
+    setState(() {
+      _send = _Send.blocking;
+      _sendFailure = null;
+    });
+    final failure = await ref
+        .read(blockedControllerProvider.notifier)
+        .blockPerson(uid: card.uid, name: card.nickname, photo: card.photoUrl);
+    if (!mounted) return;
+    // Same guard as sending: a newer search owns the card now (the SnackBar
+    // below stays true: it is about [card]).
+    if (_card?.uid == card.uid) {
+      setState(() {
+        if (failure == null) {
+          _send = _Send.blocked;
+        } else {
+          _send = before == _Send.sending ? _Send.ready : before;
+          _sendFailure = failure;
+        }
+      });
+    }
+    messenger?.showSnackBar(SnackBar(content: Text(failure?.message ?? kBlockedMessage)));
   }
 
   @override
@@ -293,6 +339,7 @@ class _AddFriendBodyState extends ConsumerState<_AddFriendBody> {
           failure: _sendFailure,
           offline: offline,
           onSend: _sendRequest,
+          onBlock: _block,
         );
     }
   }
@@ -304,6 +351,7 @@ class _FoundCard extends StatelessWidget {
   final SocialFailure? failure;
   final bool offline;
   final VoidCallback onSend;
+  final VoidCallback onBlock;
 
   const _FoundCard({
     required this.card,
@@ -311,6 +359,7 @@ class _FoundCard extends StatelessWidget {
     required this.failure,
     required this.offline,
     required this.onSend,
+    required this.onBlock,
   });
 
   @override
@@ -319,7 +368,11 @@ class _FoundCard extends StatelessWidget {
     final label = 'Enviar pedido para @${card.handle}';
     final stopped = failure?.kind == SocialFailureKind.limitReached;
     final showButton =
-        send == _Send.ready || send == _Send.sending || (send == _Send.failed && !stopped);
+        send == _Send.ready ||
+        send == _Send.sending ||
+        send == _Send.blocking ||
+        (send == _Send.failed && !stopped);
+    final blockBusy = send == _Send.blocking;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -349,7 +402,7 @@ class _FoundCard extends StatelessWidget {
             if (showButton)
               FilledButton.icon(
                 style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
-                onPressed: send == _Send.sending || offline ? null : onSend,
+                onPressed: send == _Send.sending || blockBusy || offline ? null : onSend,
                 icon: send == _Send.sending
                     ? const SizedBox(
                         width: 16,
@@ -423,6 +476,45 @@ class _FoundCard extends StatelessWidget {
               const SizedBox(height: 8),
               const Text('Sem conexão. Tente de novo quando estiver online.'),
             ],
+            if (send == _Send.blocked) ...[
+              Semantics(
+                liveRegion: true,
+                child: const Text(
+                  'Pessoa bloqueada. Ela não foi avisada e não encontra mais você na busca.',
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                  onPressed: () => context.go('/friends?tab=bloqueados'),
+                  child: const Text('Ver bloqueados'),
+                ),
+              ),
+            ] else
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(48, 48),
+                    foregroundColor: theme.colorScheme.error,
+                  ),
+                  onPressed: send == _Send.sending || blockBusy || offline ? null : onBlock,
+                  icon: blockBusy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.block),
+                  label: Text(
+                    blockBusy ? 'Bloqueando...' : 'Bloquear',
+                    semanticsLabel: blockBusy
+                        ? 'Bloqueando @${card.handle}'
+                        : 'Bloquear @${card.handle}',
+                  ),
+                ),
+              ),
           ],
         ),
       ),

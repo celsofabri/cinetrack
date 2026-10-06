@@ -9,14 +9,14 @@ import '../providers/social_providers.dart';
 import '../providers/sync_providers.dart';
 import '../social/social_models.dart';
 import '../widgets/app_shell.dart';
+import '../widgets/block_dialogs.dart';
 import '../widgets/count_badge.dart';
 import '../widgets/person_avatar.dart';
 import '../widgets/social_gate.dart';
 
-/// "Amigos" (`/friends`): two sections, Amigos | Pedidos (received and sent),
-/// as tabs reachable with the arrow keys (docs/50 §13). Only the section on
-/// screen is read (docs/62). Blocks arrive in a later slice and are NOT drawn
-/// as a placeholder.
+/// "Amigos" (`/friends`): three sections, Amigos | Pedidos (received and sent) |
+/// Bloqueados, as tabs reachable with the arrow keys (docs/50 §13). Only the
+/// section on screen is read (docs/62, docs/65).
 class FriendsScreen extends StatelessWidget {
   const FriendsScreen({super.key});
 
@@ -29,14 +29,31 @@ class FriendsScreen extends StatelessWidget {
       body: SocialGate(
         active: (context, profile) => _FriendsBody(
           showTitle: inShell,
-          initialTab: tab == 'pedidos' ? FriendsTab.requests : FriendsTab.friends,
+          initialTab: switch (tab) {
+            'pedidos' => FriendsTab.requests,
+            'bloqueados' => FriendsTab.blocked,
+            _ => FriendsTab.friends,
+          },
         ),
       ),
     );
   }
 }
 
-enum FriendsTab { friends, requests }
+enum FriendsTab {
+  friends('Amigos', null),
+  requests('Pedidos', 'pedidos'),
+  blocked('Bloqueados', 'bloqueados');
+
+  final String label;
+
+  /// Value of `?tab=` (null = the default tab, no query).
+  final String? query;
+
+  const FriendsTab(this.label, this.query);
+
+  String get location => query == null ? '/friends' : '/friends?tab=$query';
+}
 
 class _FriendsBody extends ConsumerStatefulWidget {
   final bool showTitle;
@@ -69,11 +86,14 @@ class _FriendsBodyState extends ConsumerState<_FriendsBody> {
   void _load() {
     Future.microtask(() {
       if (!mounted) return;
-      if (_tab == FriendsTab.friends) {
-        ref.read(friendsControllerProvider.notifier).ensureLoaded();
-      } else {
-        ref.read(receivedRequestsControllerProvider.notifier).ensureLoaded();
-        ref.read(sentRequestsControllerProvider.notifier).ensureLoaded();
+      switch (_tab) {
+        case FriendsTab.friends:
+          ref.read(friendsControllerProvider.notifier).ensureLoaded();
+        case FriendsTab.requests:
+          ref.read(receivedRequestsControllerProvider.notifier).ensureLoaded();
+          ref.read(sentRequestsControllerProvider.notifier).ensureLoaded();
+        case FriendsTab.blocked:
+          ref.read(blockedControllerProvider.notifier).ensureLoaded();
       }
     });
   }
@@ -84,9 +104,7 @@ class _FriendsBodyState extends ConsumerState<_FriendsBody> {
     _load();
     // The address follows the tab, so the badge (which opens ?tab=pedidos) can
     // bring you back to Pedidos from Amigos.
-    if (syncUrl) {
-      context.replace(tab == FriendsTab.requests ? '/friends?tab=pedidos' : '/friends');
-    }
+    if (syncUrl) context.replace(tab.location);
   }
 
   @override
@@ -122,18 +140,23 @@ class _FriendsBodyState extends ConsumerState<_FriendsBody> {
             const SizedBox(height: 16),
             FriendsTabs(selected: _tab, pending: pending, onSelect: _select),
             const SizedBox(height: 16),
-            if (_tab == FriendsTab.friends)
-              _FriendsSection(offline: offline)
-            else ...[
-              _ReceivedSection(offline: offline),
-              const SizedBox(height: 24),
-              Semantics(
-                header: true,
-                child: Text('Pedidos enviados', style: theme.textTheme.titleMedium),
+            switch (_tab) {
+              FriendsTab.friends => _FriendsSection(offline: offline),
+              FriendsTab.requests => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _ReceivedSection(offline: offline),
+                  const SizedBox(height: 24),
+                  Semantics(
+                    header: true,
+                    child: Text('Pedidos enviados', style: theme.textTheme.titleMedium),
+                  ),
+                  const SizedBox(height: 8),
+                  _SentSection(offline: offline),
+                ],
               ),
-              const SizedBox(height: 8),
-              _SentSection(offline: offline),
-            ],
+              FriendsTab.blocked => _BlockedSection(offline: offline),
+            },
           ],
         ),
       ),
@@ -141,7 +164,7 @@ class _FriendsBodyState extends ConsumerState<_FriendsBody> {
   }
 }
 
-/// The two tabs. Arrow keys (Left / Right, Home / End) move focus AND select,
+/// The three tabs. Arrow keys (Left / Right, Home / End) move focus AND select,
 /// like the ARIA tabs pattern; Tab leaves the group. Each tab is at least
 /// 48 px tall, the selected one is underlined, and the screen reader hears
 /// "Pedidos, 2 pedidos recebidos" when there is a number.
@@ -162,7 +185,7 @@ class FriendsTabs extends StatefulWidget {
 }
 
 class _FriendsTabsState extends State<FriendsTabs> {
-  final _nodes = [FocusNode(debugLabel: 'tab-amigos'), FocusNode(debugLabel: 'tab-pedidos')];
+  final _nodes = [for (final tab in FriendsTab.values) FocusNode(debugLabel: 'tab-${tab.name}')];
 
   @override
   void dispose() {
@@ -206,7 +229,7 @@ class _FriendsTabsState extends State<FriendsTabs> {
         _TabButton(
           focusNode: _nodes[tab.index],
           selected: widget.selected == tab,
-          label: tab == FriendsTab.friends ? 'Amigos' : 'Pedidos',
+          label: tab.label,
           semanticLabel: tab == FriendsTab.requests && widget.pending > 0
               ? 'Pedidos, ${widget.pending == 1 ? '1 pedido recebido' : '${widget.pending >= kMaxReceivedListed ? '$kMaxReceivedListed ou mais' : widget.pending} pedidos recebidos'}'
               : null,
@@ -221,7 +244,7 @@ class _FriendsTabsState extends State<FriendsTabs> {
         // very large fonts on narrow screens, so nothing is cut or overflows.
         final style = theme.textTheme.titleSmall;
         var widest = 0.0;
-        for (final label in const ['Amigos', 'Pedidos']) {
+        for (final label in [for (final tab in FriendsTab.values) tab.label]) {
           final painter = TextPainter(
             text: TextSpan(text: label, style: style),
             textDirection: Directionality.of(context),
@@ -231,8 +254,8 @@ class _FriendsTabsState extends State<FriendsTabs> {
           if (painter.width > widest) widest = painter.width;
           painter.dispose();
         }
-        // padding 16 + room for the badge (12 + dot) on the second tab
-        final sideBySide = (widest + 16 + 28) * 2 <= constraints.maxWidth;
+        // padding 16 + room for the badge (12 + dot) on the "Pedidos" tab
+        final sideBySide = (widest + 16 + 28) * FriendsTab.values.length <= constraints.maxWidth;
         return Semantics(
           role: SemanticsRole.tabBar,
           container: true,
@@ -482,6 +505,21 @@ class _Saving extends StatelessWidget {
       const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2));
 }
 
+/// "Atualizar": reads again unless the list was read a moment ago. In that case
+/// nothing is read and the screen SAYS so (SnackBar = live region), so the
+/// button never looks broken (docs/64 🟢-2).
+Future<void> _refreshWithFeedback(BuildContext context, Future<bool> Function() refresh) async {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final read = await refresh();
+  if (!read) {
+    messenger?.clearSnackBars(); // repeated taps do not queue the same message
+    messenger?.showSnackBar(const SnackBar(content: Text(kListJustRefreshedMessage)));
+  }
+}
+
+/// Shown when "Atualizar" is pressed inside the cooldown.
+const kListJustRefreshedMessage = 'A lista já está atualizada (atualizada há instantes).';
+
 // ---------------------------------------------------------------------------
 // Amigos
 // ---------------------------------------------------------------------------
@@ -510,7 +548,9 @@ class _FriendsSection extends ConsumerWidget {
           alignment: Alignment.centerRight,
           child: TextButton.icon(
             style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-            onPressed: offline || state.loadingMore ? null : controller.refresh,
+            onPressed: offline || state.loadingMore
+                ? null
+                : () => _refreshWithFeedback(context, controller.refresh),
             icon: const Icon(Icons.refresh),
             label: const Text('Atualizar'),
           ),
@@ -534,7 +574,8 @@ class _FriendsSection extends ConsumerWidget {
             _FriendTile(
               key: ValueKey(friend.uid),
               friend: friend,
-              removing: state.busy.contains(friend.uid),
+              removing: state.busy.contains(friend.uid) && !state.blocking.contains(friend.uid),
+              blocking: state.blocking.contains(friend.uid),
               disabled: offline,
             ),
         _MoreButton(state: state, offline: offline, onMore: controller.loadMore),
@@ -546,14 +587,18 @@ class _FriendsSection extends ConsumerWidget {
 class _FriendTile extends ConsumerWidget {
   final Friend friend;
   final bool removing;
+  final bool blocking;
   final bool disabled;
 
   const _FriendTile({
     super.key,
     required this.friend,
     required this.removing,
+    required this.blocking,
     required this.disabled,
   });
+
+  bool get busy => removing || blocking;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -574,19 +619,39 @@ class _FriendTile extends ConsumerWidget {
                 if (since != null)
                   Text('Amigos desde ${formatSocialDate(since)}', style: theme.textTheme.bodySmall),
                 const SizedBox(height: 4),
-                TextButton.icon(
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(48, 48),
-                    foregroundColor: theme.colorScheme.error,
-                  ),
-                  onPressed: removing || disabled ? null : () => _confirmRemove(context, ref),
-                  icon: removing ? const _Saving() : const Icon(Icons.person_remove_outlined),
-                  label: Text(
-                    removing ? 'Removendo...' : 'Remover amizade',
-                    semanticsLabel: removing
-                        ? 'Removendo a amizade com ${friend.name}'
-                        : 'Remover amizade com ${friend.name}',
-                  ),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                        foregroundColor: theme.colorScheme.error,
+                      ),
+                      onPressed: busy || disabled ? null : () => _confirmRemove(context, ref),
+                      icon: removing ? const _Saving() : const Icon(Icons.person_remove_outlined),
+                      label: Text(
+                        removing ? 'Removendo...' : 'Remover amizade',
+                        semanticsLabel: removing
+                            ? 'Removendo a amizade com ${friend.name}'
+                            : 'Remover amizade com ${friend.name}',
+                      ),
+                    ),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                        foregroundColor: theme.colorScheme.error,
+                      ),
+                      onPressed: busy || disabled ? null : () => _confirmBlock(context, ref),
+                      icon: blocking ? const _Saving() : const Icon(Icons.block),
+                      label: Text(
+                        blocking ? 'Bloqueando...' : 'Bloquear',
+                        semanticsLabel: blocking
+                            ? 'Bloqueando ${friend.name}'
+                            : 'Bloquear ${friend.name}',
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -623,7 +688,17 @@ class _FriendTile extends ConsumerWidget {
     final failure = await ref.read(friendsControllerProvider.notifier).remove(friend);
     messenger?.showSnackBar(SnackBar(content: Text(failure?.message ?? 'Amizade removida.')));
   }
+
+  Future<void> _confirmBlock(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (!await confirmBlock(context, friend.name)) return;
+    final failure = await ref.read(friendsControllerProvider.notifier).block(friend);
+    messenger?.showSnackBar(SnackBar(content: Text(failure?.message ?? kBlockedMessage)));
+  }
 }
+
+/// SnackBar after a block: honest about what did and did not happen.
+const kBlockedMessage = 'Pessoa bloqueada. Ela não foi avisada.';
 
 // ---------------------------------------------------------------------------
 // Pedidos recebidos
@@ -670,7 +745,10 @@ class _ReceivedSection extends ConsumerWidget {
                 _ReceivedTile(
                   key: ValueKey(request.fromUid),
                   request: request,
-                  saving: state.busy.contains(request.fromUid),
+                  saving:
+                      state.busy.contains(request.fromUid) &&
+                      !state.blocking.contains(request.fromUid),
+                  blocking: state.blocking.contains(request.fromUid),
                   disabled: offline,
                 ),
             _MoreButton(state: state, offline: offline, onMore: controller.loadMore),
@@ -700,7 +778,9 @@ class _ReceivedSection extends ConsumerWidget {
             ),
             TextButton.icon(
               style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-              onPressed: loading || offline ? null : controller.refresh,
+              onPressed: loading || offline
+                  ? null
+                  : () => _refreshWithFeedback(context, controller.refresh),
               icon: const Icon(Icons.refresh),
               label: const Text('Atualizar'),
             ),
@@ -716,12 +796,14 @@ class _ReceivedSection extends ConsumerWidget {
 class _ReceivedTile extends ConsumerWidget {
   final ReceivedRequest request;
   final bool saving;
+  final bool blocking;
   final bool disabled;
 
   const _ReceivedTile({
     super.key,
     required this.request,
     required this.saving,
+    required this.blocking,
     required this.disabled,
   });
 
@@ -729,7 +811,7 @@ class _ReceivedTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final at = request.createdAt;
-    final locked = saving || disabled;
+    final locked = saving || blocking || disabled;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -771,6 +853,20 @@ class _ReceivedTile extends ConsumerWidget {
                         semanticsLabel: 'Recusar pedido de ${request.fromName}',
                       ),
                     ),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                        foregroundColor: theme.colorScheme.error,
+                      ),
+                      onPressed: locked ? null : () => _block(context, ref),
+                      icon: blocking ? const _Saving() : const Icon(Icons.block),
+                      label: Text(
+                        blocking ? 'Bloqueando...' : 'Bloquear',
+                        semanticsLabel: blocking
+                            ? 'Bloqueando ${request.fromName}'
+                            : 'Bloquear ${request.fromName}',
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -787,6 +883,15 @@ class _ReceivedTile extends ConsumerWidget {
     messenger?.showSnackBar(
       SnackBar(content: Text(failure?.message ?? 'Amizade aceita: ${request.fromName}.')),
     );
+  }
+
+  Future<void> _block(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (!await confirmBlock(context, request.fromName)) return;
+    final failure = await ref
+        .read(receivedRequestsControllerProvider.notifier)
+        .blockSender(request);
+    messenger?.showSnackBar(SnackBar(content: Text(failure?.message ?? kBlockedMessage)));
   }
 
   Future<void> _decline(BuildContext context, WidgetRef ref) async {
@@ -942,5 +1047,147 @@ class _SentTile extends ConsumerWidget {
     if (confirmed != true) return;
     final failure = await ref.read(sentRequestsControllerProvider.notifier).cancel(request.toUid);
     messenger?.showSnackBar(SnackBar(content: Text(failure?.message ?? 'Pedido cancelado.')));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bloqueados (slice 4)
+// ---------------------------------------------------------------------------
+
+class _BlockedSection extends ConsumerWidget {
+  final bool offline;
+
+  const _BlockedSection({required this.offline});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(blockedControllerProvider);
+    final controller = ref.read(blockedControllerProvider.notifier);
+    final theme = Theme.of(context);
+    final loading = state.phase == SentPhase.loading;
+
+    Widget body;
+    switch (state.phase) {
+      case SentPhase.idle || SentPhase.loading:
+        body = const _Skeleton(label: 'Carregando bloqueados');
+      case SentPhase.error:
+        body = _ListError(failure: state.failure, onRetry: controller.reload);
+      case SentPhase.loaded:
+        body = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (state.fromCache || offline)
+              _OfflineStrip(
+                state.fromCache
+                    ? 'Sem conexão. Mostrando a última lista salva neste aparelho.'
+                    : 'Sem conexão. Desbloquear exige internet.',
+              ),
+            if (state.items.isEmpty)
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 96),
+                child: const Text(
+                  'Você não bloqueou ninguém. Quem você bloquear deixa de ser seu amigo, '
+                  'não encontra você na busca, não consegue enviar pedidos e não é avisado. '
+                  'Para bloquear, use "Bloquear" no cartão de um amigo, de um pedido ou de um '
+                  'resultado da busca. Só você vê esta lista.',
+                ),
+              )
+            else
+              for (final user in state.items)
+                _BlockedTile(
+                  key: ValueKey(user.uid),
+                  user: user,
+                  saving: state.busy.contains(user.uid),
+                  disabled: offline,
+                ),
+            _MoreButton(state: state, offline: offline, onMore: controller.loadMore),
+          ],
+        );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Semantics(
+              header: true,
+              child: Text('Pessoas bloqueadas', style: theme.textTheme.titleMedium),
+            ),
+            TextButton.icon(
+              style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+              onPressed: loading || offline || state.loadingMore
+                  ? null
+                  : () => _refreshWithFeedback(context, controller.refresh),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Atualizar'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        body,
+      ],
+    );
+  }
+}
+
+class _BlockedTile extends ConsumerWidget {
+  final BlockedUser user;
+  final bool saving;
+  final bool disabled;
+
+  const _BlockedTile({super.key, required this.user, required this.saving, required this.disabled});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final since = user.since;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          PersonAvatar(photoUrl: user.photoUrl, nickname: user.name),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(user.name, style: theme.textTheme.titleMedium),
+                Text(
+                  since == null ? 'Bloqueado' : 'Bloqueado em ${formatSocialDate(since)}',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 4),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+                  onPressed: saving || disabled ? null : () => _unblock(context, ref),
+                  icon: saving ? const _Saving() : const Icon(Icons.lock_open_outlined),
+                  label: Text(
+                    saving ? 'Desbloqueando...' : 'Desbloquear',
+                    semanticsLabel: saving
+                        ? 'Desbloqueando ${user.name}'
+                        : 'Desbloquear ${user.name}',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _unblock(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (!await confirmUnblock(context, user.name)) return;
+    final failure = await ref.read(blockedControllerProvider.notifier).unblock(user);
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(failure?.message ?? 'Pessoa desbloqueada. A amizade não foi restaurada.'),
+      ),
+    );
   }
 }

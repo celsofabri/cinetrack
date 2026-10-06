@@ -7,6 +7,23 @@ import '../social/social_models.dart';
 import 'social_data_source.dart';
 import 'social_payloads.dart';
 
+/// A document read inside a transaction, without Firestore types: the seam
+/// ([SocialExecutor]) lets a test run this class's logic (crossed request,
+/// 300 cap, block) with no Firebase.
+typedef SocialSnapshot = ({bool exists, Map<String, dynamic>? data});
+
+/// Runs a [SocialWrite] the way its `mode` says. The default talks to
+/// Firestore; tests inject a recorder/fake. [check] sees the `reads` of a
+/// transaction and may throw to stop before anything is written.
+typedef SocialExecutor =
+    Future<void> Function(
+      SocialWrite write, {
+      void Function(Map<String, SocialSnapshot> reads)? check,
+    });
+
+/// Runs an aggregate `count()` query. The default asks the server.
+typedef SocialCountReader = Future<int> Function(SocialQuerySpec spec);
+
 /// Firestore implementation of the social documents of ONE user ([uid]).
 /// The security rules (`firestore.rules`, docs/51) are the real guard; this
 /// class only has to write exactly what they accept:
@@ -21,16 +38,24 @@ import 'social_payloads.dart';
 /// UNVERIFIED against a real project (needs Firebase): the emulator tests
 /// cover the rules for this sequence of operations, not this class.
 class FirestoreSocialDataSource implements SocialDataSource {
-  final FirebaseFirestore _db;
+  final FirebaseFirestore? firestore;
   @override
   final String uid;
   final Duration timeout;
+  final SocialExecutor? executor;
+  final SocialCountReader? countReader;
 
+  /// [executor] and [countReader] are test seams: with both injected this
+  /// class never touches Firebase (the instance is looked up lazily).
   FirestoreSocialDataSource({
     required this.uid,
     this.timeout = const Duration(seconds: 30),
-    FirebaseFirestore? firestore,
-  }) : _db = firestore ?? FirebaseFirestore.instance;
+    this.firestore,
+    @visibleForTesting this.executor,
+    @visibleForTesting this.countReader,
+  });
+
+  FirebaseFirestore get _db => firestore ?? FirebaseFirestore.instance;
 
   DocumentReference<Map<String, dynamic>> get _social => _db.collection('social').doc(uid);
   DocumentReference<Map<String, dynamic>> _handle(String h) => _db.collection('handles').doc(h);
@@ -174,7 +199,7 @@ class FirestoreSocialDataSource implements SocialDataSource {
           final other = reads[SocialPayloads.requestPath(draft.toUid, uid)];
           if (own?.exists ?? false) throw const SocialFailure(SocialFailureKind.alreadySent);
           if (other?.exists ?? false) {
-            inverse = other!.data();
+            inverse = other!.data;
             throw const _CrossedRequest();
           }
         },
@@ -218,7 +243,24 @@ class FirestoreSocialDataSource implements SocialDataSource {
   Future<void> removeFriend(String otherUid) =>
       _guard(() => _execute(SocialPayloads.removeFriend(uid, otherUid)), write: true);
 
-  Future<int> _count(SocialQuerySpec spec) async {
+  @override
+  Future<void> blockUser(BlockDraft draft) =>
+      _guard(() => _execute(SocialPayloads.blockUser(uid, draft)), write: true);
+
+  @override
+  Future<void> unblockUser(String blockedUid) =>
+      _guard(() => _execute(SocialPayloads.unblockUser(uid, blockedUid)), write: true);
+
+  @override
+  Future<RawSentPage> readBlockedPage({Object? cursor, required int limit}) =>
+      _page(SocialPayloads.blocksQuery(uid, limit + 1), cursor, limit);
+
+  Future<int> _count(SocialQuerySpec spec) {
+    final reader = countReader;
+    return reader != null ? reader(spec) : _countOnFirestore(spec);
+  }
+
+  Future<int> _countOnFirestore(SocialQuerySpec spec) async {
     final result = await _query(spec).count().get(source: AggregateSource.server);
     return result.count ?? 0;
   }
@@ -321,14 +363,17 @@ class FirestoreSocialDataSource implements SocialDataSource {
   /// golden + the rules replay follow).
   Future<void> _execute(
     SocialWrite write, {
-    void Function(Map<String, DocumentSnapshot<Map<String, dynamic>>> reads)? check,
+    void Function(Map<String, SocialSnapshot> reads)? check,
   }) {
+    final custom = executor;
+    if (custom != null) return custom(write, check: check);
     switch (write.mode) {
       case SocialWriteMode.transaction:
         return _db.runTransaction((tx) async {
-          final reads = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+          final reads = <String, SocialSnapshot>{};
           for (final path in write.reads) {
-            reads[path] = await tx.get(_doc(path));
+            final snap = await tx.get(_doc(path));
+            reads[path] = (exists: snap.exists, data: snap.data());
           }
           check?.call(reads);
           _applyTx(tx, write);

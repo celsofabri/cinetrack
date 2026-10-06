@@ -547,6 +547,22 @@ class SentRequestsController extends Notifier<SentRequestsState> {
     return (failure: null, outcome: outcome);
   }
 
+  /// Forgets the request sent to [toUid] (a block deleted it on the server).
+  void dropLocal(String toUid) {
+    if (!state.contains(toUid)) return;
+    state = state.copyWith(
+      items: [
+        for (final r in state.items)
+          if (r.toUid != toUid) r,
+      ],
+    );
+  }
+
+  /// Reads the first page again, only if the list was ever loaded.
+  void reloadIfLoaded() {
+    if (state.phase == SentPhase.loaded) reload();
+  }
+
   /// Cancels the request sent to [toUid]. Returns the failure to show, or null.
   Future<SocialFailure?> cancel(String toUid) async {
     if (state.cancelling.contains(toUid)) return null;

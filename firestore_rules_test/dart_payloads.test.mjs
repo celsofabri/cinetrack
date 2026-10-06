@@ -11,9 +11,12 @@ import {
   collection, doc, getCountFromServer, getDoc, getDocs, limit, orderBy, query, runTransaction,
   serverTimestamp, setDoc, startAfter, where, writeBatch,
 } from 'firebase/firestore';
-import { PHOTO, U, agoDays, makeTools, newEnv } from './social_helpers.mjs';
+import { PHOTO, U, agoDays, commit, makeTools, newEnv, pairId } from './social_helpers.mjs';
 
-const fx = JSON.parse(readFileSync(new URL('./fixtures/social_payloads.json', import.meta.url), 'utf8'));
+// FIXTURE_PATH lets the mutation harness (mutations.mjs) replay a deliberately broken copy.
+const fx = JSON.parse(
+  readFileSync(process.env.FIXTURE_PATH ?? new URL('./fixtures/social_payloads.json', import.meta.url), 'utf8'),
+);
 const S = fx.scenarios;
 const { ana, bruno } = U;
 
@@ -759,5 +762,366 @@ describe('Dart payloads (fixture): accept, decline, friends, remove (slice 3)', 
     // Bruno's list no longer has Ana
     const theirs = await getDocs(toQuery(t.db(bru), { ...fx.queries.friendships.query, where: [['members', 'array-contains', bru]] }));
     assert.equal(theirs.empty, true);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Slice 4 (docs/65): block, unblock, list the blocked, and what a block does to the other
+// operations. Same fixture, same rules: nothing about the payloads is copied by hand.
+// ---------------------------------------------------------------------------------------------
+describe('Dart payloads (fixture): block, unblock, blocked list (slice 4)', () => {
+  const bru = bruno;
+  const caio = U.caio;
+  const blk = S.blockUser;
+  const blockPath = `users/${ana}/blocks/${bru}`;
+  const pairPath = `friendships/${ana}_${bru}`;
+  const sentPath = `friend_requests/${ana}_${bru}`;
+  const recvPath = `friend_requests/${bru}_${ana}`;
+  const bothActive = async () => {
+    await t.seedSocial(ana, { handle: 'ana' });
+    await t.seedSocial(bru, { handle: 'bruno' });
+  };
+  const has = (path) => t.exists(path.split('/'));
+  const without = (w, path) => {
+    const c = clone(w);
+    c.ops = c.ops.filter((o) => o.path !== path);
+    return c;
+  };
+  const edit = (w, fn) => {
+    const c = clone(w);
+    fn(c.ops[0], c);
+    return c;
+  };
+  // The state of the relationship before blocking: which of the three documents exist.
+  const STATES = {
+    'nothing (never interacted)': {},
+    'only a friendship': { pair: true },
+    'only a received request': { recv: true },
+    'only a sent request': { sent: true },
+    'both requests': { sent: true, recv: true },
+    'friendship and both requests (race)': { pair: true, sent: true, recv: true },
+  };
+  const seedState = async (s) => {
+    await bothActive();
+    if (s.pair) await t.seedFriendship(ana, bru);
+    if (s.sent) await t.seedRequest(ana, bru);
+    if (s.recv) await t.seedRequest(bru, ana);
+  };
+
+  it('the block is ONE batch: create the block, delete the pair and BOTH requests (from the fixture)', () => {
+    for (const name of ['blockUser', 'blockUser_with_photo', 'blockUser_bare']) {
+      const w = S[name].write;
+      assert.equal(w.mode, 'batch');
+      assert.equal(w.reads, undefined, 'no read first');
+      assert.deepEqual(w.ops.map((o) => o.op), ['set', 'delete', 'delete', 'delete']);
+      assert.equal(w.ops[0].path, blockPath);
+      assert.deepEqual(w.ops.slice(1).map((o) => o.path).sort(), [pairPath, sentPath, recvPath].sort());
+    }
+    assert.deepEqual(Object.keys(S.blockUser_bare.write.ops[0].data), ['createdAt']);
+    assert.equal(S.unblockUser.write.ops.length, 1);
+    assert.equal(S.unblockUser.write.ops[0].op, 'delete');
+  });
+
+  for (const name of ['blockUser', 'blockUser_with_photo', 'blockUser_bare']) {
+    for (const [label, s] of Object.entries(STATES)) {
+      it(`${name} with ${label}: accepted; afterwards no friendship and no request in either direction`, async () => {
+        await seedState(s);
+        await assertSucceeds(run(t.db(ana), S[name].write));
+        const snap = await getDoc(ref(t.db(ana), blockPath));
+        assert.equal(snap.exists(), true);
+        assert.equal(snap.data().blockedName, S[name].input.name ?? undefined);
+        assert.equal(await has(pairPath), false);
+        assert.equal(await has(sentPath), false);
+        assert.equal(await has(recvPath), false);
+      });
+    }
+  }
+
+  it('the other side of a friendship can block too (pair id sorts the other way)', async () => {
+    await bothActive();
+    await t.seedFriendship(ana, bru);
+    // Bruno blocks Ana: the same shape as the fixture payload, with the uids swapped.
+    const swapped = {
+      mode: 'batch',
+      ops: [
+        { op: 'set', path: `users/${bru}/blocks/${ana}`, data: clone(blk.write.ops[0].data) },
+        { op: 'delete', path: pairPath },
+        { op: 'delete', path: `friend_requests/${bru}_${ana}` },
+        { op: 'delete', path: `friend_requests/${ana}_${bru}` },
+      ],
+    };
+    await assertSucceeds(run(t.db(bru), swapped));
+    assert.equal(await has(pairPath), false);
+    assert.equal(await has(`users/${bru}/blocks/${ana}`), true);
+  });
+
+  it('blocking WITHOUT the right batch is denied: each missing delete is refused when its document exists', async () => {
+    await seedState({ pair: true, sent: true, recv: true });
+    const w = blk.write;
+    await assertFails(run(t.db(ana), without(w, pairPath)));
+    await assertFails(run(t.db(ana), without(w, sentPath)));
+    await assertFails(run(t.db(ana), without(w, recvPath)));
+    await assertFails(run(t.db(ana), { mode: 'batch', ops: [w.ops[0]] }));
+    assert.equal(await has(blockPath), false, 'nothing is created by a refused batch');
+    assert.equal(await has(pairPath), true);
+    await assertSucceeds(run(t.db(ana), w));
+  });
+
+  it('a lone `set` of the block is fine when nothing exists to delete (the deletes are only for what exists)', async () => {
+    await bothActive();
+    await assertSucceeds(run(t.db(ana), { mode: 'batch', ops: [blk.write.ops[0]] }));
+  });
+
+  it('blocking myself is denied', async () => {
+    await bothActive();
+    const self = edit(blk.write, (op, c) => {
+      op.path = `users/${ana}/blocks/${ana}`;
+      c.ops = [op];
+    });
+    await assertFails(run(t.db(ana), self));
+  });
+
+  it('blocking twice: the second batch is an update, denied; the first block is untouched', async () => {
+    await seedState({ pair: true });
+    await assertSucceeds(run(t.db(ana), blk.write));
+    const before = (await getDoc(ref(t.db(ana), blockPath))).data();
+    await assertFails(run(t.db(ana), S.blockUser_with_photo.write));
+    const after = (await getDoc(ref(t.db(ana), blockPath))).data();
+    assert.deepEqual(after, before);
+  });
+
+  it('blocking somebody who never turned friendships on is accepted (the block is only mine); so is a non-Google session', async () => {
+    await t.seedSocial(ana, { handle: 'ana' });
+    await assertSucceeds(run(t.db(ana), blk.write));
+    await env.clearFirestore();
+    await bothActive();
+    await assertSucceeds(run(t.dbWith(ana, 'password'), blk.write));
+  });
+
+  it('only the owner creates a block under their own uid: a third party and anonymous are denied', async () => {
+    await bothActive();
+    await assertFails(run(t.db(bru), blk.write));
+    await assertFails(run(t.db(caio), blk.write));
+    await assertFails(run(t.anon(), blk.write));
+    assert.equal(await has(blockPath), false);
+  });
+
+  it('field limits (derived from the fixture): extra field, name, photo host, client clock, missing createdAt', async () => {
+    await bothActive();
+    const w = S.blockUser_with_photo.write;
+    const bad = {
+      'extra field': (op) => (op.data.note = 'oi'),
+      'name empty': (op) => (op.data.blockedName = '  '),
+      'name 41 chars': (op) => (op.data.blockedName = 'x'.repeat(41)),
+      'name with zero-width space': (op) => (op.data.blockedName = 'Br​uno'),
+      'photo outside Google': (op) => (op.data.blockedPhoto = 'https://evil.example/x.png'),
+      'client clock': (op) => (op.data.createdAt = new Date().toISOString()),
+      'no createdAt': (op) => delete op.data.createdAt,
+    };
+    for (const [label, fn] of Object.entries(bad)) {
+      await assertFails(run(t.db(ana), edit(w, fn)), label);
+    }
+    await assertSucceeds(run(t.db(ana), edit(w, (op) => (op.data.blockedName = '\u{1F3AC}'.repeat(20)))));
+  });
+
+  it('uids with "_" or "/" cannot be blocked (ambiguous composite ids)', async () => {
+    await bothActive();
+    const w = edit(blk.write, (op) => (op.path = `users/${ana}/blocks/uid_x`));
+    await assertFails(run(t.db(ana), w));
+  });
+
+  it('blocking N people in ONE batch is recorded (the app blocks one per batch)', async () => {
+    const out = {};
+    for (const n of [1, 3, 6, 7]) {
+      await env.clearFirestore();
+      await t.seedSocial(ana, { handle: 'ana' });
+      const others = Array.from({ length: n }, (_, i) => `u${i}`);
+      for (const o of others) {
+        await t.seedSocial(o, { handle: `h${o}` });
+        await t.seedFriendship(ana, o);
+        await t.seedRequest(ana, o);
+        await t.seedRequest(o, ana);
+      }
+      const d = t.db(ana);
+      out[n] = await commit(d, (b) => {
+        for (const o of others) {
+          b.set(doc(d, 'users', ana, 'blocks', o), { createdAt: serverTimestamp() });
+          b.delete(doc(d, 'friendships', pairId(ana, o)));
+          b.delete(doc(d, 'friend_requests', `${ana}_${o}`));
+          b.delete(doc(d, 'friend_requests', `${o}_${ana}`));
+        }
+      }).then(() => 'ok', (e) => e.code);
+    }
+    console.log('block N in one batch (emulator):', JSON.stringify(out));
+    assert.equal(out[1], 'ok');
+    assert.equal(out[3], 'ok');
+  });
+
+  // ---- unblock ----
+  it('unblock: the owner deletes the block; the friendship and the requests are NOT restored', async () => {
+    await seedState({ pair: true, sent: true, recv: true });
+    await assertSucceeds(run(t.db(ana), blk.write));
+    await assertSucceeds(run(t.db(ana), S.unblockUser.write));
+    assert.equal(await has(blockPath), false);
+    assert.equal(await has(pairPath), false);
+    assert.equal(await has(sentPath), false);
+    assert.equal(await has(recvPath), false);
+  });
+
+  it('unblock of a block that does not exist is accepted (idempotent); repeating is harmless', async () => {
+    await bothActive();
+    await assertSucceeds(run(t.db(ana), S.unblockUser.write));
+    await assertSucceeds(run(t.db(ana), blk.write));
+    await assertSucceeds(run(t.db(ana), S.unblockUser.write));
+    await assertSucceeds(run(t.db(ana), S.unblockUser.write));
+  });
+
+  it('unblock: I cannot delete a block that SOMEBODY ELSE made (not even to find out whether it exists)', async () => {
+    await bothActive();
+    await t.seedBlock(bru, ana);
+    const theirs = edit(S.unblockUser.write, (op) => (op.path = `users/${bru}/blocks/${ana}`));
+    await assertFails(run(t.db(ana), theirs));
+    assert.equal(await has(`users/${bru}/blocks/${ana}`), true);
+    const none = edit(S.unblockUser.write, (op) => (op.path = `users/${bru}/blocks/${caio}`));
+    await assertFails(run(t.db(ana), none));
+    // the blocked person cannot delete the block against them either
+    await assertFails(run(t.db(caio), S.unblockUser.write));
+  });
+
+  it('after unblocking, a new request is possible again (the block never restored anything)', async () => {
+    await seedState({ pair: true });
+    await assertSucceeds(run(t.db(ana), blk.write));
+    await assertFails(run(t.db(ana), S.sendRequest.write));
+    await assertSucceeds(run(t.db(ana), S.unblockUser.write));
+    await assertSucceeds(run(t.db(ana), S.sendRequest.write));
+    assert.equal(await has(pairPath), false);
+  });
+
+  // ---- list ----
+  it('blocked query: only MY blocks, newest first, paged with startAfter; nobody else can run it', async () => {
+    await bothActive();
+    await t.seed(async (d) => {
+      const mk = (owner, id, days) =>
+        setDoc(doc(d, 'users', owner, 'blocks', id), { blockedName: id, createdAt: agoDays(days) });
+      await mk(ana, 'uid-x1', 3);
+      await mk(ana, 'uid-x2', 1);
+      await mk(ana, 'uid-x3', 2);
+      await mk(bru, 'uid-y1', 1); // somebody else's block: must not appear
+    });
+    const spec = fx.requestQueries.blocked.query;
+    assert.equal(spec.collection, `users/${ana}/blocks`);
+    assert.deepEqual(spec.where, []);
+    const db = t.db(ana);
+    const first = await assertSucceeds(getDocs(toQuery(db, { ...spec, limit: 3 })));
+    assert.deepEqual(first.docs.map((x) => x.id), ['uid-x2', 'uid-x3', 'uid-x1']);
+    const page2 = await assertSucceeds(
+      getDocs(query(toQuery(db, { ...spec, limit: 3 }), startAfter(first.docs[1]))),
+    );
+    assert.deepEqual(page2.docs.map((x) => x.id), ['uid-x1']);
+    await assertFails(getDocs(toQuery(t.db(bru), spec)));
+    await assertFails(getDocs(toQuery(t.db(caio), spec)));
+    await assertFails(getDocs(toQuery(t.anon(), spec)));
+  });
+
+  it('the blocked person cannot read the block (get or list), nor learn it exists', async () => {
+    await seedState({ pair: true });
+    await assertSucceeds(run(t.db(ana), blk.write));
+    await assertFails(getDoc(ref(t.db(bru), blockPath)));
+    await assertFails(getDocs(toQuery(t.db(bru), fx.requestQueries.blocked.query)));
+    await assertSucceeds(getDoc(ref(t.db(ana), blockPath)));
+    // Bruno's own lists show nothing of Ana: the friendship and both requests are gone
+    const theirs = await getDocs(
+      toQuery(t.db(bru), { ...fx.requestQueries.friends.query, where: [['members', 'array-contains', bru]] }),
+    );
+    assert.equal(theirs.empty, true);
+  });
+
+  // ---- effect of a block on the other operations ----
+  it('whoever was blocked cannot send a request to the blocker (denied) and nothing is created', async () => {
+    await bothActive();
+    await assertSucceeds(run(t.db(ana), blk.write));
+    const fromBruno = edit(S.sendRequest.write, (op) => {
+      op.path = `friend_requests/${bru}_${ana}`;
+      op.data = { ...op.data, from: bru, to: ana, fromName: 'Bruno', toName: 'Ana' };
+    });
+    await assertFails(run(t.db(bru), fromBruno));
+    assert.equal(await has(recvPath), false);
+    // ... and the blocker cannot ask the blocked person either
+    await assertFails(run(t.db(ana), S.sendRequest.write));
+  });
+
+  it('a request sent by the person I blocked disappears with the block, so accepting it is denied (nothing created)', async () => {
+    await bothActive();
+    await t.seedRequest(bru, ana, { fromName: S.acceptRequest.input.fromName });
+    await assertSucceeds(run(t.db(ana), blk.write));
+    await assertFails(run(t.db(ana), S.acceptRequest.write));
+    assert.equal(await has(pairPath), false);
+    // even if the request is re-created behind our back, the block keeps accept denied
+    await t.seedRequest(bru, ana, { fromName: S.acceptRequest.input.fromName });
+    await assertFails(run(t.db(ana), S.acceptRequest.write));
+    assert.equal(await has(pairPath), false);
+  });
+
+  it('crossed request is impossible across a block: blocked in either direction, the batch is denied', async () => {
+    await bothActive();
+    await t.seedRequest(bru, ana, { fromName: S.acceptRequest.input.fromName });
+    await t.seedBlock(bru, ana); // bruno blocked ana (seeded: leaves his request, an inconsistency the rules still survive)
+    await assertFails(run(t.db(ana), S.acceptRequest.write));
+    assert.equal(await has(pairPath), false);
+  });
+
+  it('search: the card of somebody who blocked me is DENIED exactly like a hidden card; a missing handle is just "no document"', async () => {
+    await t.seedSocial(ana, { handle: 'ana' });
+    await t.seedSocial(bru, { handle: 'bruno' });
+    await t.seedSocial(caio, { handle: 'caio', discoverable: false });
+    await t.seedBlock(bru, ana);
+    const code = async (p) => {
+      try {
+        await getDoc(ref(t.db(ana), p));
+        return 'ok';
+      } catch (e) {
+        return e.code;
+      }
+    };
+    const blocked = await code(fx.lookups.handle.get); // handles/bruno
+    const hidden = await code('handles/caio');
+    assert.equal(blocked, 'permission-denied');
+    assert.equal(hidden, blocked, 'blocked and hidden are indistinguishable');
+    // The app maps both denied and "no document" to ONE message (SearchNotFound); a missing
+    // handle is the only different answer at the rules level, and the screen does not show it.
+    assert.equal(await code('handles/ninguem'), 'ok');
+  });
+
+  it('search by the blocker is also closed (the blocker does not find the blocked person), and unblocking reopens both', async () => {
+    await bothActive();
+    await assertSucceeds(run(t.db(ana), blk.write));
+    await assertFails(getDoc(ref(t.db(ana), 'handles/bruno')));
+    await assertFails(getDoc(ref(t.db(bru), 'handles/ana')));
+    await assertSucceeds(run(t.db(ana), S.unblockUser.write));
+    await assertSucceeds(getDoc(ref(t.db(ana), 'handles/bruno')));
+    await assertSucceeds(getDoc(ref(t.db(bru), 'handles/ana')));
+  });
+
+  it('friends / received / sent lists of both people are empty after the block (nothing left for either)', async () => {
+    await seedState({ pair: true, sent: true, recv: true });
+    await assertSucceeds(run(t.db(ana), blk.write));
+    for (const [uid, who] of [[ana, 'ana'], [bru, 'bruno']]) {
+      const f = await getDocs(toQuery(t.db(uid), { ...fx.requestQueries.friends.query, where: [['members', 'array-contains', uid]] }));
+      const r = await getDocs(toQuery(t.db(uid), { ...fx.requestQueries.received.query, where: [['to', '==', uid]] }));
+      const s = await getDocs(toQuery(t.db(uid), { ...fx.requestQueries.sent.query, where: [['from', '==', uid]] }));
+      assert.equal(f.size + r.size + s.size, 0, `${who} sees nothing`);
+    }
+  });
+
+  it('deactivate / delete-account sweep removes REAL blocks created by the app payload', async () => {
+    await seedState({ pair: true });
+    await assertSucceeds(run(t.db(ana), blk.write));
+    const db = t.db(ana);
+    const swept = await assertSucceeds(getDocs(toQuery(db, fx.queries.blocks.query)));
+    assert.deepEqual(swept.docs.map((x) => x.id), [bru]);
+    await assertSucceeds(
+      run(db, { mode: 'batch', ops: swept.docs.map((x) => ({ op: 'delete', path: `users/${ana}/blocks/${x.id}` })) }),
+    );
+    assert.equal(await has(blockPath), false);
   });
 });

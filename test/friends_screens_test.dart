@@ -19,7 +19,9 @@ void main() {
       expect(find.textContaining('sem aviso'), findsOneWidget);
       expect(find.text('Adicionar amigo'), findsOneWidget);
       expect(find.textContaining('Recebidos'), findsNothing);
-      expect(find.textContaining('Bloqueados'), findsNothing);
+      // Slice 4: "Bloqueados" is a real tab now (only the tab label, no list drawn here).
+      expect(find.text('Bloqueados'), findsOneWidget);
+      expect(find.textContaining('Você não bloqueou ninguém'), findsNothing);
       expect(find.textContaining('em breve'), findsNothing);
       expect(app.social.log, isEmpty); // nothing was written
     });

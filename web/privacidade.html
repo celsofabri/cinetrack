@@ -38,7 +38,7 @@
     <tr><td>Identificador da sua conta (um código, não o seu nome)</td><td>Banco de dados na nuvem</td><td>Separar os seus dados dos de outras pessoas</td></tr>
     <tr><td>Seus favoritos, filmes assistidos e episódios assistidos (com a data em que foram marcados) e quais títulos você marcou como <strong>Recomendo</strong> (&ldquo;Minhas recomendações&rdquo;)</td><td>Banco de dados na nuvem</td><td>Mostrar a mesma lista em qualquer aparelho</td></tr>
     <tr><td>Apelido (opcional, de 1 a 40 caracteres)</td><td>Banco de dados na nuvem</td><td>Mostrar o nome que você escolheu</td></tr>
-    <tr><td><strong>Só se você ativar as amizades:</strong> identificador (@usuario), cartão de busca (identificador, apelido, endereço da foto do Google e a opção &ldquo;Aparecer na busca&rdquo;), os <strong>pedidos de amizade</strong> que você envia e recebe (quem pediu e para quem, o apelido e a foto dos dois como estavam nos cartões, e a data), as <strong>amizades</strong> (os dois identificadores, o apelido e a foto de cada um como estavam nos cartões, e a data) e, nas próximas etapas, bloqueios e convite</td><td>Banco de dados na nuvem</td><td>Permitir que outras pessoas encontrem você e vocês sejam amigos</td></tr>
+    <tr><td><strong>Só se você ativar as amizades:</strong> identificador (@usuario), cartão de busca (identificador, apelido, endereço da foto do Google e a opção &ldquo;Aparecer na busca&rdquo;), os <strong>pedidos de amizade</strong> que você envia e recebe (quem pediu e para quem, o apelido e a foto dos dois como estavam nos cartões, e a data), as <strong>amizades</strong> (os dois identificadores, o apelido e a foto de cada um como estavam nos cartões, e a data), os <strong>bloqueios</strong> que você fizer (o identificador interno da pessoa bloqueada e o apelido e a foto dela como apareciam no cartão que você viu, e a data) e, na próxima etapa, o convite</td><td>Banco de dados na nuvem</td><td>Permitir que outras pessoas encontrem você e vocês sejam amigos</td></tr>
   </table>
   <h2>Amizades (opcional, desligado por padrão)</h2>
   <p>As amizades só existem se <strong>você</strong> as ativar em Perfil &rarr; Amizades. Quem não
@@ -71,8 +71,17 @@
     <li><strong>Remover um amigo:</strong> &ldquo;Remover amizade&rdquo; apaga o registro da amizade
     para os dois lados e <strong>a outra pessoa não é avisada</strong>; ela só deixa de ver você na
     lista. Para voltar a ser amigos é preciso um novo pedido, aceito de novo.</li>
-    <li><strong>Bloquear:</strong> você poderá bloquear alguém; a pessoa bloqueada deixa de ver seu
-    cartão, não consegue pedir amizade e não é avisada.</li>
+    <li><strong>Bloquear e desbloquear:</strong> &ldquo;Bloquear&rdquo; (no cartão de um amigo, de um
+    pedido recebido ou de um resultado da busca) desfaz a amizade, cancela os pedidos pendentes entre
+    vocês nos dois sentidos e grava o bloqueio, tudo de uma vez. A pessoa bloqueada <strong>não é
+    avisada</strong>, não encontra mais você na busca e não consegue pedir amizade; ela só percebe que
+    a amizade ou o pedido deixaram de existir, como se tivessem sido removidos ou recusados. O
+    bloqueio guarda o identificador interno da pessoa, o apelido e a foto dela como estavam no cartão
+    que você viu, e a data, <strong>e só você consegue ler esse registro</strong>; a pessoa bloqueada
+    não tem acesso a ele nem a qualquer dado seu por causa dele. &ldquo;Desbloquear&rdquo; apaga o
+    registro; <strong>a amizade e os pedidos antigos não voltam</strong> (seria preciso pedir e
+    aceitar de novo). Se a pessoa bloqueada apagar a conta, o apelido que você guardou continua só
+    no seu registro até você desbloquear.</li>
     <li><strong>Desativar, exclusão e exportação:</strong> &ldquo;Desativar amizades&rdquo; apaga o
     identificador, o cartão, seus amigos, pedidos enviados e recebidos, bloqueios e convite, e você some da lista dos
     outros (o registro da amizade é apagado para os dois lados). &ldquo;Excluir minha conta e dados&rdquo; apaga tudo isso também, e

@@ -55,7 +55,46 @@ const MUTATIONS = [
     [["        && (otherIsA ? d.aName : d.bName) == req.fromName\n", "\n"]], true],
   ['M26 the sender confirms their own request (accept without the other side\'s request)',
     [["let req = get(requestPath(other, me)).data;", "let req = get(requestPath(me, other)).data;"]], true],
+  // Slice 4 (docs/65): block / unblock; killed by the replay of the Dart payloads.
+  ['M27 the blocked person can read the block (any signed-in user reads blocks)',
+    [["      allow read: if isOwner(uid);\n      allow create: if isOwner(uid)\n        && request.resource.data.keys().hasOnly(['blockedName'", "      allow read: if request.auth != null;\n      allow create: if isOwner(uid)\n        && request.resource.data.keys().hasOnly(['blockedName'"]], true],
+  ['M28 block create does not require removing the RECEIVED request',
+    [["        && !existsAfter(requestPath(uid, blocked))\n        && !existsAfter(requestPath(blocked, uid));", "        && !existsAfter(requestPath(uid, blocked));"]], true],
+  ['M29 block create does not require removing the SENT request',
+    [["        && !existsAfter(requestPath(uid, blocked))\n        && !existsAfter(requestPath(blocked, uid));", "        && !existsAfter(requestPath(blocked, uid));"]], true],
+  ['M30 somebody else deletes (unblocks) my block',
+    [["      allow update: if false;\n      allow delete: if isOwner(uid);\n    }\n\n    // --- social", "      allow update: if false;\n      allow delete: if request.auth != null;\n    }\n\n    // --- social"]], true],
+  ['M31 self-block accepted',
+    [["        && validUid(blocked) && blocked != uid\n", "        && validUid(blocked)\n"]], true],
+  ['M32 blocking twice (an update of the block) accepted',
+    [["      allow update: if false;\n      allow delete: if isOwner(uid);\n    }\n\n    // --- social", "      allow update: if isOwner(uid);\n      allow delete: if isOwner(uid);\n    }\n\n    // --- social"]], true],
+  ['M33 block name not validated (zero-width / 41 chars accepted)',
+    [["        && (!('blockedName' in request.resource.data) || validName(request.resource.data.blockedName))\n", "\n"]], true],
 ];
+
+// Mutations of the PAYLOADS (the Dart side) instead of the rules: a deliberately broken copy of the
+// fixture is replayed against the REAL rules; the replay must fail (the golden Dart test pins the
+// real fixture, so the same change in Dart fails there first).
+const FIXTURE_MUTATIONS = [
+  ['F1 block payload forgets to delete the friendship',
+    (fx) => dropOp(fx, 'friendships/')],
+  ['F2 block payload forgets to delete the request I sent',
+    (fx) => dropOp(fx, 'friend_requests/uid-ana_uid-bruno')],
+  ['F3 block payload forgets to delete the request I received',
+    (fx) => dropOp(fx, 'friend_requests/uid-bruno_uid-ana')],
+  ['F4 block payload writes the block on the OTHER person\'s uid',
+    (fx) => {
+      for (const n of ['blockUser', 'blockUser_with_photo', 'blockUser_bare']) {
+        fx.scenarios[n].write.ops[0].path = 'users/uid-bruno/blocks/uid-ana';
+      }
+    }],
+];
+function dropOp(fx, prefix) {
+  for (const n of ['blockUser', 'blockUser_with_photo', 'blockUser_bare']) {
+    const w = fx.scenarios[n].write;
+    w.ops = w.ops.filter((o, i) => i === 0 || !o.path.startsWith(prefix));
+  }
+}
 
 const dir = mkdtempSync(join(tmpdir(), 'cinetrack-mut-'));
 let survived = 0;
@@ -85,5 +124,25 @@ for (const [name, edits, replay] of MUTATIONS) {
     console.log(`KILLED    ${name}  (${leaf.length} failing tests, e.g. "${leaf[0] ?? failed[0]}")`);
   }
 }
-console.log(survived === 0 ? `\nAll ${MUTATIONS.length} mutations were killed.` : `\n${survived} mutation(s) SURVIVED.`);
+const fixture = JSON.parse(readFileSync(new URL('./fixtures/social_payloads.json', import.meta.url), 'utf8'));
+for (const [name, mutate] of FIXTURE_MUTATIONS) {
+  if (process.env.ONLY && !name.startsWith(`${process.env.ONLY} `)) continue;
+  const copy = JSON.parse(JSON.stringify(fixture));
+  mutate(copy);
+  const file = join(dir, `${name.split(' ')[0]}.json`);
+  writeFileSync(file, JSON.stringify(copy));
+  const r = spawnSync('node', ['--test', '--test-concurrency=1', '--test-reporter=tap', 'dart_payloads.test.mjs'], {
+    env: { ...process.env, FIXTURE_PATH: file },
+    encoding: 'utf8',
+  });
+  const failed = [...r.stdout.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => m[1]);
+  if (r.status === 0) {
+    survived++;
+    console.log(`SURVIVED  ${name}`);
+  } else {
+    console.log(`KILLED    ${name}  (${failed.length} failing tests, e.g. "${failed[0]}")`);
+  }
+}
+const TOTAL = MUTATIONS.length + FIXTURE_MUTATIONS.length;
+console.log(survived === 0 ? `\nAll ${TOTAL} mutations were killed.` : `\n${survived} mutation(s) SURVIVED.`);
 process.exit(survived === 0 ? 0 : 1);
