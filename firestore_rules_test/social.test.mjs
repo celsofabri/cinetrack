@@ -393,6 +393,121 @@ describe('pedidos de amizade (friend_requests)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// docs/71 🟡-3 / docs/73: the request is bound to the sender's CURRENT @handle (unique and
+// unforgeable). Name and photo are free text; the handle is what the recipient can trust.
+describe('pedido amarrado ao @handle do remetente (fromHandle)', () => {
+  const key = `${ana}_${bruno}`;
+  it('the current handle is accepted; missing, wrong, someone else\'s or wrong type is denied', async () => {
+    await both();
+    await t.seedSocial(caio);
+    const d = t.db(ana);
+    const { fromHandle, ...noHandle } = requestData(ana, bruno);
+    assert.equal(fromHandle, 'ana');
+    const bad = {
+      'missing fromHandle': noHandle,
+      'typo (another string)': requestData(ana, bruno, { fromHandle: 'ana_' }),
+      'recipient\'s handle': requestData(ana, bruno, { fromHandle: 'bruno' }),
+      'a third person\'s handle': requestData(ana, bruno, { fromHandle: 'caio' }),
+      'uppercase variant': requestData(ana, bruno, { fromHandle: 'ANA' }),
+      'null': requestData(ana, bruno, { fromHandle: null }),
+      'wrong type': requestData(ana, bruno, { fromHandle: 7 }),
+    };
+    for (const [name, data] of Object.entries(bad)) {
+      await assert.doesNotReject(assertFails(setDoc(doc(d, 'friend_requests', key), data)), name);
+    }
+    await assertSucceeds(setDoc(requestRef(d, ana, bruno), requestData(ana, bruno)));
+    const stored = await getDoc(requestRef(t.db(bruno), ana, bruno));
+    assert.equal(stored.data().fromHandle, 'ana');
+  });
+  it('a custom handle must match social/{uid}.handle exactly', async () => {
+    await t.seedSocial(ana, { handle: 'ana_s' });
+    await t.seedSocial(bruno);
+    const d = t.db(ana);
+    await assertFails(setDoc(requestRef(d, ana, bruno), requestData(ana, bruno)));
+    await assertSucceeds(setDoc(requestRef(d, ana, bruno), requestData(ana, bruno, { fromHandle: 'ana_s' })));
+  });
+  it('impersonation: copying another person\'s name, photo AND handle is denied; own handle is shown', async () => {
+    await t.seedSocial(ana, { photo: PHOTO });
+    await t.seedSocial(bruno);
+    await t.seedSocial(caio);
+    const malu = t.db(caio);
+    const fake = requestData(caio, bruno, { fromName: nm(ana), fromPhoto: PHOTO, fromHandle: 'ana' });
+    await assertFails(setDoc(requestRef(malu, caio, bruno), fake));
+    // With her own handle the request goes through, and Bruno sees "@caio", not "@ana".
+    await assertSucceeds(setDoc(requestRef(malu, caio, bruno), { ...fake, fromHandle: 'caio' }));
+    const seen = await getDoc(requestRef(t.db(bruno), caio, bruno));
+    assert.equal(seen.data().fromHandle, 'caio');
+  });
+  it('a sender without social (no handle to bind) is denied', async () => {
+    await t.seedSocial(bruno);
+    await assertFails(setDoc(requestRef(t.db(caio), caio, bruno), requestData(caio, bruno)));
+  });
+  it('crossed request and accept keep working with the handle on the requests', async () => {
+    await both();
+    await t.seedRequest(ana, bruno);
+    await assertSucceeds(setDoc(requestRef(t.db(bruno), bruno, ana), requestData(bruno, ana)));
+    await assertSucceeds(acceptBatch(t.db(ana), ana, bruno));
+    assert.ok(await t.exists(['friendships', pairId(ana, bruno)]));
+    assert.equal(await t.exists(['friend_requests', `${ana}_${bruno}`]), false);
+    assert.equal(await t.exists(['friend_requests', `${bruno}_${ana}`]), false);
+  });
+  it('handle changed AFTER sending: the old request stays and can still be accepted; new requests need the new handle', async () => {
+    await t.seedSocial(ana, { handle: 'velho', changedAt: agoDays(40) });
+    await t.seedSocial(bruno);
+    await t.seedSocial(caio);
+    const d = t.db(ana);
+    await assertSucceeds(setDoc(requestRef(d, ana, bruno), requestData(ana, bruno, { fromHandle: 'velho' })));
+    // Ana moves to "novo" (the old reservation is freed in the same transaction).
+    await assertSucceeds(
+      commit(d, (b) => {
+        b.delete(doc(d, 'handles', 'velho'));
+        b.set(doc(d, 'handles', 'novo'), cardData(ana));
+        b.update(doc(d, 'social', ana), { handle: 'novo', handleChangedAt: st() });
+      }),
+    );
+    // The pending request is a snapshot: it still says "velho" ...
+    const pending = await getDoc(requestRef(t.db(bruno), ana, bruno));
+    assert.equal(pending.data().fromHandle, 'velho');
+    // ... a NEW request with the old handle is denied; with the new one it passes.
+    await assertFails(setDoc(requestRef(d, ana, caio), requestData(ana, caio, { fromHandle: 'velho' })));
+    await assertSucceeds(setDoc(requestRef(d, ana, caio), requestData(ana, caio, { fromHandle: 'novo' })));
+    // Somebody else takes "velho": their requests carry it legitimately, and Ana's old request
+    // is still acceptable (the accept never looks at fromHandle).
+    await t.seedSocial(dora, { handle: 'velho' });
+    await assertSucceeds(setDoc(requestRef(t.db(dora), dora, bruno), requestData(dora, bruno, { fromHandle: 'velho' })));
+    await assertSucceeds(acceptBatch(t.db(bruno), bruno, ana));
+    assert.ok(await t.exists(['friendships', pairId(ana, bruno)]));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// docs/72 L2: "Aparecer na busca" off only hides MY card; I still search, send, cancel, accept.
+describe('quem esta fora da busca continua usando as amizades', () => {
+  it('a hidden user ("Aparecer na busca" off) still reads visible cards, sends, cancels and accepts', async () => {
+    await t.seedSocial(ana, { discoverable: false });
+    await t.seedSocial(bruno);
+    await t.seedSocial(caio);
+    const d = t.db(ana);
+    // Ana is hidden from others ...
+    await assertFails(getDoc(doc(t.db(bruno), 'handles', 'ana')));
+    // ... but she reads visible cards (search) ...
+    const card = await assertSucceeds(getDoc(doc(d, 'handles', 'bruno')));
+    assert.equal(card.data().uid, bruno);
+    // ... sends a request and cancels it ...
+    await assertSucceeds(setDoc(requestRef(d, ana, bruno), requestData(ana, bruno)));
+    await assertSucceeds(deleteDoc(requestRef(d, ana, bruno)));
+    // ... and accepts a request she received (one batch that consumes it).
+    await t.seedRequest(caio, ana);
+    await assertSucceeds(acceptBatch(d, ana, caio));
+    assert.ok(await t.exists(['friendships', pairId(ana, caio)]));
+    // A hidden recipient accepts too (reached by uid: invite link or crossed request).
+    await t.seedSocial(dora, { discoverable: false });
+    await assertSucceeds(setDoc(requestRef(t.db(bruno), bruno, dora), requestData(bruno, dora)));
+    await assertSucceeds(acceptBatch(t.db(dora), dora, bruno));
+  });
+});
+
+// ---------------------------------------------------------------------------
 describe('amizade (friendships): so nasce com consentimento do outro lado', () => {
   it('neither side can create a friendship alone (no request at all)', async () => {
     await both();

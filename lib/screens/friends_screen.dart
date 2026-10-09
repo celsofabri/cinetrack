@@ -824,6 +824,10 @@ class _ReceivedTile extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(request.fromName, style: theme.textTheme.titleMedium),
+                // The handle is the identifier nobody can forge (docs/73): name and photo
+                // are free text, so this line is what tells two "Ana" apart.
+                if (request.fromHandle case final handle?)
+                  Text('@$handle', style: theme.textTheme.bodyMedium),
                 Text(
                   at == null ? 'Quer ser seu amigo' : 'Pedido de ${formatSocialDate(at)}',
                   style: theme.textTheme.bodySmall,

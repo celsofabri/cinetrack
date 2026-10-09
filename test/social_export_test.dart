@@ -30,6 +30,64 @@ void main() {
     expect((json['favorites'] as List), hasLength(1));
   });
 
+  group('residue WITHOUT the pointer is exported too (docs/71 G6)', () {
+    test('a failed last sweep left a pair, a request and a block: all in the file', () async {
+      final at = DateTime.utc(2026, 9, 1);
+      final source = FakeExportDataSource({'1-movie': fakeMovieDoc(1)}); // social == null
+      source.socialLists[SocialExportKind.friends] = {
+        'uid-ana_uid-bia': {
+          'members': ['uid-ana', 'uid-bia'],
+          'createdAt': at,
+          'aName': 'Ana',
+          'bName': 'Bia',
+        },
+      };
+      source.socialLists[SocialExportKind.requestsSent] = {
+        'uid-ana_uid-caio': {'from': 'uid-ana', 'to': 'uid-caio', 'toName': 'Caio', 'createdAt': at},
+      };
+      source.socialLists[SocialExportKind.blocks] = {
+        'uid-zeca': {'blockedName': 'Zeca', 'createdAt': at},
+      };
+      final json = await _export(source);
+      final social = json['social'] as Map<String, dynamic>;
+      expect(social['handle'], isNull);
+      expect(social['pointer'], isNull);
+      expect((social['friends'] as List).single['uid'], 'uid-bia');
+      expect((social['requestsSent'] as List).single['uid'], 'uid-caio');
+      expect((social['blocks'] as List).single['uid'], 'uid-zeca');
+      expect(source.socialCalls.map((c) => c.kind).toSet(), SocialExportKind.values.toSet());
+      expect((json['favorites'] as List), hasLength(1));
+    });
+
+    test('no pointer and no residue: the 4 lists are asked and social stays null', () async {
+      final source = FakeExportDataSource({'1-movie': fakeMovieDoc(1)});
+      final json = await _export(source);
+      expect(json['social'], isNull);
+      expect(source.socialCalls, hasLength(SocialExportKind.values.length));
+    });
+
+    test('rules not published (lists denied) and no pointer: the export still works', () async {
+      final source = FakeExportDataSource({'1-movie': fakeMovieDoc(1)})
+        ..socialListFailure = const ExportReadException(
+          ExportReadFailureKind.denied,
+          code: 'permission-denied',
+        );
+      final json = await _export(source);
+      expect(json['social'], isNull);
+      expect((json['favorites'] as List), hasLength(1));
+    });
+
+    test('WITH the pointer a denied list is a real failure (nothing is silently missing)', () async {
+      final source = FakeExportDataSource({})
+        ..social = const RawSocial(social: {'handle': 'ana'})
+        ..socialListFailure = const ExportReadException(
+          ExportReadFailureKind.denied,
+          code: 'permission-denied',
+        );
+      await expectLater(_export(source), throwsA(isA<ExportReadException>()));
+    });
+  });
+
   test('with friendships: handle, preferences, raw docs and uid + nickname of friends', () async {
     final at = DateTime.utc(2026, 9, 1);
     final source = FakeExportDataSource({})

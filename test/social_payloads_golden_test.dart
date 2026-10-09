@@ -56,9 +56,11 @@ Map<String, Object?> _scenarios() {
     'discoverable': d.discoverable,
   };
   const to = 'uid-bruno';
-  const plain = SendRequestDraft(toUid: to, fromName: 'Ana', toName: 'Bruno');
+  // fromHandle = the sender's current handle; the replay seeds uid-ana with handle "ana".
+  const plain = SendRequestDraft(toUid: to, fromHandle: 'ana', fromName: 'Ana', toName: 'Bruno');
   const withPhotos = SendRequestDraft(
     toUid: to,
+    fromHandle: 'ana',
     fromName: 'Ana',
     fromPhoto: _photo,
     toName: 'Bruno',
@@ -67,6 +69,7 @@ Map<String, Object?> _scenarios() {
   Map<String, Object?> draftIn(SendRequestDraft d) => {
     'uid': _uid,
     'toUid': d.toUid,
+    'fromHandle': d.fromHandle,
     'fromName': d.fromName,
     'fromPhoto': d.fromPhoto,
     'toName': d.toName,

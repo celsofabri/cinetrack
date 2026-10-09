@@ -271,6 +271,10 @@ enum SocialFailureKind {
 
   /// 50 pending sent requests (docs/49 D5; client-side limit).
   limitReached,
+
+  /// Another friendships operation of this account is still running: NOTHING
+  /// was done (docs/71 🟡-1). Never treat it as success.
+  busy,
   unknown,
 }
 
@@ -328,6 +332,7 @@ class SocialFailure implements Exception {
     SocialFailureKind.limitReached =>
       'Você atingiu o limite de $kMaxSentRequests pedidos enviados. '
           'Cancele algum pedido para enviar outro.',
+    SocialFailureKind.busy => 'Aguarde a operação anterior terminar.',
     SocialFailureKind.unknown => 'Não foi possível concluir. Tente novamente.',
   };
 
@@ -338,7 +343,7 @@ class SocialFailure implements Exception {
 /// The only message a search shows when nobody can be shown: the handle does
 /// not exist, the person is hidden, blocked you, or is yourself. It must be
 /// identical in all of those cases (docs/49, docs/51).
-const kSearchNotFoundMessage = 'Não encontramos ninguém com esse apelido';
+const kSearchNotFoundMessage = 'Nenhum usuário encontrado com esse identificador.';
 
 /// The only message an invite link shows when it cannot be used: it never
 /// existed, was revoked, expired, belongs to somebody who blocked you (or whom
@@ -400,6 +405,11 @@ class SentPage {
 class ReceivedRequest {
   final String fromUid;
 
+  /// The sender's handle when the request was sent (bound by the rules to
+  /// `social/{from}.handle` at that moment; a snapshot, docs/73). Null when the
+  /// stored value is not a valid handle (never shown then).
+  final String? fromHandle;
+
   /// Cleaned for display.
   final String fromName;
 
@@ -414,6 +424,7 @@ class ReceivedRequest {
 
   const ReceivedRequest({
     required this.fromUid,
+    this.fromHandle,
     required this.fromName,
     required this.rawFromName,
     this.fromPhoto,
@@ -538,15 +549,15 @@ class RawCard {
   const RawCard(this.handle, this.data);
 }
 
-/// A page of raw `friend_requests` documents (id + data) as the data source
-/// found them.
-class RawSentPage {
+/// A page of raw social documents (id + data) as the data source found them:
+/// sent / received requests, friendships or blocks (one type for every list).
+class RawSocialPage {
   final List<({String id, Map<String, dynamic> data})> docs;
   final Object? cursor;
   final bool hasMore;
   final bool fromCache;
 
-  const RawSentPage({
+  const RawSocialPage({
     required this.docs,
     this.cursor,
     this.hasMore = false,
@@ -557,6 +568,10 @@ class RawSentPage {
 /// What to write for "Enviar pedido" (already validated and cleaned).
 class SendRequestDraft {
   final String toUid;
+
+  /// The sender's CURRENT handle (`social/{uid}.handle`): the rules demand it
+  /// (docs/71 🟡-3), so the recipient sees an identifier nobody can forge.
+  final String fromHandle;
   final String fromName;
   final String? fromPhoto;
   final String toName;
@@ -564,6 +579,7 @@ class SendRequestDraft {
 
   const SendRequestDraft({
     required this.toUid,
+    required this.fromHandle,
     required this.fromName,
     this.fromPhoto,
     required this.toName,

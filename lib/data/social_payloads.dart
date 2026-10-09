@@ -264,13 +264,15 @@ class SocialPayloads {
   /// exists the data source stops ("já enviado"); if the inverse exists it
   /// creates NOTHING here and runs [acceptRequest] instead (crossed request,
   /// D4: it becomes a friendship). Optional photo keys are left out when
-  /// there is no photo.
+  /// there is no photo. `fromHandle` is the sender's current handle: the rules
+  /// compare it with `social/{uid}.handle` (docs/73).
   static SocialWrite sendRequest(String uid, SendRequestDraft draft) => SocialWrite(
     SocialWriteMode.transaction,
     [
       SocialOp.set(requestPath(uid, draft.toUid), {
         'from': uid,
         'to': draft.toUid,
+        'fromHandle': draft.fromHandle,
         'fromName': draft.fromName,
         if (draft.fromPhoto != null) 'fromPhoto': draft.fromPhoto,
         'toName': draft.toName,

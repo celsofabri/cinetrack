@@ -28,6 +28,9 @@ class FakeExportDataSource implements ExportDataSource {
   /// Raw docs of each social list, by document id.
   final Map<SocialExportKind, Map<String, Map<String, dynamic>>> socialLists = {};
 
+  /// When set, every social list read throws it (e.g. denied = old rules).
+  ExportReadException? socialListFailure;
+
   /// Social list page calls: kind and cursor.
   final socialCalls = <({SocialExportKind kind, String? cursor, bool fromServer})>[];
 
@@ -65,6 +68,7 @@ class FakeExportDataSource implements ExportDataSource {
   }) async {
     socialCalls.add((kind: kind, cursor: cursor, fromServer: fromServer));
     if (fromServer && serverFailure != null) throw serverFailure!;
+    if (socialListFailure != null) throw socialListFailure!;
     final source = socialLists[kind] ?? const <String, Map<String, dynamic>>{};
     final ids = source.keys.toList()..sort();
     final remaining = cursor == null ? ids : ids.where((id) => id.compareTo(cursor) > 0).toList();

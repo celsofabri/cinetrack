@@ -21,8 +21,12 @@ class FakeSocialCloud {
   /// Operations that reached the "server", in order.
   final List<String> log;
 
+  /// Write ATTEMPTS, in order, recorded before anything can refuse them (offline, rules not
+  /// published, injected failures). Lets a test prove a write was not even tried (docs/75 N3).
+  final List<String> attempts = [];
+
   /// Reads that reached the "server" (or the device cache), in order: 'read',
-  /// 'handleFree', 'lookup:HANDLE', 'count', 'sent:page', 'sweep:KIND'.
+  /// 'lookup:HANDLE', 'count', 'sent:page', 'sweep:KIND'.
   /// Used to prove a screen does not read more than it must (docs/59).
   final List<String> readLog = [];
 
@@ -125,10 +129,17 @@ class FakeSocialCloud {
     };
   }
 
-  void seedRequest(String from, String to, {String fromName = 'De', String toName = 'Para'}) {
+  void seedRequest(
+    String from,
+    String to, {
+    String fromName = 'De',
+    String toName = 'Para',
+    String? fromHandle,
+  }) {
     requests['${from}_$to'] = {
       'from': from,
       'to': to,
+      'fromHandle': fromHandle ?? social[from]?['handle'] ?? 'de_$from'.replaceAll('-', '_'),
       'fromName': fromName,
       'toName': toName,
       'createdAt': now(),
@@ -224,13 +235,6 @@ class InMemorySocialDataSource implements SocialDataSource {
   }
 
   @override
-  Future<bool> isHandleFree(String handle) async {
-    _gate(server: true);
-    cloud.readLog.add('handleFree');
-    return !cloud.handles.containsKey(handle);
-  }
-
-  @override
   Future<void> activate(SocialDraft draft) async {
     _gate(server: true);
     cloud.checkFailure('activate');
@@ -283,6 +287,7 @@ class InMemorySocialDataSource implements SocialDataSource {
 
   @override
   Future<void> updateCard(CardPatch patch) async {
+    cloud.attempts.add('updateCard');
     _gate(server: true);
     cloud.checkFailure('updateCard');
     final handle = cloud.social[uid]?['handle'];
@@ -410,6 +415,10 @@ class InMemorySocialDataSource implements SocialDataSource {
 
   @override
   Future<bool> closeSocial() async {
+    // Old rules deny the first read (the own pointer): same code as the real source.
+    if (!cloud.rulesLive) {
+      throw const SocialFailure(SocialFailureKind.denied, code: kSocialReadDeniedCode);
+    }
     _gate(server: true);
     cloud.checkFailure('closeSocial');
     cloud.beforeClose?.call();
@@ -459,7 +468,9 @@ class InMemorySocialDataSource implements SocialDataSource {
       uid != to &&
       RegExp(r'^[^_/]{1,128}$').hasMatch(to) &&
       RegExp(r'^[^_/]{1,128}$').hasMatch(uid) &&
-      cloud.social.containsKey(uid) &&
+      // fromHandle must be the sender's CURRENT handle (docs/73); the get also
+      // implies the sender has friendships on.
+      cloud.social[uid]?['handle'] == draft.fromHandle &&
       cloud.social.containsKey(to) &&
       !_blockedEither(uid, to) &&
       !cloud.friendships.containsKey(FakeSocialCloud.pairId(uid, to)) &&
@@ -505,6 +516,7 @@ class InMemorySocialDataSource implements SocialDataSource {
     cloud.requests['${uid}_$to'] = {
       'from': uid,
       'to': to,
+      'fromHandle': draft.fromHandle,
       'fromName': draft.fromName,
       'fromPhoto': ?draft.fromPhoto,
       'toName': draft.toName,
@@ -613,7 +625,7 @@ class InMemorySocialDataSource implements SocialDataSource {
   }
 
   @override
-  Future<RawSentPage> readBlockedPage({Object? cursor, required int limit}) async {
+  Future<RawSocialPage> readBlockedPage({Object? cursor, required int limit}) async {
     _gate(server: false);
     cloud.readLog.add('blocked:page');
     if (cloud.offline && !cloud.cacheAvailable) {
@@ -653,11 +665,11 @@ class InMemorySocialDataSource implements SocialDataSource {
     return _friends().length.clamp(0, kMaxFriends);
   }
 
-  RawSentPage _pageOf(List<MapEntry<String, Map<String, dynamic>>> all, Object? cursor, int limit) {
+  RawSocialPage _pageOf(List<MapEntry<String, Map<String, dynamic>>> all, Object? cursor, int limit) {
     final start = cursor is int ? cursor : 0;
     final slice = all.skip(start).take(limit + 1).toList();
     final page = slice.take(limit).toList();
-    return RawSentPage(
+    return RawSocialPage(
       docs: [
         for (final e in page) (id: e.key, data: {...e.value}),
       ],
@@ -668,7 +680,7 @@ class InMemorySocialDataSource implements SocialDataSource {
   }
 
   @override
-  Future<RawSentPage> readReceivedPage({Object? cursor, required int limit}) async {
+  Future<RawSocialPage> readReceivedPage({Object? cursor, required int limit}) async {
     _gate(server: false);
     cloud.readLog.add('received:page');
     if (cloud.offline && !cloud.cacheAvailable) {
@@ -687,7 +699,7 @@ class InMemorySocialDataSource implements SocialDataSource {
   }
 
   @override
-  Future<RawSentPage> readFriendsPage({Object? cursor, required int limit}) async {
+  Future<RawSocialPage> readFriendsPage({Object? cursor, required int limit}) async {
     _gate(server: false);
     cloud.readLog.add('friends:page');
     if (cloud.offline && !cloud.cacheAvailable) {
@@ -708,7 +720,7 @@ class InMemorySocialDataSource implements SocialDataSource {
   }
 
   @override
-  Future<RawSentPage> readSentPage({Object? cursor, required int limit}) async {
+  Future<RawSocialPage> readSentPage({Object? cursor, required int limit}) async {
     _gate(server: false);
     cloud.readLog.add('sent:page');
     final cached = cloud.offline;
@@ -725,7 +737,7 @@ class InMemorySocialDataSource implements SocialDataSource {
     final start = cursor is int ? cursor : 0;
     final slice = all.skip(start).take(limit + 1).toList();
     final page = slice.take(limit).toList();
-    return RawSentPage(
+    return RawSocialPage(
       docs: [
         for (final e in page) (id: e.key, data: {...e.value}),
       ],

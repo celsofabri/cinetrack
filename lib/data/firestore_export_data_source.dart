@@ -3,9 +3,10 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
-import '../social/invite_code.dart';
 import '../social/social_models.dart';
 import 'export_data_source.dart';
+import 'firestore_social_data_source.dart';
+import 'social_payloads.dart';
 
 /// Firestore implementation of the read-only export: pages of
 /// `users/{uid}/favorites` ordered by document id, plus `users/{uid}`.
@@ -51,46 +52,48 @@ class FirestoreExportDataSource implements ExportDataSource {
     }
   }
 
-  DocumentReference<Map<String, dynamic>> get _social => _db.collection('social').doc(uid);
-
+  /// The user's social state is read by the SAME code the friendships screens
+  /// use ([FirestoreSocialDataSource.read]: pointer, card, own invite), so the
+  /// export never drifts from what the app writes (docs/71 G8).
   @override
   Future<RawSocial?> readSocial({required bool fromServer}) async {
+    final RawSocial raw;
     try {
-      final options = _options(fromServer);
-      final pointer = (await _guard(() => _social.get(options))).data();
-      if (pointer == null) return null;
-      final handle = pointer['handle'];
-      Map<String, dynamic>? card;
-      if (handle is String && handle.isNotEmpty) {
-        card = (await _guard(() => _db.collection('handles').doc(handle).get(options))).data();
-      }
-      // The user's own invite (their data): code and validity go in the export.
-      final code = pointer['inviteCode'];
-      Map<String, dynamic>? invite;
-      if (code is String && InviteCode.isValid(code)) {
-        try {
-          invite = (await _guard(() => _db.collection('invites').doc(code).get(options))).data();
-        } on ExportReadException {
-          if (fromServer) rethrow;
-        }
-      }
-      return RawSocial(
-        social: convert(pointer),
-        card: card == null ? null : convert(card),
-        invite: invite == null ? null : convert(invite),
-      );
-    } on ExportReadException catch (e) {
+      raw = await FirestoreSocialDataSource(
+        uid: uid,
+        timeout: timeout,
+        firestore: _db,
+      ).read(fromServer: fromServer);
+    } on SocialFailure catch (e) {
       // Rules not published yet (denied): friendships cannot exist. A document
       // that is not on this device is "not activated", not a failure.
-      if (e.kind == ExportReadFailureKind.denied || !fromServer) return null;
-      rethrow;
+      if (e.kind == SocialFailureKind.denied || !fromServer) return null;
+      throw ExportReadException(switch (e.kind) {
+        SocialFailureKind.offline || SocialFailureKind.uncertain => ExportReadFailureKind.unreachable,
+        SocialFailureKind.sessionExpired => ExportReadFailureKind.denied,
+        _ => ExportReadFailureKind.unknown,
+      }, code: e.code);
     }
+    if (raw.social == null) return null;
+    // The own invite is the user's data: from the server, an unreadable invite fails the
+    // export instead of silently leaving it out.
+    if (fromServer && raw.inviteUnreadable) {
+      throw const ExportReadException(ExportReadFailureKind.unknown, code: 'invite-unreadable');
+    }
+    return raw;
   }
 
-  // The social lists are read without orderBy (documents come by id) and the
-  // cursor is the last snapshot of the previous page: the same query shapes as
-  // the account-deletion sweeps, so no composite index is needed.
+  // The social lists use the same query shapes as the account-deletion sweeps
+  // (SocialPayloads.sweepQuery: no orderBy, documents by id, no composite
+  // index); the cursor is the last snapshot of the previous page.
   final Map<SocialExportKind, DocumentSnapshot<Map<String, dynamic>>> _lastSocial = {};
+
+  static SweepKind _sweepKind(SocialExportKind kind) => switch (kind) {
+    SocialExportKind.friends => SweepKind.friendships,
+    SocialExportKind.requestsSent => SweepKind.requestsSent,
+    SocialExportKind.requestsReceived => SweepKind.requestsReceived,
+    SocialExportKind.blocks => SweepKind.blocks,
+  };
 
   @override
   Future<RawPage> readSocialPage(
@@ -99,15 +102,7 @@ class FirestoreExportDataSource implements ExportDataSource {
     required int limit,
     required bool fromServer,
   }) async {
-    Query<Map<String, dynamic>> query = switch (kind) {
-      SocialExportKind.friends =>
-        _db.collection('friendships').where('members', arrayContains: uid),
-      SocialExportKind.requestsSent =>
-        _db.collection('friend_requests').where('from', isEqualTo: uid),
-      SocialExportKind.requestsReceived =>
-        _db.collection('friend_requests').where('to', isEqualTo: uid),
-      SocialExportKind.blocks => _profile.collection('blocks'),
-    };
+    var query = socialQuery(_db, SocialPayloads.sweepQuery(_sweepKind(kind), uid, limit));
     if (cursor == null) {
       _lastSocial.remove(kind);
     } else {
@@ -117,7 +112,7 @@ class FirestoreExportDataSource implements ExportDataSource {
       }
       query = query.startAfterDocument(last);
     }
-    final snapshot = await _guard(() => query.limit(limit).get(_options(fromServer)));
+    final snapshot = await _guard(() => query.get(_options(fromServer)));
     if (snapshot.docs.isNotEmpty) _lastSocial[kind] = snapshot.docs.last;
     return RawPage([for (final doc in snapshot.docs) RawDoc(doc.id, convert(doc.data()))]);
   }

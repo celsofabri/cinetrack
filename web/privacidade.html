@@ -26,7 +26,7 @@
 <main>
   <h1>Política de privacidade do CineTrack</h1>
   <!-- ATUALIZAR a data abaixo no commit de publicação (data real do deploy) -->
-  <p class="muted">Última atualização: 06/10/2026. <a href="./">Voltar ao app</a></p>
+  <p class="muted">Última atualização: 08/10/2026. <a href="./">Voltar ao app</a></p>
 
   <p>O CineTrack é um app gratuito para favoritar filmes e séries e acompanhar o progresso episódio
   por episódio. Esta página explica, em linguagem simples, quais dados são guardados, por quê, onde
@@ -38,7 +38,7 @@
     <tr><td>Identificador da sua conta (um código, não o seu nome)</td><td>Banco de dados na nuvem</td><td>Separar os seus dados dos de outras pessoas</td></tr>
     <tr><td>Seus favoritos, filmes assistidos e episódios assistidos (com a data em que foram marcados) e quais títulos você marcou como <strong>Recomendo</strong> (&ldquo;Minhas recomendações&rdquo;)</td><td>Banco de dados na nuvem</td><td>Mostrar a mesma lista em qualquer aparelho</td></tr>
     <tr><td>Apelido (opcional, de 1 a 40 caracteres)</td><td>Banco de dados na nuvem</td><td>Mostrar o nome que você escolheu</td></tr>
-    <tr><td><strong>Só se você ativar as amizades:</strong> identificador (@usuario), cartão de busca (identificador, apelido, endereço da foto do Google e a opção &ldquo;Aparecer na busca&rdquo;), os <strong>pedidos de amizade</strong> que você envia e recebe (quem pediu e para quem, o apelido e a foto dos dois como estavam nos cartões, e a data), as <strong>amizades</strong> (os dois identificadores, o apelido e a foto de cada um como estavam nos cartões, e a data), os <strong>bloqueios</strong> que você fizer (o identificador interno da pessoa bloqueada e o apelido e a foto dela como apareciam no cartão que você viu, e a data), o <strong>convite por link</strong>, se você criar um (código secreto, apelido e foto como estão no seu cartão, data de criação e validade) e, enquanto uma atualização de apelido ou foto nos seus amigos não termina, só um aviso no seu aparelho</td><td>Banco de dados na nuvem</td><td>Permitir que outras pessoas encontrem você e vocês sejam amigos</td></tr>
+    <tr><td><strong>Só se você ativar as amizades:</strong> identificador (@usuario), cartão de busca (identificador, apelido, endereço da foto do Google e a opção &ldquo;Aparecer na busca&rdquo;), os <strong>pedidos de amizade</strong> que você envia e recebe (quem pediu e para quem, o <strong>identificador de quem pediu</strong> no momento do pedido, o apelido e a foto dos dois como estavam nos cartões, e a data), as <strong>amizades</strong> (os dois identificadores, o apelido e a foto de cada um como estavam nos cartões, e a data), os <strong>bloqueios</strong> que você fizer (o identificador interno da pessoa bloqueada e o apelido e a foto dela como apareciam no cartão que você viu, e a data), o <strong>convite por link</strong>, se você criar um (código secreto, apelido e foto como estão no seu cartão, data de criação e validade) e, enquanto uma atualização de apelido ou foto nos seus amigos não termina, só um aviso no seu aparelho</td><td>Banco de dados na nuvem</td><td>Permitir que outras pessoas encontrem você e vocês sejam amigos</td></tr>
   </table>
   <h2>Amizades (opcional, desligado por padrão)</h2>
   <p>As amizades só existem se <strong>você</strong> as ativar em Perfil &rarr; Amizades. Quem não
@@ -50,15 +50,22 @@
     (a foto em si continua no Google). O consentimento é dado nessa ação, com o texto na tela; você
     pode desmarcar a foto. Seu nome e e-mail do Google continuam sem ser copiados.</li>
     <li><strong>Quem vê o quê:</strong> quem digitar o seu identificador exato vê apelido e foto, mas
-    <strong>só se &ldquo;Aparecer na busca&rdquo; estiver ligado</strong>. Seus amigos veem
+    <strong>só se &ldquo;Aparecer na busca&rdquo; estiver ligado</strong>. Junto com o cartão (na
+    busca ou ao abrir o seu convite), o app dessa pessoa também recebe o <strong>identificador interno
+    da sua conta (uid)</strong>, um código técnico usado para enviar o pedido de amizade; ele não dá
+    acesso a nenhum outro dado seu. Seus amigos veem
     <strong>somente o seu cartão</strong>: apelido e foto (se você deixou a foto marcada), e a data
     em que a amizade começou. Ninguém vê seus favoritos, recomendações, progresso nem
     e-mail, e isso vale também para os amigos. Não existe lista pública de usuários nem busca por nome.</li>
     <li><strong>Pedidos de amizade:</strong> ao tocar em &ldquo;Enviar pedido&rdquo;, gravamos um
-    registro com o identificador interno (uid) de você e da outra pessoa, o <strong>seu apelido e
-    foto</strong> e o <strong>apelido e foto dela</strong> (como aparecem nos cartões) e a data. A
-    outra pessoa pode ver esse pedido (seu apelido e foto); <strong>ninguém recebe e-mail nem
-    notificação</strong>. Você pode <strong>cancelar</strong> enquanto estiver pendente (o registro
+    registro com o identificador interno (uid) de você e da outra pessoa, o <strong>seu
+    identificador (@usuario)</strong>, o <strong>seu apelido e foto</strong> e o <strong>apelido e
+    foto dela</strong> (como aparecem nos cartões) e a data. A outra pessoa vê esse pedido com o
+    <strong>seu @identificador</strong>, apelido e foto, <strong>mesmo que você esteja fora da
+    busca</strong>: o identificador é o que garante que o pedido é mesmo seu (apelido e foto qualquer
+    um pode repetir). O pedido guarda o identificador do momento em que foi enviado; se você trocar
+    de identificador depois, o pedido pendente continua válido e mostra o antigo até ser aceito,
+    recusado ou cancelado. <strong>Ninguém recebe e-mail nem notificação</strong>. Você pode <strong>cancelar</strong> enquanto estiver pendente (o registro
     é apagado). Se a pessoa recusar, o pedido some, <strong>sem aviso para você nem para ela</strong>.
     O app limita você a 50 pedidos pendentes. <strong>Aceitar:</strong> quando você aceita um pedido
     recebido, gravamos a amizade (os dois identificadores, o apelido e a foto de cada um e a data) e
@@ -66,7 +73,7 @@
     notificação. <strong>Recusar</strong> apaga o pedido em silêncio: ela não é avisada. Quando as
     duas pessoas pedem amizade uma à outra, elas viram amigas na hora. Você pode ter até 300
     amigos e o app mostra até 50 pedidos recebidos de cada vez. A busca responde sempre com a mesma
-    mensagem (&ldquo;Não encontramos ninguém com esse apelido&rdquo;), seja porque o identificador não
+    mensagem (&ldquo;Nenhum usuário encontrado com esse identificador&rdquo;), seja porque o identificador não
     existe, a pessoa está fora da busca ou bloqueou você: ninguém descobre isso por aqui.</li>
     <li><strong>Remover um amigo:</strong> &ldquo;Remover amizade&rdquo; apaga o registro da amizade
     para os dois lados e <strong>a outra pessoa não é avisada</strong>; ela só deixa de ver você na
@@ -103,14 +110,22 @@
     (apelido e foto) como estava no momento. Quando você muda o apelido ou a foto, o app atualiza a
     <strong>sua</strong> metade em cada amizade, em segundo plano, sem avisar ninguém (cada atualização
     é uma gravação por amigo). Pedidos já enviados e bloqueios <strong>não mudam</strong>: guardam o
-    apelido e a foto de quando foram feitos. Enquanto isso não termina, o app guarda no aparelho só um
-    marcador (sim/não) para continuar depois.</li>
+    identificador, o apelido e a foto de quando foram feitos. Enquanto isso não termina, o app guarda
+    no aparelho só um marcador (sim/não) para continuar depois. <strong>Se você trocar ou remover a
+    foto na sua conta Google</strong> e a foto estiver marcada para aparecer, o app atualiza o seu
+    cartão (e o convite e seus amigos) na próxima vez que você <strong>entrar com o Google</strong>
+    no app. Se a foto não existir mais no Google, o cartão fica sem foto e &ldquo;Mostrar minha
+    foto&rdquo; é desligado; uma foto nova no Google <strong>não volta sozinha</strong>: para voltar
+    a mostrar, ligue &ldquo;Mostrar minha foto&rdquo;. Se você desmarcou &ldquo;Mostrar minha
+    foto&rdquo;, nada é copiado.</li>
     <li><strong>Desativar, exclusão e exportação:</strong> &ldquo;Desativar amizades&rdquo; apaga o
     identificador, o cartão, seus amigos, pedidos enviados e recebidos, bloqueios e convite, e você some da lista dos
     outros (o registro da amizade é apagado para os dois lados). &ldquo;Excluir minha conta e dados&rdquo; apaga tudo isso também, e
     &ldquo;Exportar meus dados&rdquo; inclui o seu cartão e, por serem parte do vínculo, o
     <strong>identificador interno (uid) e o apelido dos seus amigos</strong>, pedidos e bloqueados
-    (nunca as fotos deles).</li>
+    (nunca as fotos deles). O arquivo também contém o <strong>seu próprio uid</strong> (no seu cartão e
+    nos códigos dos pedidos e amizades). Se sobrar algum registro de amizade, pedido ou bloqueio de
+    uma desativação que não terminou, ele também entra na exportação.</li>
     <li><strong>Sem servidor próprio:</strong> não usamos Cloud Functions nem rotinas no servidor; as
     regras do banco e o app aplicam essas condições. Só contas Google podem ativar as amizades.</li>
   </ul>

@@ -108,8 +108,7 @@ void main() {
       );
       expect(f!.kind, SocialFailureKind.handleTaken);
       expect(r.cloud.social.containsKey('uid-ana'), isFalse);
-      expect(await r.repo.handleProblem('maria'), isNotNull);
-      expect(await r.repo.handleProblem('livre_1'), isNull);
+      expect(r.cloud.handles['maria']!['uid'], 'uid-bruno', reason: 'the owner keeps it');
 
       await r.repo.activate(
         rawHandle: 'livre_1',
@@ -159,7 +158,7 @@ void main() {
       await r.repo.changeHandle('ana2', current: current);
       expect(r.cloud.handles.keys, ['ana2']);
       expect(r.cloud.social['uid-ana']!['handle'], 'ana2');
-      expect(await r.repo.handleProblem('ana'), isNull);
+      expect(r.cloud.handles.containsKey('ana'), isFalse, reason: 'the old handle is free again');
 
       current = (await r.repo.load()).profile!;
       f = await _fail(r.repo.changeHandle('ana3', current: current));
@@ -316,6 +315,21 @@ void main() {
     test('rules not published: nothing to delete, deletion proceeds', () async {
       final r = _Rig()..cloud.rulesLive = false;
       await r.repo.wipeForAccountDeletion();
+    });
+
+    test('a denied CLOSE (not the own-pointer read) fails the deletion: no silent skip (docs/71 G5)', () async {
+      final r = _Rig();
+      r.cloud
+        ..seedActive('uid-ana', 'ana')
+        ..seedFriendship('uid-ana', 'uid-b')
+        ..failures['closeSocial'] = const SocialFailure(
+          SocialFailureKind.denied,
+          code: 'permission-denied',
+        );
+      await expectLater(r.repo.wipeForAccountDeletion(), throwsA(isA<AccountDeletionFailure>()));
+      // Nothing was skipped silently: a rerun closes and sweeps everything.
+      await r.repo.wipeForAccountDeletion();
+      expect(r.cloud.leftoversOf('uid-ana'), isEmpty);
     });
 
     test('failure maps to AccountDeletionFailure and a rerun resumes', () async {

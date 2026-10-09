@@ -107,6 +107,7 @@ class SocialController extends Notifier<SocialState> {
   @override
   SocialState build() {
     final generation = ++_generation;
+    _photoChecked = false;
     final user = ref.watch(currentUserProvider.select((u) => (u?.uid, u?.isGoogle)));
     if (user.$1 == null) return const SocialState(phase: SocialPhase.signedOut);
     if (user.$2 != true) return const SocialState(phase: SocialPhase.notGoogle);
@@ -211,6 +212,40 @@ class SocialController extends Notifier<SocialState> {
       );
     }
     if (generation == _generation) state = next;
+    final profile = next.profile;
+    if (generation == _generation && profile != null && !next.fromCache) {
+      Future.microtask(() => _syncGooglePhoto(generation, profile));
+    }
+  }
+
+  /// The Google photo was checked against the card in this session.
+  bool _photoChecked = false;
+
+  /// Session check (docs/49 "Foto do Google mudou", docs/71 🟡-2): after a
+  /// SERVER read of an active profile whose photo is shown, the card follows
+  /// the Google photo of the account: changed -> the new URL, removed -> no
+  /// photo. ONE card update (the invite copy goes in the same transaction)
+  /// plus the friendship refresh, only when it differs; nothing otherwise.
+  /// A photo the user turned off stays off. At most once per session (the
+  /// re-read after the update does not loop); a busy section retries on the
+  /// next read.
+  Future<void> _syncGooglePhoto(int generation, SocialProfile profile) async {
+    if (_photoChecked || generation != _generation) return;
+    if (!profile.photoVisible || profile.cardMissing) return;
+    final user = ref.read(currentUserProvider);
+    if (user == null) return;
+    final google = SocialPhoto.sanitize(user.photoUrl);
+    _photoChecked = true;
+    if (google == profile.photoUrl) return;
+    final failure = await _run(
+      () => ref.read(socialRepositoryProvider).replaceCardPhoto(google),
+    );
+    if (failure?.kind == SocialFailureKind.busy) {
+      _photoChecked = false;
+      return;
+    }
+    if (generation != _generation) return;
+    await _refreshFriendsAfter(failure);
   }
 
   /// Turns friendships on. Returns the failure to show, or null on success.
@@ -358,9 +393,12 @@ class SocialController extends Notifier<SocialState> {
     if (current != value) await ref.read(profileDataSourceProvider).setNickname(value);
   }
 
+  /// Runs [action] as THE operation of this section. While another one runs
+  /// nothing is done and the answer is [SocialFailureKind.busy]: `null` means
+  /// "done" to every caller (docs/71 🟡-1: a false "Apelido salvo.").
   Future<SocialFailure?> _run(Future<void> Function() action) async {
     final generation = _generation;
-    if (state.busy) return null;
+    if (state.busy) return const SocialFailure(SocialFailureKind.busy);
     state = state.copyWith(busy: true);
     SocialFailure? failure;
     try {

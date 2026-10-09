@@ -46,6 +46,7 @@ Convenções: `timestamp` = Firestore Timestamp; `createdAt`/`updatedAt` sempre 
 | Campo | Tipo |
 |---|---|
 | `from`, `to` | string (uids; `from == auth.uid`, `to != from`) |
+| `fromHandle` | string, obrigatório: o handle **atual** do remetente (`== social/{from}.handle` no momento da criação; instantâneo depois). Acrescentado no fechamento (docs/71 🟡-3, docs/73) |
 | `fromName`, `toName` | string 1–40 (instantâneos) |
 | `fromPhoto`, `toPhoto` | string ou null (opcionais, mesma regra de URL) |
 | `createdAt` | timestamp (`== request.time`) |
@@ -156,15 +157,16 @@ Trecho **aditivo**, inserido antes do `match /{document=**}` final. É exatament
     function validRequest(key) {
       let d = request.resource.data;
       let me = request.auth.uid;
-      return d.keys().hasOnly(['from', 'to', 'fromName', 'fromPhoto', 'toName', 'toPhoto', 'createdAt'])
-        && d.keys().hasAll(['from', 'to', 'fromName', 'toName', 'createdAt'])
+      return d.keys().hasOnly(['from', 'to', 'fromHandle', 'fromName', 'fromPhoto', 'toName', 'toPhoto', 'createdAt'])
+        && d.keys().hasAll(['from', 'to', 'fromHandle', 'fromName', 'toName', 'createdAt'])
         && d.from == me && d.to is string && d.to.size() >= 1 && d.to.size() <= 128 && d.to != me
         && key == d.from + '_' + d.to
         && d.createdAt == request.time
         && validName(d.fromName) && validName(d.toName)
         && (!('fromPhoto' in d) || validPhoto(d.fromPhoto))
         && (!('toPhoto' in d) || validPhoto(d.toPhoto))
-        && exists(socialPath(d.from)) && exists(socialPath(d.to))
+        // docs/73: amarrado ao handle atual do remetente (mesmo custo do exists anterior)
+        && get(socialPath(d.from)).data.handle == d.fromHandle && exists(socialPath(d.to))
         && !isBlockedEither(d.from, d.to)
         && !isFriend(d.from, d.to);
     }
@@ -326,7 +328,7 @@ Atores: **R** remetente do pedido, **D** destinatário, **M** membro do par, **T
 | `handles/{h}` | criar | Dono | formato; `uid == auth.uid`; ponteiro aponta para ele (1 handle por usuário); id livre (criar sobre existente = update, negado a outro) |
 | `handles/{h}` | atualizar | Dono | `uid` e `createdAt` imutáveis |
 | `handles/{h}` | apagar | Dono | ponteiro não aponta mais para ele (ou foi apagado) |
-| `friend_requests/{de}_{para}` | criar | R | `from == auth.uid`; id confere; os dois têm `social`; sem bloqueio em nenhum sentido; ainda não são amigos; sem campos extras; `createdAt` = servidor |
+| `friend_requests/{de}_{para}` | criar | R | `from == auth.uid`; id confere; `fromHandle` = handle atual de R (`social/{R}.handle`, docs/73); os dois têm `social`; sem bloqueio em nenhum sentido; ainda não são amigos; sem campos extras; `createdAt` = servidor |
 | mesmo | ler (get/list) | R e D | list: `from` ou `to` = eu. T, B, X: negado |
 | mesmo | atualizar | ninguém | imutável |
 | mesmo | apagar | R (cancelar) e D (recusar) | inexistente = no-op. T: negado |
@@ -383,6 +385,8 @@ Observação: o doc diz 10 para consultas e o emulador deixou passar 20 no caso 
 Escritas sociais exigem servidor (padrão `ensureOnline` do `AccountDeleter`/transação) para não aplicar uma amizade horas depois, enfileirada.
 
 ## 9. Estimativa de cota por tela (Spark)
+> **Atualizado no fechamento (docs/71 G2, docs/73).** O que foi implementado difere do plano original em três pontos, já refletidos na tabela: (1) **não há listener** no contador de pedidos: é um `count()` agregado com TTL de 10 min, só com amizades ativas (docs/62); (2) o refresh de apelido/foto (D8) **lê** os N pares do servidor e grava só as metades que mudaram, em lotes de 100 (docs/68), em vez de "0 leituras, lotes de 400"; (3) a sessão confere a foto do Google (1 escrita só quando mudou, docs/73). Custos detalhados por fatia: docs/59, 62, 65, 68 e 73.
+
 Hipótese típica: **N = 20 amigos, 2 pedidos recebidos, 2 enviados, 1 bloqueio**; máximos: N = 300, 50, 50. "Regra" = leituras de documentos feitas pelas regras (cobradas). Valores com ≈ são estimativa a partir da documentação; **não medidos em produção**.
 
 | Tela / ação | Leituras | Regra | Escritas | Deletes |
@@ -390,26 +394,27 @@ Hipótese típica: **N = 20 amigos, 2 pedidos recebidos, 2 enviados, 1 bloqueio*
 | Abrir Amigos, a frio, online (amigos + recebidos + enviados) | N + 2 + 2 = **24** (máx. 400) | 0 | 0 | 0 |
 | Reabrir dentro do TTL de 5 min / offline | 0 (cache) | 0 | 0 | 0 |
 | Aba Bloqueados | máx(1, B) = 1 | 0 | 0 | 0 |
-| Contador de pedidos (listener, por sessão) | 1 + 2 = **3**; +1 por pedido novo | 0 | 0 | 0 |
+| Contador de pedidos (`count()` agregado, TTL de 10 min, sem listener) | 1 por TTL (cobrado como 1 leitura até 1000 itens) | 0 | 0 | 0 |
 | Buscar handle visível | 1 | 2 (`isBlockedEither`) | 0 | 0 |
 | Buscar handle inexistente | 1 (mínimo) | 0 | 0 | 0 |
 | Buscar handle oculto/bloqueado | 1 (≈, negado) | 0–2 | 0 | 0 |
 | Estado do resultado (amigo/pedido) | 0 (cache da lista); sem lista carregada: 2 | 0 | 0 | 0 |
-| Enviar pedido | 1 (pedido inverso) | 5 (2 `social`, 2 bloqueios, 1 par) | 1 | 0 |
+| Enviar pedido | 2 (o próprio e o inverso, na transação) + 1 `count()` (limite de 50) | 5 (`get social/{eu}` para o handle, `exists social/{outro}`, 2 bloqueios, 1 par) | 1 | 0 |
 | Aceitar (batch de 3) | 0 | ≈ 5 + ≈ 2 (`existsAfter`) | 1 | 2 |
 | Cancelar / Recusar / Remover amigo / Desbloquear | 0 | 0 | 0 | 1 |
 | Bloquear | 0 | ≈ 3 (`existsAfter`) | 1 | até 3 |
-| Ativar amizades | 1 (disponibilidade) | ≈ 2 | 2 | 0 |
+| Ativar amizades | 2 (na transação: o próprio `social` e o handle) | ≈ 2 | 2 | 0 |
 | Trocar handle | 0–1 | ≈ 4 | 2 | 1 |
 | Alternar "Aparecer na busca" / editar apelido (cartão) | 0 | ≈ 1 | 1 | 0 |
-| Fan-out de apelido/foto (D8) | 0 | 0 | N (lotes de 400) | 0 |
+| Refresh de apelido/foto (D8) | N (pares, do servidor, páginas de 100) | 0 | até N (só as metades que mudaram; lotes de 100) | 0 |
+| Início de sessão com amizades ativas: conferir a foto do Google (docs/73) | 0 (usa a leitura do estado que já acontece) | 0 | 0 se igual; 1 (cartão + convite na mesma transação) se mudou, mais o refresh acima | 0 |
 | Excluir conta | N + pedidos + bloqueios (mín. 1 por consulta) | 0 | 0 | N + pedidos + bloqueios + 2 |
 
-Orçamento: com 100 usuários sociais ativos/dia, 3 aberturas de Amigos + 3 sessões + 3 buscas ≈ (3×24 + 3×3 + 3×3) ≈ 90 leituras/usuário ⇒ **≈ 9 mil leituras/dia (18% da cota)**; com 500 usuários ≈ 45 mil (90%). Esse consumo **soma** ao já existente (favoritos, catálogo em cache); o consumo atual não foi medido. Mitigações: TTL de 5 min na lista (cache-first), um único listener estreito (contador), nada de listener em lista de amigos, `limit(50)`, F2–F5 devem reaproveitar a lista de amigos já carregada. Se a cota estourar, o Firestore falha as operações até o reset diário (comportamento assumido, não verificado, como no ADR-003): o app mostra a mensagem do §12 e **não** ativa Blaze.
+Orçamento (estimativa original, mantida como teto; o contador real custa menos, ver nota acima): com 100 usuários sociais ativos/dia, 3 aberturas de Amigos + 3 sessões + 3 buscas ≈ (3×24 + 3×3 + 3×3) ≈ 90 leituras/usuário ⇒ **≈ 9 mil leituras/dia (18% da cota)**; com 500 usuários ≈ 45 mil (90%). Esse consumo **soma** ao já existente (favoritos, catálogo em cache); o consumo atual não foi medido. Mitigações: TTL de 5 min na lista (cache-first), contador por `count()` com TTL (sem listener), nada de listener em lista de amigos, `limit(50)`, F2–F5 devem reaproveitar a lista de amigos já carregada. Se a cota estourar, o Firestore falha as operações até o reset diário (comportamento assumido, não verificado, como no ADR-003): o app mostra a mensagem do §12 e **não** ativa Blaze.
 
 ## 10. Impacto em outras áreas
 - **AccountDeleter / `ProfileDataSource`**: novo passo `deleteAllSocial()` entre `markDeleting()` e `deleteAllFavorites()`; ordem interna (retomável, tudo idempotente): (1) batch único `delete handles/{handle}` + `delete social/{uid}` (**fecha a porta**: sem `social`, ninguém envia pedido nem aceita para este uid); (2) páginas de 400 de `friend_requests` (`from == uid` e `to == uid`) e de `friendships` (`array-contains uid`); (3) `users/{uid}/blocks`. Cada página lida **do servidor** (`wipeInPages`). Resultado: ex-amigos deixam de ver o usuário na lista (o par some). O handle libera na hora. Bloqueios que **outros** fizeram contra ele ficam órfãos (inofensivos; somem quando o bloqueador desbloquear). Se o handle/`social` não existir (usuário nunca ativou), o passo é no-op. Os fakes de `ProfileDataSource` e o teste de ordem do `AccountDeleter` precisam ser atualizados.
-- **Exportação**: `kExportSchemaVersion` 1 → 2; seção `social`: `handle`, `discoverable`, `photoVisible`, `friends` (uid, apelido, desde), `requestsSent`, `requestsReceived`, `blocks` (uid, apelido). Sem foto de terceiros (D9). Compatível: quem não ativou exporta `social: null`.
+- **Exportação**: `kExportSchemaVersion` 1 → 2; seção `social`: `handle`, `discoverable`, `photoVisible`, `friends` (uid, apelido, desde), `requestsSent`, `requestsReceived`, `blocks` (uid, apelido), `invite`. Sem foto de terceiros (D9). Compatível: quem não ativou exporta `social: null`. Resíduos sem ponteiro (desativação com a última varredura falha, exclusão interrompida) também entram (docs/71 G6, docs/73). Formato completo: docs/39 §schema 2.
 - **Privacidade**: `PrivacySummary`, `web/privacidade.html` (data nova) e o diálogo de exclusão passam a dizer: apelido e (opcionalmente) foto ficam visíveis a quem buscar o handle, **só se ativar**; amigos veem apelido/foto; nada de favoritos/recomendações é compartilhado nesta feature; a frase "a foto não é copiada para o banco" passa a "só se você ativar amizades e permitir".
 - **README**: nova seção (modelo, rollout, testes de regras), atualizar "Perfil" e a ordem de rollout.
 - **Cache local**: consultas sempre com o uid atual; a limpeza de cache pós-exclusão (`markFirestoreCachePurge`) já cobre os documentos novos.
@@ -439,7 +444,7 @@ Orçamento: com 100 usuários sociais ativos/dia, 3 aberturas de Amigos + 3 sess
 | Estado | Amigos / Pedidos / Bloqueados | Buscar | Perfil > Amigos e privacidade |
 |---|---|---|---|
 | Carregando | indicador de progresso + esqueleto de 3 linhas (nunca "vazio" falso) | botão "Buscar" com progresso, campo mantido | linha com progresso |
-| Vazio | Amigos: "Você ainda não tem amigos." + "Adicionar amigo". Pedidos: "Nenhum pedido." Bloqueados: "Você não bloqueou ninguém." | "Nenhum usuário encontrado" (igual para inexistente, oculto, bloqueado) | "Ativar amizades" |
+| Vazio | Amigos: "Você ainda não tem amigos." + "Adicionar amigo". Pedidos: "Nenhum pedido." Bloqueados: "Você não bloqueou ninguém." | "Nenhum usuário encontrado com esse identificador." (igual para inexistente, oculto, bloqueado, você mesmo) | "Ativar amizades" |
 | Erro | mensagem + "Tentar de novo"; `permission-denied` na ativação: "Amizades ainda não estão disponíveis."; `resource-exhausted`: "Muitas operações hoje. Tente de novo amanhã." | idem | idem |
 | Offline | lista do cache + faixa "Sem conexão"; ações de escrita desabilitadas com o motivo | busca desabilitada | alternar/trocar desabilitados |
 | Sem login | `/friends` redireciona para `/` (como `/profile`); sem ícone | idem | rota já protegida |

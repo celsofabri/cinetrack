@@ -105,7 +105,7 @@ Cenário: Disputa simultânea pelo mesmo handle
 Cenário: Ficar fora da busca
   Dado que desliguei "Aparecer na busca"
   Quando outra pessoa (não amiga) busca meu handle exato
-  Então ela vê "Nenhum usuário encontrado" (igual a handle inexistente)
+  Então ela vê "Nenhum usuário encontrado com esse identificador." (igual a handle inexistente; texto final, docs/73)
   E eu continuo podendo buscar outras pessoas, enviar pedidos e aceitar pedidos que me enviarem
 
 Cenário: Trocar handle
@@ -126,6 +126,7 @@ Cenário: Buscar e enviar pedido
   Dado que "@bruno" está visível na busca
   Quando busco "bruno" (maiúsculas e espaços são normalizados) e toco "Adicionar amigo"
   Então vejo o cartão (apelido, avatar, @bruno) e, depois do toque, "Pedido enviado"
+  E o pedido leva o meu @handle atual (Bruno vê "@ana" no pedido recebido)
   E "@bruno" aparece em Pedidos > Enviados
 
 Cenário: Buscar quem me bloqueou, quem está oculto ou não existe
@@ -234,7 +235,9 @@ Cenário: Teclado e leitor de tela
 - **Usuário excluiu a conta** com pedido/bloqueio de outra pessoa pendente: pedidos e pares dele são apagados; o bloqueio que *outros* fizeram contra ele fica órfão (some quando o bloqueador desbloquear); a lista de bloqueados mostra nome do instantâneo.
 - **Handle de conta excluída** vira livre imediatamente (sem quarentena; ver D2).
 - **Nome mudou**: lista de amigos mostra o instantâneo; atualização é o fan-out raro (D8).
-- **Foto do Google mudou**: cartão tem a URL antiga até o dono reabrir o app (verificação no início da sessão, 1 escrita se mudou).
+- **Foto do Google mudou**: o cartão tem a URL antiga até a próxima vez que a pessoa entrar com o Google (verificação no início da sessão, 1 escrita se mudou). Implementado no fechamento (docs/73): depois de uma leitura do **servidor** com o cartão mostrando foto, compara `SocialPhoto.sanitize(foto do Google)` com a do cartão; se mudou, 1 atualização do cartão (o convite vai junto) e o refresh das metades nos amigos; se o Google não tem mais foto (ou a URL não passa no teste das regras), o cartão fica sem foto. Igual = 0 escritas. Foto desmarcada pelo usuário continua desmarcada. Uma vez por sessão (sem laço). A "foto do Google" é a do provedor `google.com` (`providerData`, renovado a cada login com o Google; docs/74 🟡-R1), então a troca chega **na próxima vez que a pessoa entrar com o Google**. Se a entrada `google.com` existe mas está **sem** foto, a resposta é "sem foto": o `photoURL` de topo (preenchido na criação da conta e nunca renovado) só vale quando não há entrada do Google, e nunca republica uma foto removida (docs/76 🟡-R2, docs/77 P1). **Religar é manual** (decisão do Manager, 09/10/2026): se o Google ficar sem foto, o cartão fica sem foto e "Mostrar minha foto" aparece desligado; uma foto nova no Google **não volta sozinha**. Para voltar a mostrar, a pessoa liga "Mostrar minha foto" (que usa a foto atual do Google); a UI explica isso sob o interruptor.
+- **Pedido amarrado ao @handle** (docs/71 🟡-3, decisão do Manager 08/10/2026): todo pedido grava `fromHandle`, e a regra exige que seja o handle **atual** do remetente (`get(social/{from}).data.handle == fromHandle`). O cartão de pedido recebido mostra o `@handle`, que ninguém falsifica (apelido e foto são livres). O destinatário vê o `@handle` de quem pediu **mesmo que o remetente esteja fora da busca**.
+- **Remetente troca de handle depois de enviar**: o pedido é um instantâneo (como apelido e foto). O pedido pendente **continua válido e aceitável** (o aceite não olha `fromHandle`) e mostra o handle antigo até ser aceito, recusado ou cancelado. Pedidos novos exigem o handle novo. Se outra pessoa pegar o handle antigo, os pedidos dela também mostram esse handle (é dela agora); a amizade é sempre por uid, então ninguém herda nada. Testado em `social.test.mjs` e `dart_payloads.test.mjs`.
 - **Duas abas/dois aparelhos** do mesmo usuário aceitando o mesmo pedido: a segunda escrita é negada (pedido já consumido) e a UI recarrega.
 - **uid com `_`**: a regra assume uid sem `_` (uids do Google/Firebase são alfanuméricos). Documentado em docs/50 §3.
 - **Bloquear alguém que nunca interagiu** (a partir do cartão da busca): permitido.

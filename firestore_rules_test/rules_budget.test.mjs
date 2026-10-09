@@ -213,6 +213,18 @@ describe('real operations stay inside the budget', () => {
     console.log('accept N in one batch (emulator):', JSON.stringify(out));
     assert.equal(out[1], 'ok');
   });
+  it('send request with the handle binding (get social + exists social + 2 blocks + pair = 5 calls) passes, also as the crossed transaction', async () => {
+    // docs/73: get(socialPath(from)) replaced exists(socialPath(from)): same path, same 1 call.
+    await t.seedSocial(ana);
+    await t.seedSocial(bruno);
+    const d = t.db(ana);
+    await assertSucceeds(setDoc(requestRef(d, ana, bruno), {
+      from: ana, to: bruno, fromHandle: 'ana', fromName: 'Nome uid-ana', toName: 'Nome uid-bruno',
+      createdAt: serverTimestamp(),
+    }));
+    // ... and the accept batch that consumes it still fits
+    await assertSucceeds(acceptBatch(t.db(bruno), bruno, ana));
+  });
   it('the accept batch (the heaviest single operation) passes alone', async () => {
     await t.seedSocial(ana);
     await t.seedSocial(bruno);

@@ -113,8 +113,11 @@ String exportFileName(DateTime now) {
 /// its own line, as `{"key": "doc id", "timestampFields": [...], "data":
 /// {all fields as stored}}`. Timestamps are ISO 8601 UTC strings;
 /// `timestampFields` lists which top-level fields were timestamps so a
-/// restore can turn them back. Not included on purpose: the user's own uid and
-/// e-mail. When friendships are on, `social.card` is the user's own raw card,
+/// restore can turn them back. Not included on purpose: the e-mail, and the
+/// user's own uid as a header field. The uid DOES appear inside the `social`
+/// section when friendships are (or were) on: `social.card.data.uid` and the
+/// composite keys `uidA_uidB` of requests and friendships (docs/71 G4). When
+/// friendships are on, `social.card` is the user's own raw card,
 /// which includes the user's OWN photo URL (their data); the social lists have
 /// the uid and nickname of friends, requested and blocked people, never their
 /// photos.

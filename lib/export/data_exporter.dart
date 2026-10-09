@@ -51,30 +51,43 @@ Future<ExportFile> runExport({
   if (!isCurrent()) throw const ExportCancelled();
   final social = await source.readSocial(fromServer: fromServer);
   if (!isCurrent()) throw const ExportCancelled();
-  if (social != null && social.social != null) {
-    final section = SocialExport(social, uid: uid);
-    for (final kind in SocialExportKind.values) {
-      String? socialCursor;
-      while (true) {
-        final page = await source.readSocialPage(
+  // The lists are read even WITHOUT the pointer (docs/71 G6): a deactivation whose last
+  // sweep failed ("Concluir limpeza" pending) or an interrupted account deletion can leave
+  // friendships, requests or blocks behind, and they are the user's data too. Costs 4
+  // reads for an account that never turned friendships on; with the rules not published
+  // yet those reads are denied and simply mean "nothing".
+  final hasPointer = social != null && social.social != null;
+  final section = SocialExport(social ?? const RawSocial(), uid: uid);
+  var residue = false;
+  for (final kind in SocialExportKind.values) {
+    String? socialCursor;
+    while (true) {
+      final RawPage page;
+      try {
+        page = await source.readSocialPage(
           kind,
           cursor: socialCursor,
           limit: pageSize,
           fromServer: fromServer,
         );
-        if (!isCurrent()) throw const ExportCancelled();
-        for (final doc in page.docs) {
-          section.add(kind, doc);
-        }
-        if (page.docs.length < pageSize) break;
-        final next = page.docs.last.id;
-        if (next == socialCursor) {
-          throw const ExportReadException(ExportReadFailureKind.unknown, code: 'cursor-stuck');
-        }
-        socialCursor = next;
+      } on ExportReadException catch (e) {
+        if (!hasPointer && e.kind == ExportReadFailureKind.denied) break;
+        rethrow;
       }
+      if (!isCurrent()) throw const ExportCancelled();
+      for (final doc in page.docs) {
+        section.add(kind, doc);
+        residue = true;
+      }
+      if (page.docs.length < pageSize) break;
+      final next = page.docs.last.id;
+      if (next == socialCursor) {
+        throw const ExportReadException(ExportReadFailureKind.unknown, code: 'cursor-stuck');
+      }
+      socialCursor = next;
     }
-    builder.social = section;
   }
+  // Without pointer and without residue there is nothing social: no section (as before).
+  if (hasPointer || residue) builder.social = section;
   return builder.build(exportedAt: now(), source: from, profile: profile);
 }

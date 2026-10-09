@@ -84,6 +84,7 @@ export function makeTools(env) {
       setDoc(doc(d, 'friend_requests', `${from}_${to}`), {
         from,
         to,
+        fromHandle: o.fromHandle ?? handleFor(from),
         fromName: o.fromName ?? nm(from),
         toName: o.toName ?? nm(to),
         createdAt: agoDays(1),
@@ -122,9 +123,11 @@ export const commit = (d, fn) => {
 };
 
 // --- valid payload builders (what the app will send) ---
+// fromHandle = the sender's CURRENT handle (seedSocial uses handleFor(uid) by default).
 export const requestData = (from, to, o = {}) => ({
   from,
   to,
+  fromHandle: handleFor(from),
   fromName: nm(from),
   toName: nm(to),
   createdAt: st(),

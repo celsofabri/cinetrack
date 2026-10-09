@@ -25,7 +25,7 @@ Perfil, seção "Seus dados" (logo antes de "Sair" e "Excluir minha conta e dado
 - **Dependência:** `web: ^1.1.1` passa de transitiva para direta (já estava no `pubspec.lock` na 1.1.1; nenhum pacote novo baixado). É o pacote oficial do Dart para `dart:js_interop` no navegador.
 - **Versão do app:** `kAppVersion` (sem `package_info_plus`, que é plugin nativo); um teste garante que bate com o `version:` do pubspec.
 
-## Formato (`schemaVersion: 1`)
+## Formato (`schemaVersion: 1`; a versão atual é a 2, abaixo)
 ```json
 {
   "schema": "cinetrack-export",
@@ -42,6 +42,38 @@ Perfil, seção "Seus dados" (logo antes de "Sair" e "Excluir minha conta e dado
   ]
 }
 ```
+### `schemaVersion: 2` (amizades, fase 1; documentado no fechamento, docs/71 G3)
+O app atual gera a versão **2**. Ela só **acrescenta** a chave `social` entre `profile` e `counts`; todo o resto é igual à versão 1 (um arquivo v1 continua sendo um subconjunto válido; teste `social_export_test.dart`).
+```json
+{
+  "schema": "cinetrack-export",
+  "schemaVersion": 2,
+  "...": "header, profile como na v1",
+  "social": null,                 // nunca ativou as amizades (e não há resíduo)
+  "social": {
+    "handle": "ana_9",            // null se só há resíduos (sem ponteiro)
+    "discoverable": true,
+    "photoVisible": true,
+    "pointer": {"timestampFields": ["handleChangedAt"], "data": {"handle": "ana_9", "handleChangedAt": "...", "schemaVersion": 1, "inviteCode": "..."}},
+    "card":    {"timestampFields": ["createdAt", "updatedAt"], "data": {"uid": "<seu uid>", "nickname": "Ana", "photoURL": "https://lh3...", "discoverable": true, "...": "..."}},
+    "invite":  {"code": "...", "createdAt": "...", "expiresAt": "...", "exists": true},   // null sem convite
+    "counts":  {"friends": 2, "requestsSent": 1, "requestsReceived": 0, "blocks": 1},
+    "friends":          [{"key": "uidA_uidB", "uid": "<uid do amigo>", "nickname": "Bia", "since": "..."}],
+    "requestsSent":     [{"key": "<seu uid>_<uid>", "uid": "<uid>", "nickname": "Caio", "createdAt": "..."}],
+    "requestsReceived": [{"key": "<uid>_<seu uid>", "uid": "<uid>", "nickname": "Dora", "createdAt": "..."}],
+    "blocks":           [{"key": "<uid>", "uid": "<uid>", "nickname": "Zeca", "createdAt": "..."}]
+  },
+  "counts": {"...": "como na v1"},
+  "issues": [{"key": "friendships/<id>", "reason": "not-recognized-by-app"}],
+  "favorites": ["como na v1"]
+}
+```
+- `pointer` e `card` são os documentos `social/{uid}` e `handles/{handle}` **crus** (todos os campos, inclusive futuros), no mesmo formato dos favoritos (`timestampFields` + `data`).
+- Das outras pessoas vão **só uid e apelido** (instantâneos), nunca fotos (D9). Um documento que o app não entende entra em `issues` e na lista com os nomes e tipos dos campos, sem valores.
+- O **seu uid** aparece em `card.data.uid` e nas chaves compostas (`key`) de pedidos e amizades (docs/71 G4). O e-mail nunca entra.
+- O código do convite é um segredo (quem o tem vê o seu cartão): trate o arquivo como o próprio link.
+- **Resíduos sem ponteiro** (desativação cuja última varredura falhou, exclusão interrompida): as 4 listas são lidas mesmo sem `social/{uid}` (4 leituras a mais para quem nunca ativou; com as regras antigas a leitura é negada e significa "nada"). Se houver resíduo, a seção sai com `handle: null`, `pointer: null` e as listas (docs/73).
+
 Restaurar (fora do escopo; sem importação no app): para cada entrada, trocar os `timestampFields` de `data` por Timestamp e gravar em `users/{uid}/favorites/{key}`. O teste de round-trip faz isso e passa o resultado pelo `FavoriteMapper`.
 
 ## Arquivos

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:cinetrack/models/favorite_doc.dart';
+import 'package:cinetrack/models/media_type.dart';
 import 'package:cinetrack/providers/social_lists_providers.dart';
 import 'package:cinetrack/screens/friends_screen.dart';
 import 'package:cinetrack/social/social_models.dart';
@@ -232,6 +234,48 @@ void main() {
       expect(find.text('Amigo 0'), findsOneWidget);
     });
 
+    testWidgets('social quota exhausted: the message shows and Favoritos still lists and toggles '
+        '(docs/72 L4)', (tester) async {
+      final app = await pumpFriends(
+        tester,
+        size: const Size(1280, 900),
+        start: '/profile',
+        seed: (s) => addFriends(s, 1),
+      );
+      app.cloud.write(
+        'uid-ana',
+        (docs) => docs['7-movie'] = FavoriteDoc(
+          id: 7,
+          mediaType: MediaType.movie,
+          title: 'Filme Antigo',
+          posterPath: null,
+          overview: '',
+          addedAt: DateTime(2024),
+        ),
+      );
+      // Every social read of the day is over the quota.
+      for (final op in ['friendsPage', 'receivedPage', 'sentPage', 'countReceived']) {
+        app.social.failures[op] = const SocialFailure(SocialFailureKind.quotaExceeded);
+      }
+      app.router.go('/friends');
+      await tester.pumpAndSettle();
+      expect(find.text('Muitas operações hoje. Tente de novo amanhã.'), findsOneWidget);
+
+      app.router.go('/favorites');
+      await tester.pumpAndSettle();
+      expect(find.text('Filme Antigo'), findsWidgets);
+      await tester.tap(find.text('Marcar como assistido').first);
+      await tester.pumpAndSettle();
+      expect(app.cloud.view('uid-ana')['7-movie']!.watchedMovie, isTrue);
+      // A watched movie moves to "Concluídos": unmark it there.
+      await tester.tap(find.text('Concluídos (1)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Assistido').first);
+      await tester.pumpAndSettle();
+      expect(app.cloud.view('uid-ana')['7-movie']!.watchedMovie, isFalse);
+      expect(app.cloud.view('uid-ana').keys, ['7-movie'], reason: 'nothing lost');
+    });
+
     testWidgets('offline: the saved list with the notice; removing is disabled', (tester) async {
       final app = await pumpFriends(tester, start: '/profile', seed: (s) => addFriends(s, 1));
       app.social.offline = true;
@@ -314,6 +358,28 @@ void main() {
   });
 
   group('Pedidos recebidos: accept, decline', () {
+    testWidgets('each card shows the sender\'s @handle: two "Ana Souza" are told apart (docs/73)', (
+      tester,
+    ) async {
+      final app = await pumpFriends(
+        tester,
+        start: '/friends?tab=pedidos',
+        seed: (s) => s
+          ..seedActive('uid-real', 'ana_souza', nickname: 'Ana Souza')
+          ..seedActive('uid-malu', 'malu_22', nickname: 'Ana Souza')
+          ..seedRequest('uid-real', 'uid-ana', fromName: 'Ana Souza')
+          ..seedRequest('uid-malu', 'uid-ana', fromName: 'Ana Souza')
+          // a stored value that is not a handle is never shown
+          ..seedRequest('uid-x', 'uid-ana', fromName: 'Xis', fromHandle: 'NOT A HANDLE'),
+      );
+      expect(find.text('Ana Souza'), findsNWidgets(2));
+      expect(find.text('@ana_souza'), findsOneWidget);
+      expect(find.text('@malu_22'), findsOneWidget);
+      expect(find.text('Xis'), findsOneWidget);
+      expect(find.textContaining('NOT A'), findsNothing);
+      expect(app.social.requests['uid-malu_uid-ana']!['fromHandle'], 'malu_22');
+    });
+
     testWidgets('card with name, date, "Aceitar" and "Recusar" with named semantics', (
       tester,
     ) async {

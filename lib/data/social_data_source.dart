@@ -13,6 +13,13 @@ class CardPatch {
   bool get isEmpty => nickname == null && !changePhoto && discoverable == null;
 }
 
+/// [SocialFailure.code] of a [SocialFailureKind.denied] raised by the FIRST
+/// read of [SocialDataSource.closeSocial] (the user's own pointer): only the
+/// rules not being published deny that read, so there is nothing social to
+/// delete. Any other denial (the close batch itself) is a real failure
+/// (docs/71 G5).
+const kSocialReadDeniedCode = 'own-pointer-denied';
+
 /// Storage seam for the signed-in user's social documents: `social/{uid}`,
 /// `handles/{handle}` and the sweeps of requests, friendships and blocks.
 /// Implementations: Firestore, signed-out (inert) and an in-memory fake.
@@ -31,12 +38,11 @@ abstract class SocialDataSource {
   /// allow the feature are not published.
   Future<RawSocial> read({required bool fromServer});
 
-  /// True when `handles/{handle}` does not exist (server read). A card that
-  /// exists but is hidden from this user counts as taken.
-  Future<bool> isHandleFree(String handle);
-
   /// Reserves the handle, writes the card and the pointer in ONE transaction.
-  /// Throws [SocialFailureKind.handleTaken] / [SocialFailureKind.alreadyActive].
+  /// Throws [SocialFailureKind.handleTaken] (also when the card exists but the
+  /// rules hide it: hidden owner or a block) / [SocialFailureKind.alreadyActive]
+  /// / [SocialFailureKind.denied] (rules not published: the own pointer is read
+  /// FIRST, so this is never mistaken for "taken").
   Future<void> activate(SocialDraft draft);
 
   /// Moves the reservation and the pointer to [newHandle] in one transaction;
@@ -67,7 +73,9 @@ abstract class SocialDataSource {
 
   /// Frees the handle (and invite, if any) and removes the card and the
   /// pointer in one batch. Returns false when there was nothing to remove.
-  /// Idempotent. Reads from the server.
+  /// Idempotent. Reads from the server. A denied read of the own pointer
+  /// throws denied with code [kSocialReadDeniedCode]; a denied batch throws a
+  /// plain denied.
   Future<bool> closeSocial();
 
   /// Search: ONE `get` of `handles/{handle}` (never a list). Null = the
@@ -107,7 +115,7 @@ abstract class SocialDataSource {
   Future<void> unblockUser(String blockedUid);
 
   /// A page of blocked people, newest first (server, else the device).
-  Future<RawSentPage> readBlockedPage({Object? cursor, required int limit});
+  Future<RawSocialPage> readBlockedPage({Object? cursor, required int limit});
 
   /// Number of pending requests received (aggregate `count()`, at most
   /// [kMaxReceivedListed]); server read.
@@ -117,17 +125,17 @@ abstract class SocialDataSource {
   Future<int> countFriends();
 
   /// A page of received requests, newest first (server, else the device).
-  Future<RawSentPage> readReceivedPage({Object? cursor, required int limit});
+  Future<RawSocialPage> readReceivedPage({Object? cursor, required int limit});
 
   /// A page of friendships (document-id order; server, else the device).
-  Future<RawSentPage> readFriendsPage({Object? cursor, required int limit});
+  Future<RawSocialPage> readFriendsPage({Object? cursor, required int limit});
 
   /// Deletes the request this user sent to [toUid] (idempotent).
   Future<void> cancelRequest(String toUid);
 
   /// A page of sent requests, newest first: server when reachable, else the
-  /// device ([RawSentPage.fromCache]). [cursor] comes from the previous page.
-  Future<RawSentPage> readSentPage({Object? cursor, required int limit});
+  /// device ([RawSocialPage.fromCache]). [cursor] comes from the previous page.
+  Future<RawSocialPage> readSentPage({Object? cursor, required int limit});
 
   /// Up to [limit] documents of [kind] that involve this user, from the
   /// server. Empty = nothing left.
@@ -146,9 +154,6 @@ class SignedOutSocialDataSource implements SocialDataSource {
 
   @override
   Future<RawSocial> read({required bool fromServer}) async => const RawSocial();
-
-  @override
-  Future<bool> isHandleFree(String handle) async => false;
 
   @override
   Future<void> activate(SocialDraft draft) =>
@@ -211,8 +216,8 @@ class SignedOutSocialDataSource implements SocialDataSource {
       Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
 
   @override
-  Future<RawSentPage> readBlockedPage({Object? cursor, required int limit}) async =>
-      const RawSentPage(docs: []);
+  Future<RawSocialPage> readBlockedPage({Object? cursor, required int limit}) async =>
+      const RawSocialPage(docs: []);
 
   @override
   Future<int> countReceivedRequests() async => 0;
@@ -221,20 +226,20 @@ class SignedOutSocialDataSource implements SocialDataSource {
   Future<int> countFriends() async => 0;
 
   @override
-  Future<RawSentPage> readReceivedPage({Object? cursor, required int limit}) async =>
-      const RawSentPage(docs: []);
+  Future<RawSocialPage> readReceivedPage({Object? cursor, required int limit}) async =>
+      const RawSocialPage(docs: []);
 
   @override
-  Future<RawSentPage> readFriendsPage({Object? cursor, required int limit}) async =>
-      const RawSentPage(docs: []);
+  Future<RawSocialPage> readFriendsPage({Object? cursor, required int limit}) async =>
+      const RawSocialPage(docs: []);
 
   @override
   Future<void> cancelRequest(String toUid) =>
       Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
 
   @override
-  Future<RawSentPage> readSentPage({Object? cursor, required int limit}) async =>
-      const RawSentPage(docs: []);
+  Future<RawSocialPage> readSentPage({Object? cursor, required int limit}) async =>
+      const RawSocialPage(docs: []);
 
   @override
   Future<List<SweepRef>> readSweepPage(SweepKind kind, {required int limit}) async => const [];

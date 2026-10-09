@@ -63,6 +63,11 @@ service cloud.firestore {
     //   isBlocked(a, b) -> 1 exists()  (a bloqueou b; direcional)
     // Invariante: amigo => nao bloqueado. Logo F2-F5 decidem leitura so com
     // isFriend (1 consulta de regra por documento/autor).
+    // Residuo conhecido (docs/51 F2-F5): se a ultima varredura de uma
+    // desativacao falhar ("Concluir limpeza" pendente) ou uma exclusao de conta
+    // for abandonada no meio, um par pode sobreviver sem social/{uid}: isFriend
+    // continua verdadeiro ate a varredura terminar. Se uma fase futura precisar
+    // excluir esse caso: isFriend(a, b) && exists(socialPath(a)) (+1 chamada).
     // Estas regras sao aditivas: nada acima mudou de comportamento.
     // ==================================================================
 
@@ -136,18 +141,24 @@ service cloud.firestore {
     }
 
     // --- friend_requests/{from}_{to}: pedido direcional, imutavel ---
+    // fromHandle amarra o pedido ao identificador ATUAL do remetente (unico e
+    // infalsificavel): o destinatario ve "@handle" e nao so nome/foto, que sao
+    // livres. O get substitui o exists do remetente (mesmo custo: 1 chamada).
+    // O pedido e um instantaneo: se o remetente trocar de handle depois, o
+    // pedido antigo continua valido e aceitavel (o aceite nao olha fromHandle).
     function validRequest(key) {
       let d = request.resource.data;
       let me = request.auth.uid;
-      return d.keys().hasOnly(['from', 'to', 'fromName', 'fromPhoto', 'toName', 'toPhoto', 'createdAt'])
-        && d.keys().hasAll(['from', 'to', 'fromName', 'toName', 'createdAt'])
+      return d.keys().hasOnly(['from', 'to', 'fromHandle', 'fromName', 'fromPhoto', 'toName', 'toPhoto', 'createdAt'])
+        && d.keys().hasAll(['from', 'to', 'fromHandle', 'fromName', 'toName', 'createdAt'])
         && d.from == me && validUid(me) && validUid(d.to) && d.to != me
         && key == d.from + '_' + d.to
         && d.createdAt == request.time
         && validName(d.fromName) && validName(d.toName)
         && (!('fromPhoto' in d) || validPhoto(d.fromPhoto))
         && (!('toPhoto' in d) || validPhoto(d.toPhoto))
-        && exists(socialPath(d.from)) && exists(socialPath(d.to))
+        && get(socialPath(d.from)).data.handle == d.fromHandle
+        && exists(socialPath(d.to))
         && !isBlockedEither(d.from, d.to)
         && !isFriend(d.from, d.to);
     }

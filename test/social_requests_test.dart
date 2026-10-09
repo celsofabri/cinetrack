@@ -473,6 +473,7 @@ void main() {
     test('export reads what slice 2 writes: uid and nickname of the recipient, no photo', () async {
       final draft = const SendRequestDraft(
         toUid: 'uid-bruno',
+        fromHandle: 'ana',
         fromName: 'Ana',
         fromPhoto: _photo,
         toName: 'Bruno',

@@ -155,7 +155,14 @@ class FirebaseAuthRepository implements AuthRepository {
       uid: user.uid,
       displayName: user.displayName,
       email: user.email,
-      photoUrl: user.photoURL,
+      // Google provider photo first (refreshed on every Google sign-in), docs/74 🟡-R1.
+      photoUrl: pickPhotoUrl(
+        topLevel: user.photoURL,
+        providers: [
+          for (final info in user.providerData)
+            (providerId: info.providerId, photoUrl: info.photoURL),
+        ],
+      ),
       createdAt: user.metadata.creationTime,
       isGoogle: user.providerData.any((info) => info.providerId == 'google.com'),
     );

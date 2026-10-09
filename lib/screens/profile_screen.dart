@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../providers/account_providers.dart';
 import '../providers/providers.dart';
+import '../providers/social_providers.dart';
 import '../widgets/account_widgets.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/delete_account_dialog.dart';
@@ -23,6 +24,8 @@ class ProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider);
     final profile = ref.watch(profileProvider).valueOrNull;
+    // While a friendships operation runs, the nickname (copied to the card) waits.
+    final socialBusy = ref.watch(socialControllerProvider.select((s) => s.busy));
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -57,7 +60,9 @@ class ProfileScreen extends ConsumerWidget {
                 const SizedBox(height: 8),
                 Align(
                   child: TextButton.icon(
-                    onPressed: () => showNicknameDialog(context, current: profile?.nickname),
+                    onPressed: socialBusy
+                        ? null
+                        : () => showNicknameDialog(context, current: profile?.nickname),
                     icon: const Icon(Icons.edit_outlined),
                     label: Text(profile?.nickname == null ? 'Definir apelido' : 'Editar apelido'),
                   ),

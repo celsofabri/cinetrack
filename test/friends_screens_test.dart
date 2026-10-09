@@ -278,7 +278,7 @@ void main() {
       for (final handle in ['ninguem', 'oculta', 'blk_me', 'ana', 'admin']) {
         await searchHandle(tester, handle);
         expect(
-          find.text('Não encontramos ninguém com esse apelido'),
+          find.text('Nenhum usuário encontrado com esse identificador.'),
           findsOneWidget,
           reason: handle,
         );
@@ -314,6 +314,66 @@ void main() {
       expect(find.text('Bruno'), findsOneWidget); // already in the list, no extra read
       expect(app.reads.where((r) => r == 'sent:page'), hasLength(1));
       semantics.dispose();
+    });
+
+    testWidgets('hidden from the search: I can still search, send and accept (docs/72 L2)', (
+      tester,
+    ) async {
+      final app = await pumpFriends(
+        tester,
+        size: const Size(1280, 1600), // received + sent lists fit on one screen
+        start: '/friends/add',
+        seed: (s) => s
+          // Ana turned "Aparecer na busca" OFF.
+          ..seedActive(
+            'uid-ana',
+            'ana',
+            nickname: 'Ana',
+            photoUrl: kAnaGoogle.photoUrl,
+            discoverable: false,
+          )
+          ..seedActive('uid-caio', 'caio', nickname: 'Caio')
+          ..seedRequest('uid-caio', 'uid-ana', fromName: 'Caio', toName: 'Ana'),
+      );
+      expect(app.social.handles['ana']!['discoverable'], isFalse);
+      // search + send
+      await searchHandle(tester, 'bruno');
+      await tester.tap(find.text('Enviar pedido'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pedido enviado'), findsOneWidget);
+      expect(app.social.requests['uid-ana_uid-bruno']!['fromHandle'], 'ana');
+      // accept the request Caio sent
+      app.router.go('/friends?tab=pedidos');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Aceitar'));
+      await tester.pumpAndSettle();
+      expect(app.social.friendships.keys, ['uid-ana_uid-caio']);
+      expect(app.social.requests.containsKey('uid-caio_uid-ana'), isFalse);
+      // ... and cancel the one sent to Bruno (same tab, "Pedidos enviados").
+      expect(app.social.requests.containsKey('uid-ana_uid-bruno'), isTrue);
+      await tester.pump(const Duration(seconds: 5)); // let the "Amizade aceita" SnackBar go
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Cancelar pedido'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancelar pedido'));
+      await tester.pumpAndSettle();
+      await tester.tap(btn('Cancelar pedido').last);
+      await tester.pumpAndSettle();
+      expect(app.social.requests, isEmpty);
+    });
+
+    testWidgets('the request carries MY current handle; a stale handle is refused by the rules', (
+      tester,
+    ) async {
+      final app = await pumpFriends(tester, start: '/friends/add');
+      // Another device changed Ana's handle; this session still holds "ana".
+      app.social.social['uid-ana']!['handle'] = 'ana_nova';
+      app.social.handles['ana_nova'] = app.social.handles.remove('ana')!;
+      await searchHandle(tester, 'bruno');
+      await tester.tap(find.text('Enviar pedido'));
+      await tester.pumpAndSettle();
+      expect(app.social.requests, isEmpty, reason: 'fromHandle must be the CURRENT handle');
+      expect(find.text(const SocialFailure(SocialFailureKind.notSent).message), findsOneWidget);
     });
 
     testWidgets('editing the text drops the old result (it belongs to what was searched)', (

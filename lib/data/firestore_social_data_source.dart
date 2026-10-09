@@ -25,6 +25,21 @@ typedef SocialExecutor =
 /// Runs an aggregate `count()` query. The default asks the server.
 typedef SocialCountReader = Future<int> Function(SocialQuerySpec spec);
 
+/// Reads one document (by path) from the server, outside a transaction.
+/// The default asks Firestore; tests inject a fake (docs/71 G5).
+typedef SocialDocReader = Future<SocialSnapshot> Function(String path);
+
+/// Reads one document (by path) inside a planned transaction. Provider errors
+/// (`FirebaseException`) come out as they are.
+typedef SocialTxGet = Future<SocialSnapshot> Function(String path);
+
+/// Runs a planned write (activate, change handle, card, invite): [plan] reads
+/// through the getter it receives and returns the payload to apply. The
+/// default is a Firestore transaction; tests inject a fake (docs/72 L1) to run
+/// the real branches (handle hidden by the rules = taken; own pointer denied =
+/// rules not published) without Firebase.
+typedef SocialPlanner = Future<void> Function(Future<SocialWrite> Function(SocialTxGet get) plan);
+
 /// Firestore implementation of the social documents of ONE user ([uid]).
 /// The security rules (`firestore.rules`, docs/51) are the real guard; this
 /// class only has to write exactly what they accept:
@@ -45,15 +60,20 @@ class FirestoreSocialDataSource implements SocialDataSource {
   final Duration timeout;
   final SocialExecutor? executor;
   final SocialCountReader? countReader;
+  final SocialPlanner? planner;
+  final SocialDocReader? docReader;
 
-  /// [executor] and [countReader] are test seams: with both injected this
-  /// class never touches Firebase (the instance is looked up lazily).
+  /// [executor], [countReader] and [planner] are test seams: with them
+  /// injected this class never touches Firebase (the instance is looked up
+  /// lazily).
   FirestoreSocialDataSource({
     required this.uid,
     this.timeout = const Duration(seconds: 30),
     this.firestore,
     @visibleForTesting this.executor,
     @visibleForTesting this.countReader,
+    @visibleForTesting this.planner,
+    @visibleForTesting this.docReader,
   });
 
   FirebaseFirestore get _db => firestore ?? FirebaseFirestore.instance;
@@ -93,28 +113,18 @@ class FirestoreSocialDataSource implements SocialDataSource {
     );
   }, write: false);
 
-  @override
-  Future<bool> isHandleFree(String handle) => _guard(() async {
-    try {
-      final snapshot = await _handle(handle).get(const GetOptions(source: Source.server));
-      return !snapshot.exists;
-    } on FirebaseException catch (e) {
-      // Exists but hidden from us (hidden / blocked): taken.
-      if (e.code == 'permission-denied') return false;
-      rethrow;
-    }
-  }, write: false);
+  String get _socialPath => SocialPayloads.socialPath(uid);
 
   @override
   Future<void> activate(SocialDraft draft) => _guard(
-    () => _executePlanned((tx) async {
-      final card = _handle(draft.handle);
-      if ((await _txGetHandle(tx, card)).exists) {
-        throw const SocialFailure(SocialFailureKind.handleTaken);
-      }
-      if ((await tx.get(_social)).exists) {
-        throw const SocialFailure(SocialFailureKind.alreadyActive);
-      }
+    () => _executePlanned((get) async {
+      // The own pointer FIRST: it is always readable by its owner once the rules are
+      // published, so a denial here means "rules not published" (denied) and is never
+      // confused with a handle hidden by the rules (taken), docs/72 L1.
+      final social = await get(_socialPath);
+      final card = await _getHandle(get, draft.handle);
+      if (card.exists) throw const SocialFailure(SocialFailureKind.handleTaken);
+      if (social.exists) throw const SocialFailure(SocialFailureKind.alreadyActive);
       return SocialPayloads.activate(uid, draft);
     }),
     write: true,
@@ -122,8 +132,8 @@ class FirestoreSocialDataSource implements SocialDataSource {
 
   @override
   Future<void> changeHandle(String newHandle) => _guard(
-    () => _executePlanned((tx) async {
-      final social = (await tx.get(_social)).data();
+    () => _executePlanned((get) async {
+      final social = (await get(_socialPath)).data;
       final old = social?['handle'];
       if (old is! String) throw const SocialFailure(SocialFailureKind.notActive);
       if (old == newHandle) return const SocialWrite(SocialWriteMode.transaction, []);
@@ -134,12 +144,11 @@ class FirestoreSocialDataSource implements SocialDataSource {
           throw SocialFailure(SocialFailureKind.tooSoon, retryAt: next);
         }
       }
-      final oldCard = (await tx.get(_handle(old))).data();
+      final oldCard = (await get(SocialPayloads.handlePath(old))).data;
       if (oldCard == null) {
         throw const SocialFailure(SocialFailureKind.unknown, code: 'card-missing');
       }
-      final target = _handle(newHandle);
-      if ((await _txGetHandle(tx, target)).exists) {
+      if ((await _getHandle(get, newHandle)).exists) {
         throw const SocialFailure(SocialFailureKind.handleTaken);
       }
       return SocialPayloads.changeHandle(
@@ -158,8 +167,8 @@ class FirestoreSocialDataSource implements SocialDataSource {
   Future<void> updateCard(CardPatch patch) {
     if (patch.isEmpty) return Future.value();
     return _guard(
-      () => _executePlanned((tx) async {
-        final social = (await tx.get(_social)).data();
+      () => _executePlanned((get) async {
+        final social = (await get(_socialPath)).data;
         final handle = social?['handle'];
         if (handle is! String) throw const SocialFailure(SocialFailureKind.notActive);
         String? inviteCode;
@@ -169,7 +178,7 @@ class FirestoreSocialDataSource implements SocialDataSource {
             InviteCode.isValid(pointer)) {
           // An expired invite is left alone (the rules check `expiresAt` on
           // every update, so touching it would fail the whole card update).
-          final invite = (await tx.get(_invite(pointer))).data();
+          final invite = (await get(SocialPayloads.invitePath(pointer))).data;
           final expires = invite?['expiresAt'];
           if (invite?['uid'] == uid &&
               expires is Timestamp &&
@@ -188,15 +197,15 @@ class FirestoreSocialDataSource implements SocialDataSource {
 
   @override
   Future<void> createInvite(InviteDraft draft) => _guard(
-    () => _executePlanned((tx) async {
-      final social = (await tx.get(_social)).data();
+    () => _executePlanned((get) async {
+      final social = (await get(_socialPath)).data;
       if (social?['handle'] is! String) throw const SocialFailure(SocialFailureKind.notActive);
       String? replaces;
       final pointer = social?['inviteCode'];
       if (pointer is String && InviteCode.isValid(pointer)) {
         // Deleting a document that does not exist is denied: only replace it
         // when it is really there and ours.
-        final old = (await tx.get(_invite(pointer))).data();
+        final old = (await get(SocialPayloads.invitePath(pointer))).data;
         if (old != null && old['uid'] == uid) replaces = pointer;
       }
       return SocialPayloads.createInvite(uid, draft, replacesCode: replaces);
@@ -206,12 +215,12 @@ class FirestoreSocialDataSource implements SocialDataSource {
 
   @override
   Future<void> revokeInvite() => _guard(
-    () => _executePlanned((tx) async {
-      final pointer = (await tx.get(_social)).data()?['inviteCode'];
+    () => _executePlanned((get) async {
+      final pointer = (await get(_socialPath)).data?['inviteCode'];
       if (pointer is! String || !InviteCode.isValid(pointer)) {
         return const SocialWrite(SocialWriteMode.transaction, []);
       }
-      final doc = (await tx.get(_invite(pointer))).data();
+      final doc = (await get(SocialPayloads.invitePath(pointer))).data;
       return SocialPayloads.revokeInvite(
         uid,
         pointer,
@@ -237,24 +246,40 @@ class FirestoreSocialDataSource implements SocialDataSource {
     return _guard(() => _execute(SocialPayloads.refreshHalves(updates)), write: true);
   }
 
+  Future<SocialSnapshot> _serverGet(String path) {
+    final custom = docReader;
+    if (custom != null) return custom(path);
+    return _doc(path).get(const GetOptions(source: Source.server)).then(
+      (snap) => (exists: snap.exists, data: snap.data()),
+    );
+  }
+
   @override
   Future<bool> closeSocial() async {
-    const server = GetOptions(source: Source.server);
-    final social = await _guard(() => _social.get(server), write: false);
-    final data = social.data();
+    final SocialSnapshot social;
+    try {
+      social = await _guard(() => _serverGet(_socialPath), write: false);
+    } on SocialFailure catch (e) {
+      // Only this read tells "rules not published" (docs/71 G5).
+      if (e.kind == SocialFailureKind.denied) {
+        throw const SocialFailure(SocialFailureKind.denied, code: kSocialReadDeniedCode);
+      }
+      rethrow;
+    }
+    final data = social.data;
     if (data == null) return false;
 
     String? cardHandle;
     final handle = data['handle'];
     if (handle is String && handle.isNotEmpty) {
-      final card = await _guard(() => _handle(handle).get(server), write: false);
-      if (card.exists && card.data()?['uid'] == uid) cardHandle = handle;
+      final card = await _guard(() => _serverGet(SocialPayloads.handlePath(handle)), write: false);
+      if (card.exists && card.data?['uid'] == uid) cardHandle = handle;
     }
     String? inviteCode;
     final invite = data['inviteCode'];
     if (invite is String && invite.isNotEmpty) {
-      final doc = await _guard(() => _invite(invite).get(server), write: false);
-      if (doc.exists && doc.data()?['uid'] == uid) inviteCode = invite;
+      final doc = await _guard(() => _serverGet(SocialPayloads.invitePath(invite)), write: false);
+      if (doc.exists && doc.data?['uid'] == uid) inviteCode = invite;
     }
     final close = SocialPayloads.close(uid, handle: cardHandle, inviteCode: inviteCode);
     await _guard(() => _execute(close), write: true);
@@ -340,7 +365,7 @@ class FirestoreSocialDataSource implements SocialDataSource {
       _guard(() => _execute(SocialPayloads.unblockUser(uid, blockedUid)), write: true);
 
   @override
-  Future<RawSentPage> readBlockedPage({Object? cursor, required int limit}) =>
+  Future<RawSocialPage> readBlockedPage({Object? cursor, required int limit}) =>
       _page(SocialPayloads.blocksQuery(uid, limit + 1), cursor, limit);
 
   Future<int> _count(SocialQuerySpec spec) {
@@ -366,20 +391,20 @@ class FirestoreSocialDataSource implements SocialDataSource {
       _guard(() => _execute(SocialPayloads.cancelRequest(uid, toUid)), write: true);
 
   @override
-  Future<RawSentPage> readSentPage({Object? cursor, required int limit}) =>
+  Future<RawSocialPage> readSentPage({Object? cursor, required int limit}) =>
       _page(SocialPayloads.sentQuery(uid, limit + 1), cursor, limit);
 
   @override
-  Future<RawSentPage> readReceivedPage({Object? cursor, required int limit}) =>
+  Future<RawSocialPage> readReceivedPage({Object? cursor, required int limit}) =>
       _page(SocialPayloads.receivedQuery(uid, limit + 1), cursor, limit);
 
   @override
-  Future<RawSentPage> readFriendsPage({Object? cursor, required int limit}) =>
+  Future<RawSocialPage> readFriendsPage({Object? cursor, required int limit}) =>
       _page(SocialPayloads.friendsQuery(uid, limit + 1), cursor, limit);
 
   /// One page of [spec] (built with `limit + 1`): the extra document only
   /// tells whether there is a next page and is not returned.
-  Future<RawSentPage> _page(SocialQuerySpec spec, Object? cursor, int limit) => _guard(() async {
+  Future<RawSocialPage> _page(SocialQuerySpec spec, Object? cursor, int limit) => _guard(() async {
     var query = _query(spec);
     if (cursor is DocumentSnapshot<Map<String, dynamic>>) {
       query = query.startAfterDocument(cursor);
@@ -387,7 +412,7 @@ class FirestoreSocialDataSource implements SocialDataSource {
     final snapshot = await query.get();
     final docs = snapshot.docs;
     final page = docs.take(limit).toList();
-    return RawSentPage(
+    return RawSocialPage(
       docs: [for (final d in page) (id: d.id, data: convert(d.data()))],
       cursor: page.isEmpty ? null : page.last,
       hasMore: docs.length > limit,
@@ -406,21 +431,7 @@ class FirestoreSocialDataSource implements SocialDataSource {
   Future<void> deleteRefs(List<SweepRef> refs) =>
       _guard(() => _execute(SocialPayloads.sweepDelete(uid, refs)), write: true);
 
-  /// Builds the Firestore query of a [SocialQuerySpec] (the only place that
-  /// turns a spec into a query).
-  Query<Map<String, dynamic>> _query(SocialQuerySpec spec) {
-    Query<Map<String, dynamic>> query = _db.collection(spec.collection);
-    for (final (field, op, value) in spec.where) {
-      query = switch (op) {
-        '==' => query.where(field, isEqualTo: value),
-        'array-contains' => query.where(field, arrayContains: value),
-        _ => throw StateError('unsupported operator $op'),
-      };
-    }
-    final order = spec.orderBy;
-    if (order != null) query = query.orderBy(order.$1, descending: order.$2);
-    return query.limit(spec.limit);
-  }
+  Query<Map<String, dynamic>> _query(SocialQuerySpec spec) => socialQuery(_db, spec);
 
   Object? _resolve(Object? v) => switch (v) {
     ServerTimestamp() => FieldValue.serverTimestamp(),
@@ -483,11 +494,16 @@ class FirestoreSocialDataSource implements SocialDataSource {
   /// card update): [plan] reads inside a transaction and returns the payload;
   /// a transaction-mode payload is applied inside it, a batch-mode one right
   /// after (the reads are then not part of its atomicity, as for any batch).
-  Future<void> _executePlanned(Future<SocialWrite> Function(Transaction tx) plan) async {
+  Future<void> _executePlanned(Future<SocialWrite> Function(SocialTxGet get) plan) async {
+    final custom = planner;
+    if (custom != null) return custom(plan);
     SocialWrite? deferred;
     await _db.runTransaction((tx) async {
       deferred = null;
-      final write = await plan(tx);
+      final write = await plan((path) async {
+        final snap = await tx.get(_doc(path));
+        return (exists: snap.exists, data: snap.data());
+      });
       if (write.mode == SocialWriteMode.transaction) {
         _applyTx(tx, write);
       } else {
@@ -513,15 +529,13 @@ class FirestoreSocialDataSource implements SocialDataSource {
     return batch.commit();
   }
 
-  /// Reads a handle card inside a transaction. The rules hide a card that
-  /// belongs to someone else when it is not discoverable (or blocked): from
-  /// here that is just "taken".
-  Future<DocumentSnapshot<Map<String, dynamic>>> _txGetHandle(
-    Transaction tx,
-    DocumentReference<Map<String, dynamic>> ref,
-  ) async {
+  /// Reads a handle card inside a planned transaction. The rules hide a card
+  /// that belongs to someone else when it is not discoverable (or blocked):
+  /// from here that is just "taken" (never "free"). Callers read the own
+  /// pointer before this, so "rules not published" is already told apart.
+  Future<SocialSnapshot> _getHandle(SocialTxGet get, String handle) async {
     try {
-      return await tx.get(ref);
+      return await get(SocialPayloads.handlePath(handle));
     } on FirebaseException catch (e) {
       if (e.code == 'permission-denied') {
         throw const SocialFailure(SocialFailureKind.handleTaken, code: 'permission-denied');
@@ -573,4 +587,21 @@ class FirestoreSocialDataSource implements SocialDataSource {
 /// Internal signal: the transaction found the inverse request (D4).
 class _CrossedRequest implements Exception {
   const _CrossedRequest();
+}
+
+/// Builds the Firestore query of a [SocialQuerySpec]: the only place that
+/// turns a spec into a query (the social data source and the export share it,
+/// docs/71 G8).
+Query<Map<String, dynamic>> socialQuery(FirebaseFirestore db, SocialQuerySpec spec) {
+  Query<Map<String, dynamic>> query = db.collection(spec.collection);
+  for (final (field, op, value) in spec.where) {
+    query = switch (op) {
+      '==' => query.where(field, isEqualTo: value),
+      'array-contains' => query.where(field, arrayContains: value),
+      _ => throw StateError('unsupported operator $op'),
+    };
+  }
+  final order = spec.orderBy;
+  if (order != null) query = query.orderBy(order.$1, descending: order.$2);
+  return query.limit(spec.limit);
 }

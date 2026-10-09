@@ -238,6 +238,16 @@ describe('Dart payloads (fixture): friend requests (slice 2)', () => {
     });
   }
 
+  it('sendRequest carries the sender\'s CURRENT handle; the same payload is denied once the handle changed', async () => {
+    assert.equal(S.sendRequest.write.ops[0].data.fromHandle, 'ana');
+    assert.equal(S.sendRequest.input.fromHandle, 'ana');
+    await t.seedSocial(ana, { handle: 'ana_novo' });
+    await t.seedSocial(to, { handle: 'bruno' });
+    await assertFails(run(t.db(ana), S.sendRequest.write));
+    await t.seedSocial(ana, { handle: 'ana' });
+    await assertSucceeds(run(t.db(ana), S.sendRequest.write));
+  });
+
   it('sendRequest declares the two reads the app does (own and inverse request)', () => {
     assert.deepEqual(S.sendRequest.write.reads, [reqPath, `friend_requests/${to}_${ana}`]);
   });
@@ -263,6 +273,14 @@ describe('Dart payloads (fixture): friend requests (slice 2)', () => {
     // the app finds people only through this get, which is denied for hidden cards:
     await assertFails(getDoc(doc(t.db(ana), 'handles', 'bruno')));
     await assertSucceeds(run(t.db(ana), S.sendRequest.write));
+  });
+
+  it('FROM a hidden user ("Aparecer na busca" off): the fixture payload is accepted (docs/72 L2)', async () => {
+    await t.seedSocial(ana, { handle: 'ana', discoverable: false });
+    await t.seedSocial(to, { handle: 'bruno' });
+    await assertSucceeds(getDoc(doc(t.db(ana), 'handles', 'bruno')));
+    await assertSucceeds(run(t.db(ana), S.sendRequest.write));
+    await assertSucceeds(run(t.db(ana), S.cancelRequest.write));
   });
 
   it('to someone who blocked you, or whom you blocked: denied (and the card is not readable)', async () => {
@@ -321,6 +339,9 @@ describe('Dart payloads (fixture): friend requests (slice 2)', () => {
       'toPhoto http': (op) => (op.data.toPhoto = 'http://lh3.googleusercontent.com/a'),
       'client clock': (op) => (op.data.createdAt = new Date().toISOString()),
       'missing toName': (op) => delete op.data.toName,
+      'missing fromHandle': (op) => delete op.data.fromHandle,
+      'fromHandle of the recipient': (op) => (op.data.fromHandle = 'bruno'),
+      'fromHandle not the current one': (op) => (op.data.fromHandle = 'ana_velho'),
     };
     for (const [label, edit] of Object.entries(bad)) {
       await assertFails(run(t.db(ana), clauses(w, edit)), label);
@@ -470,6 +491,21 @@ describe('Dart payloads (fixture): accept, decline, friends, remove (slice 3)', 
       assert.equal(await t.exists(['friend_requests', `${i.uid}_${i.fromUid}`]), false);
     });
   }
+
+  it('a HIDDEN recipient ("Aparecer na busca" off) accepts with the fixture payload (docs/72 L2)', async () => {
+    await t.seedSocial(ana, { handle: 'ana', discoverable: false });
+    await t.seedSocial(bru, { handle: 'bruno' });
+    await seedTheirs();
+    await assertSucceeds(run(t.db(ana), acc.write));
+    assert.equal(await t.exists(['friendships', `${ana}_${bru}`]), true);
+  });
+
+  it('their request was sent under a handle they no longer have: still accepted (snapshot, docs/73)', async () => {
+    await t.seedSocial(ana, { handle: 'ana' });
+    await t.seedSocial(bru, { handle: 'bruno_novo' });
+    await seedTheirs(acc.input, { fromHandle: 'bruno' });
+    await assertSucceeds(run(t.db(ana), acc.write));
+  });
 
   it('accept without their pending request is denied (nothing created)', async () => {
     await bothActive();
@@ -1051,7 +1087,7 @@ describe('Dart payloads (fixture): block, unblock, blocked list (slice 4)', () =
     await assertSucceeds(run(t.db(ana), blk.write));
     const fromBruno = edit(S.sendRequest.write, (op) => {
       op.path = `friend_requests/${bru}_${ana}`;
-      op.data = { ...op.data, from: bru, to: ana, fromName: 'Bruno', toName: 'Ana' };
+      op.data = { ...op.data, from: bru, to: ana, fromHandle: 'bruno', fromName: 'Bruno', toName: 'Ana' };
     });
     await assertFails(run(t.db(bru), fromBruno));
     assert.equal(await has(recvPath), false);
@@ -1387,7 +1423,7 @@ describe('Dart payloads (fixture): invite link and refresh of friendship halves 
       await t.seedSocial(bruno, { handle: 'bruno' });
       const w = clone(S.sendRequest.write);
       w.ops[0].path = `friend_requests/${bruno}_${ana}`;
-      Object.assign(w.ops[0].data, { from: bruno, to: ana, fromName: 'Bruno', toName: 'Ana' });
+      Object.assign(w.ops[0].data, { from: bruno, to: ana, fromHandle: 'bruno', fromName: 'Bruno', toName: 'Ana' });
       w.reads = [`friend_requests/${bruno}_${ana}`, `friend_requests/${ana}_${bruno}`];
       await assertSucceeds(run(t.db(bruno), w));
       assert.equal(await t.exists(['friend_requests', `${bruno}_${ana}`]), true);
@@ -1400,7 +1436,7 @@ describe('Dart payloads (fixture): invite link and refresh of friendship halves 
       await t.seedBlock(ana, bruno);
       const w = clone(S.sendRequest.write);
       w.ops[0].path = `friend_requests/${bruno}_${ana}`;
-      Object.assign(w.ops[0].data, { from: bruno, to: ana, fromName: 'Bruno', toName: 'Ana' });
+      Object.assign(w.ops[0].data, { from: bruno, to: ana, fromHandle: 'bruno', fromName: 'Bruno', toName: 'Ana' });
       await assertFails(run(t.db(bruno), w));
     });
 

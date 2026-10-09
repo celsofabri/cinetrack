@@ -81,6 +81,11 @@ const MUTATIONS = [
     [["            && (o == null || !existsAfter(invitePath(o))));", "            );"]], true],
   ['M38 the invite format allows a short code (8 characters)',
     [["c.matches('^[A-Za-z0-9]{22,40}$')", "c.matches('^[A-Za-z0-9]{8,40}$')"]], true],
+  // Fechamento (docs/73): request bound to the sender's @handle; hidden users keep using friendships.
+  ['M39 request not bound to the sender\'s handle (any fromHandle accepted: impersonation)',
+    [["        && get(socialPath(d.from)).data.handle == d.fromHandle\n", "        && exists(socialPath(d.from))\n"]], true],
+  ['M40 the sender must be visible in the search ("Aparecer na busca" off cannot send)',
+    [["        && get(socialPath(d.from)).data.handle == d.fromHandle\n", "        && get(socialPath(d.from)).data.handle == d.fromHandle\n        && get(handlePath(d.fromHandle)).data.discoverable == true\n"]], true],
 ];
 
 // Mutations of the PAYLOADS (the Dart side) instead of the rules: a deliberately broken copy of the
@@ -143,6 +148,15 @@ const FIXTURE_MUTATIONS = [
     (fx) => {
       fx.scenarios.createInvite.write.ops.find((o) => o.op === 'set').data.uid = 'uid-bruno';
     }],
+  // Fechamento (docs/73): the request payload without the sender's handle, or with someone else's.
+  ['F11 request payload without fromHandle',
+    (fx) => {
+      for (const n of ['sendRequest', 'sendRequest_with_photos']) delete fx.scenarios[n].write.ops[0].data.fromHandle;
+    }],
+  ['F12 request payload carries the recipient\'s handle instead of the sender\'s',
+    (fx) => {
+      for (const n of ['sendRequest', 'sendRequest_with_photos']) fx.scenarios[n].write.ops[0].data.fromHandle = 'bruno';
+    }],
 ];
 function dropOp(fx, prefix) {
   for (const n of ['blockUser', 'blockUser_with_photo', 'blockUser_bare']) {
@@ -152,7 +166,45 @@ function dropOp(fx, prefix) {
 }
 
 const dir = mkdtempSync(join(tmpdir(), 'cinetrack-mut-'));
+const SUITES = ['social.test.mjs', 'social_compat.test.mjs', 'dart_payloads.test.mjs'];
+const notOk = (stdout) => [...stdout.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => m[1]);
+const okCount = (stdout) => [...stdout.matchAll(/^\s*ok \d+ - /gm)].length;
+
+// Baseline (docs/71 G9): the UNMUTATED rules and fixture must pass with the exact same runner,
+// otherwise any non-zero exit (emulator down, port taken, crash) would look like a killed mutation.
+{
+  const file = join(dir, 'baseline.rules');
+  writeFileSync(file, rules);
+  const r = spawnSync('node', ['--test', '--test-concurrency=1', '--test-reporter=tap', ...SUITES], {
+    env: { ...process.env, RULES_PATH: file },
+    encoding: 'utf8',
+  });
+  const failed = notOk(r.stdout);
+  if (r.status !== 0 || failed.length > 0 || okCount(r.stdout) === 0) {
+    console.error(`BASELINE FAILED (exit ${r.status}, ${failed.length} not ok): fix the suite or the emulator first.`);
+    console.error(failed.slice(0, 5).join('\n') || r.stderr.slice(0, 2000));
+    process.exit(2);
+  }
+  console.log(`BASELINE  unmutated rules + fixture: ${okCount(r.stdout)} ok, 0 not ok`);
+}
+
 let survived = 0;
+let errored = 0;
+// KILLED needs at least one failing test; a non-zero exit WITHOUT "not ok" is an infrastructure
+// error, never a kill.
+const judge = (name, r) => {
+  const failed = notOk(r.stdout);
+  if (failed.length > 0) {
+    const leaf = failed.filter((n) => !/^(handles|busca|troca|pedidos|pedido amarrado|quem esta|amizade|bloqueio|exclusao|convite|isFriend|revogacao|rules do not|NEW rules|OLD rules|Dart payloads)/.test(n));
+    console.log(`KILLED    ${name}  (${leaf.length || failed.length} failing tests, e.g. "${leaf[0] ?? failed[0]}")`);
+  } else if (r.status === 0) {
+    survived++;
+    console.log(`SURVIVED  ${name}`);
+  } else {
+    errored++;
+    console.log(`ERROR     ${name}  (exit ${r.status} without any failing test: not counted as killed)`);
+  }
+};
 for (const [name, edits, replay] of MUTATIONS) {
   if (process.env.ONLY && !name.startsWith(`${process.env.ONLY} `)) continue;
   let text = rules;
@@ -170,14 +222,7 @@ for (const [name, edits, replay] of MUTATIONS) {
     ['--test', '--test-concurrency=1', '--test-reporter=tap', 'social.test.mjs', 'social_compat.test.mjs', ...(replay ? ['dart_payloads.test.mjs'] : [])],
     { env: { ...process.env, RULES_PATH: file }, encoding: 'utf8' },
   );
-  const failed = [...r.stdout.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => m[1]).filter((n) => !/\(\d/.test(n) || true);
-  const leaf = failed.filter((n) => !/^(handles|busca|troca|pedidos|amizade|bloqueio|exclusao|convite|isFriend|revogacao|rules do not|NEW rules|OLD rules)/.test(n));
-  if (r.status === 0) {
-    survived++;
-    console.log(`SURVIVED  ${name}`);
-  } else {
-    console.log(`KILLED    ${name}  (${leaf.length} failing tests, e.g. "${leaf[0] ?? failed[0]}")`);
-  }
+  judge(name, r);
 }
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/social_payloads.json', import.meta.url), 'utf8'));
 for (const [name, mutate] of FIXTURE_MUTATIONS) {
@@ -190,14 +235,11 @@ for (const [name, mutate] of FIXTURE_MUTATIONS) {
     env: { ...process.env, FIXTURE_PATH: file },
     encoding: 'utf8',
   });
-  const failed = [...r.stdout.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => m[1]);
-  if (r.status === 0) {
-    survived++;
-    console.log(`SURVIVED  ${name}`);
-  } else {
-    console.log(`KILLED    ${name}  (${failed.length} failing tests, e.g. "${failed[0]}")`);
-  }
+  judge(name, r);
 }
 const TOTAL = MUTATIONS.length + FIXTURE_MUTATIONS.length;
-console.log(survived === 0 ? `\nAll ${TOTAL} mutations were killed.` : `\n${survived} mutation(s) SURVIVED.`);
-process.exit(survived === 0 ? 0 : 1);
+if (errored > 0) console.log(`\n${errored} mutation run(s) ERRORED (infrastructure): rerun.`);
+console.log(survived === 0 && errored === 0
+  ? `\nAll ${TOTAL} mutations were killed.`
+  : `\n${survived} mutation(s) SURVIVED, ${errored} errored.`);
+process.exit(survived === 0 && errored === 0 ? 0 : 1);

@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/providers.dart';
-import '../providers/social_lists_providers.dart';
 import '../providers/social_providers.dart';
 import '../providers/sync_providers.dart';
 import '../repositories/social_repository.dart';
@@ -11,6 +10,7 @@ import '../social/social_models.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/auth_gate.dart';
 import '../widgets/person_avatar.dart';
+import '../widgets/send_request_controls.dart';
 import '../widgets/social_dialogs.dart';
 import '../widgets/social_gate.dart' show kFriendsMaxWidth;
 
@@ -159,8 +159,6 @@ class _Note extends StatelessWidget {
 
 enum _Phase { loading, found, unavailable, failed }
 
-enum _Send { ready, sending, sent, befriended, alreadySent, alreadyFriends, failed }
-
 /// Signed in with friendships on: opens the invite (one `get`) and offers the request.
 class _Opened extends ConsumerStatefulWidget {
   final String code;
@@ -173,7 +171,7 @@ class _Opened extends ConsumerStatefulWidget {
 
 class _OpenedState extends ConsumerState<_Opened> {
   _Phase _phase = _Phase.loading;
-  _Send _send = _Send.ready;
+  SendStatus _send = SendStatus.ready;
   FriendCard? _card;
   SocialFailure? _failure;
   SocialFailure? _sendFailure;
@@ -202,11 +200,7 @@ class _OpenedState extends ConsumerState<_Opened> {
             _card = card;
             _phase = _Phase.found;
             // Free: only what the lists already hold in memory (nothing is read for it).
-            _send = ref.read(friendsControllerProvider.notifier).contains(card.uid)
-                ? _Send.alreadyFriends
-                : ref.read(sentRequestsControllerProvider).contains(card.uid)
-                ? _Send.alreadySent
-                : _Send.ready;
+            _send = knownSendStatus(ref, card.uid);
           case InviteUnavailable():
             _phase = _Phase.unavailable;
         }
@@ -228,31 +222,18 @@ class _OpenedState extends ConsumerState<_Opened> {
 
   Future<void> _sendRequest() async {
     final card = _card;
-    if (card == null || _send == _Send.sending) return;
+    if (card == null || _send == SendStatus.sending) return;
     final messenger = ScaffoldMessenger.maybeOf(context);
     setState(() {
-      _send = _Send.sending;
+      _send = SendStatus.sending;
       _sendFailure = null;
     });
-    final result = await ref.read(sentRequestsControllerProvider.notifier).send(card);
-    final failure = result.failure;
+    final result = await sendFriendRequest(ref, card, messenger);
     if (!mounted) return;
-    final friends = result.outcome == SendOutcome.becameFriends;
     setState(() {
-      if (failure == null) {
-        _send = friends ? _Send.befriended : _Send.sent;
-      } else if (failure.kind == SocialFailureKind.alreadySent) {
-        _send = _Send.alreadySent;
-      } else {
-        _send = _Send.failed;
-        _sendFailure = failure;
-      }
+      _send = result.status;
+      _sendFailure = result.failure;
     });
-    if (failure == null) {
-      messenger?.showSnackBar(
-        SnackBar(content: Text(friends ? 'Amizade aceita.' : 'Pedido enviado.')),
-      );
-    }
   }
 
   @override
@@ -298,7 +279,7 @@ class _OpenedState extends ConsumerState<_Opened> {
 
 class _InviteCard extends StatelessWidget {
   final FriendCard card;
-  final _Send send;
+  final SendStatus send;
   final SocialFailure? failure;
   final bool offline;
   final VoidCallback onSend;
@@ -314,21 +295,6 @@ class _InviteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final stopped = failure?.kind == SocialFailureKind.limitReached;
-    final showButton =
-        send == _Send.ready || send == _Send.sending || (send == _Send.failed && !stopped);
-
-    Widget done(String text) => Semantics(
-      liveRegion: true,
-      child: Row(
-        children: [
-          Icon(Icons.check_circle_outline, color: theme.colorScheme.primary),
-          const SizedBox(width: 8),
-          Expanded(child: Text(text)),
-        ],
-      ),
-    );
-
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -354,61 +320,14 @@ class _InviteCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            if (showButton)
-              FilledButton.icon(
-                style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
-                onPressed: send == _Send.sending || offline ? null : onSend,
-                icon: send == _Send.sending
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.person_add_alt_1_outlined),
-                label: Text(
-                  send == _Send.sending ? 'Enviando...' : 'Enviar pedido',
-                  semanticsLabel: send == _Send.sending
-                      ? 'Enviando pedido para ${card.nickname}'
-                      : 'Enviar pedido para ${card.nickname}',
-                ),
-              ),
-            if (send == _Send.sent) ...[
-              done('Pedido enviado. ${card.nickname} decide se aceita.'),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-                  onPressed: () => context.go('/friends?tab=pedidos'),
-                  child: const Text('Ver pedidos enviados'),
-                ),
-              ),
-            ],
-            if (send == _Send.befriended) ...[
-              done('Essa pessoa já tinha pedido a sua amizade. Vocês agora são amigos.'),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-                  onPressed: () => context.go('/friends'),
-                  child: const Text('Ver amigos'),
-                ),
-              ),
-            ],
-            if (send == _Send.alreadyFriends)
-              Semantics(liveRegion: true, child: const Text('Vocês já são amigos.')),
-            if (send == _Send.alreadySent)
-              Semantics(
-                liveRegion: true,
-                child: Text(const SocialFailure(SocialFailureKind.alreadySent).message),
-              ),
-            if (send == _Send.failed && failure != null) ...[
-              if (showButton) const SizedBox(height: 8),
-              Semantics(liveRegion: true, child: Text(failure!.message)),
-            ],
-            if (offline && showButton) ...[
-              const SizedBox(height: 8),
-              const Text('Sem conexão. Tente de novo quando estiver online.'),
-            ],
+            SendRequestControls(
+              status: send,
+              failure: failure,
+              offline: offline,
+              onSend: onSend,
+              target: card.nickname,
+              sentText: 'Pedido enviado. ${card.nickname} decide se aceita.',
+            ),
           ],
         ),
       ),

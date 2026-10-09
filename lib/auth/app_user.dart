@@ -40,3 +40,23 @@ class AppUser {
     return (parts.first.substring(0, 1) + parts.last.substring(0, 1)).toUpperCase();
   }
 }
+
+/// One sign-in provider of the Firebase user, without Firebase types
+/// (`UserInfo.providerId` / `UserInfo.photoURL`).
+typedef ProviderPhoto = ({String providerId, String? photoUrl});
+
+/// The photo the app shows and copies to the friendships card (docs/74 🟡-R1,
+/// docs/76 🟡-R2, docs/77 P1). When the user has a `google.com` provider entry,
+/// ITS photo is the answer, even when it is null or empty (= no photo): Firebase
+/// Auth refreshes `providerData` on every Google sign-in, while the top-level
+/// `photoURL` is only filled when the account is created, so falling back to it
+/// would republish a photo the person removed from Google. The top-level photo
+/// counts only when there is no Google provider entry at all. Empty strings
+/// count as "no photo".
+String? pickPhotoUrl({required String? topLevel, required Iterable<ProviderPhoto> providers}) {
+  String? usable(String? url) => url == null || url.trim().isEmpty ? null : url;
+  for (final p in providers) {
+    if (p.providerId == 'google.com') return usable(p.photoUrl);
+  }
+  return usable(topLevel);
+}

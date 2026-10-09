@@ -13,6 +13,7 @@ import '../widgets/app_shell.dart';
 import '../widgets/block_dialogs.dart';
 import '../widgets/invite_code_dialog.dart';
 import '../widgets/person_avatar.dart';
+import '../widgets/send_request_controls.dart';
 import '../widgets/social_gate.dart';
 import 'friends_screen.dart' show kBlockedMessage;
 
@@ -35,18 +36,6 @@ class AddFriendScreen extends StatelessWidget {
 
 enum _Phase { idle, searching, found, notFound, failed }
 
-enum _Send {
-  ready,
-  sending,
-  sent,
-  befriended,
-  alreadySent,
-  alreadyFriends,
-  failed,
-  blocking,
-  blocked,
-}
-
 class _AddFriendBody extends ConsumerStatefulWidget {
   final SocialProfile profile;
   final bool showTitle;
@@ -62,7 +51,7 @@ class _AddFriendBodyState extends ConsumerState<_AddFriendBody> {
   final _focus = FocusNode();
 
   _Phase _phase = _Phase.idle;
-  _Send _send = _Send.ready;
+  SendStatus _send = SendStatus.ready;
   FriendCard? _card;
   SocialFailure? _failure;
   SocialFailure? _sendFailure;
@@ -91,7 +80,7 @@ class _AddFriendBodyState extends ConsumerState<_AddFriendBody> {
         _card = null;
         _failure = null;
         _sendFailure = null;
-        _send = _Send.ready;
+        _send = SendStatus.ready;
       }
     });
   }
@@ -106,7 +95,7 @@ class _AddFriendBodyState extends ConsumerState<_AddFriendBody> {
       _card = null;
       _failure = null;
       _sendFailure = null;
-      _send = _Send.ready;
+      _send = SendStatus.ready;
       _searched = handle;
     });
     try {
@@ -119,13 +108,7 @@ class _AddFriendBodyState extends ConsumerState<_AddFriendBody> {
           case SearchFound(:final card):
             _card = card;
             _phase = _Phase.found;
-            // Free: the list may already be in memory; if not, the send
-            // transaction detects it.
-            _send = ref.read(friendsControllerProvider.notifier).contains(card.uid)
-                ? _Send.alreadyFriends
-                : ref.read(sentRequestsControllerProvider).contains(card.uid)
-                ? _Send.alreadySent
-                : _Send.ready;
+            _send = knownSendStatus(ref, card.uid);
           case SearchNotFound():
             _phase = _Phase.notFound;
         }
@@ -147,46 +130,33 @@ class _AddFriendBodyState extends ConsumerState<_AddFriendBody> {
 
   Future<void> _sendRequest() async {
     final card = _card;
-    if (card == null || _send == _Send.sending) return;
+    if (card == null || _send == SendStatus.sending) return;
     final messenger = ScaffoldMessenger.maybeOf(context);
     setState(() {
-      _send = _Send.sending;
+      _send = SendStatus.sending;
       _sendFailure = null;
     });
-    final result = await ref.read(sentRequestsControllerProvider.notifier).send(card);
-    final failure = result.failure;
+    final result = await sendFriendRequest(ref, card, messenger);
     if (!mounted) return;
-    final friends = result.outcome == SendOutcome.becameFriends;
     // The search may have moved on to somebody else while this was in flight:
     // the answer is about [card], never about the card on screen now.
     if (_card?.uid == card.uid) {
       setState(() {
-        if (failure == null) {
-          _send = friends ? _Send.befriended : _Send.sent;
-        } else if (failure.kind == SocialFailureKind.alreadySent) {
-          _send = _Send.alreadySent;
-        } else {
-          _send = _Send.failed;
-          _sendFailure = failure;
-        }
+        _send = result.status;
+        _sendFailure = result.failure;
       });
-    }
-    if (failure == null) {
-      messenger?.showSnackBar(
-        SnackBar(content: Text(friends ? 'Amizade aceita.' : 'Pedido enviado.')),
-      );
     }
   }
 
   Future<void> _block() async {
     final card = _card;
-    if (card == null || _send == _Send.sending || _send == _Send.blocking) return;
+    if (card == null || _send == SendStatus.sending || _send == SendStatus.blocking) return;
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (!await confirmBlock(context, card.nickname)) return;
     if (!mounted) return;
     final before = _send;
     setState(() {
-      _send = _Send.blocking;
+      _send = SendStatus.blocking;
       _sendFailure = null;
     });
     final failure = await ref
@@ -198,9 +168,9 @@ class _AddFriendBodyState extends ConsumerState<_AddFriendBody> {
     if (_card?.uid == card.uid) {
       setState(() {
         if (failure == null) {
-          _send = _Send.blocked;
+          _send = SendStatus.blocked;
         } else {
-          _send = before == _Send.sending ? _Send.ready : before;
+          _send = before == SendStatus.sending ? SendStatus.ready : before;
           _sendFailure = failure;
         }
       });
@@ -357,7 +327,7 @@ class _AddFriendBodyState extends ConsumerState<_AddFriendBody> {
 
 class _FoundCard extends StatelessWidget {
   final FriendCard card;
-  final _Send send;
+  final SendStatus send;
   final SocialFailure? failure;
   final bool offline;
   final VoidCallback onSend;
@@ -375,14 +345,7 @@ class _FoundCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final label = 'Enviar pedido para @${card.handle}';
-    final stopped = failure?.kind == SocialFailureKind.limitReached;
-    final showButton =
-        send == _Send.ready ||
-        send == _Send.sending ||
-        send == _Send.blocking ||
-        (send == _Send.failed && !stopped);
-    final blockBusy = send == _Send.blocking;
+    final blockBusy = send == SendStatus.blocking;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -409,84 +372,15 @@ class _FoundCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            if (showButton)
-              FilledButton.icon(
-                style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
-                onPressed: send == _Send.sending || blockBusy || offline ? null : onSend,
-                icon: send == _Send.sending
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.person_add_alt_1_outlined),
-                label: Text(
-                  send == _Send.sending ? 'Enviando...' : 'Enviar pedido',
-                  semanticsLabel: send == _Send.sending
-                      ? 'Enviando pedido para @${card.handle}'
-                      : label,
-                ),
-              ),
-            if (send == _Send.sent) ...[
-              Semantics(
-                liveRegion: true,
-                child: Row(
-                  children: [
-                    Icon(Icons.check_circle_outline, color: theme.colorScheme.primary),
-                    const SizedBox(width: 8),
-                    const Expanded(child: Text('Pedido enviado')),
-                  ],
-                ),
-              ),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-                  onPressed: () => context.go('/friends?tab=pedidos'),
-                  child: const Text('Ver pedidos enviados'),
-                ),
-              ),
-            ],
-            if (send == _Send.befriended) ...[
-              Semantics(
-                liveRegion: true,
-                child: Row(
-                  children: [
-                    Icon(Icons.check_circle_outline, color: theme.colorScheme.primary),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text(
-                        'Essa pessoa já tinha pedido a sua amizade. Vocês agora são amigos.',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-                  onPressed: () => context.go('/friends'),
-                  child: const Text('Ver amigos'),
-                ),
-              ),
-            ],
-            if (send == _Send.alreadyFriends)
-              Semantics(liveRegion: true, child: const Text('Vocês já são amigos.')),
-            if (send == _Send.alreadySent)
-              Semantics(
-                liveRegion: true,
-                child: Text(const SocialFailure(SocialFailureKind.alreadySent).message),
-              ),
-            if (send == _Send.failed && failure != null) ...[
-              if (showButton) const SizedBox(height: 8),
-              Semantics(liveRegion: true, child: Text(failure!.message)),
-            ],
-            if (offline && showButton) ...[
-              const SizedBox(height: 8),
-              const Text('Sem conexão. Tente de novo quando estiver online.'),
-            ],
-            if (send == _Send.blocked) ...[
+            SendRequestControls(
+              status: send,
+              failure: failure,
+              offline: offline,
+              onSend: onSend,
+              target: '@${card.handle}',
+              sentText: 'Pedido enviado',
+            ),
+            if (send == SendStatus.blocked) ...[
               Semantics(
                 liveRegion: true,
                 child: const Text(
@@ -509,7 +403,7 @@ class _FoundCard extends StatelessWidget {
                     minimumSize: const Size(48, 48),
                     foregroundColor: theme.colorScheme.error,
                   ),
-                  onPressed: send == _Send.sending || blockBusy || offline ? null : onBlock,
+                  onPressed: send == SendStatus.sending || blockBusy || offline ? null : onBlock,
                   icon: blockBusy
                       ? const SizedBox(
                           width: 16,

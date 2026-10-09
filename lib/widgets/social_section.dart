@@ -232,7 +232,9 @@ class _Active extends ConsumerWidget {
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('Mostrar minha foto'),
-          subtitle: const Text('Usa a foto da sua conta Google no seu cartão.'),
+          // Re-enabling is manual (Manager, 09/10/2026): a photo removed from Google turns this
+          // off, and a new Google photo does not come back by itself.
+          subtitle: Text(profile.photoVisible ? kPhotoOnHint : kPhotoOffHint),
           value: profile.photoVisible,
           onChanged: locked
               ? null
@@ -355,3 +357,15 @@ class _RefreshNote extends ConsumerWidget {
     }
   }
 }
+
+/// Under "Mostrar minha foto" while it is on (docs/73, rodada 2).
+const kPhotoOnHint =
+    'Usa a foto da sua conta Google no seu cartão. Se você trocar a foto no Google, o cartão '
+    'acompanha na próxima vez que você entrar com o Google.';
+
+/// Under "Mostrar minha foto" while it is off: it also turns off when the Google account has no
+/// photo anymore, and it never turns itself back on.
+const kPhotoOffHint =
+    'Seu cartão está sem foto. Se a foto sumiu do Google, ela não volta sozinha: para voltar a '
+    'mostrar, ligue "Mostrar minha foto".';
+

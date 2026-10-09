@@ -589,6 +589,7 @@
       "input": {
         "uid": "uid-ana",
         "toUid": "uid-bruno",
+        "fromHandle": "ana",
         "fromName": "Ana",
         "fromPhoto": null,
         "toName": "Bruno",
@@ -607,6 +608,7 @@
             "data": {
               "from": "uid-ana",
               "to": "uid-bruno",
+              "fromHandle": "ana",
               "fromName": "Ana",
               "toName": "Bruno",
               "createdAt": "$serverTimestamp"
@@ -619,6 +621,7 @@
       "input": {
         "uid": "uid-ana",
         "toUid": "uid-bruno",
+        "fromHandle": "ana",
         "fromName": "Ana",
         "fromPhoto": "https://lh3.googleusercontent.com/a/ana",
         "toName": "Bruno",
@@ -637,6 +640,7 @@
             "data": {
               "from": "uid-ana",
               "to": "uid-bruno",
+              "fromHandle": "ana",
               "fromName": "Ana",
               "fromPhoto": "https://lh3.googleusercontent.com/a/ana",
               "toName": "Bruno",

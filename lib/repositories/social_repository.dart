@@ -135,17 +135,6 @@ class SocialRepository {
     }
   }
 
-  /// pt-BR reason why [rawHandle] cannot be used, or null when it is valid
-  /// and free. Throws on network errors.
-  Future<String?> handleProblem(String rawHandle, {String? current}) async {
-    final error = Handle.errorFor(rawHandle);
-    if (error != null) return error;
-    final handle = Handle.normalize(rawHandle);
-    if (handle == current) return null;
-    final free = await _data.isHandleFree(handle);
-    return free ? null : const SocialFailure(SocialFailureKind.handleTaken).message;
-  }
-
   /// Turns friendships on. [googlePhotoUrl] is copied to the card only when
   /// it passes the same test as the rules; otherwise the card has no photo.
   Future<void> activate({
@@ -327,8 +316,8 @@ class SocialRepository {
     Object? cursor;
     for (var page = 0; page < maxPages; page++) {
       if (stop()) break;
-      RawSentPage? read;
-      RawSentPage? reuse;
+      RawSocialPage? read;
+      RawSocialPage? reuse;
       for (var attempt = 0; attempt < 3; attempt++) {
         read = reuse ?? await _data.readFriendsPage(cursor: cursor, limit: kRefreshPageSize);
         reuse = null;
@@ -360,7 +349,7 @@ class SocialRepository {
     return RefreshResult(scanned: scanned, updated: updated);
   }
 
-  List<FriendHalfUpdate> _halvesToRefresh(RawSentPage page, String name, String? photo) {
+  List<FriendHalfUpdate> _halvesToRefresh(RawSocialPage page, String name, String? photo) {
     final changes = <FriendHalfUpdate>[];
     for (final doc in page.docs) {
       final members = doc.data['members'];
@@ -394,6 +383,7 @@ class SocialRepository {
       return await _data.sendRequest(
         SendRequestDraft(
           toUid: target.uid,
+          fromHandle: me.handle,
           fromName: fromName,
           fromPhoto: SocialPhoto.sanitize(me.photoUrl),
           toName: toName,
@@ -512,9 +502,12 @@ class SocialRepository {
       final name = SocialNickname.clean(rawName);
       final photo = doc.data['fromPhoto'];
       final at = doc.data['createdAt'];
+      final handle = doc.data['fromHandle'];
       items.add(
         ReceivedRequest(
           fromUid: fromUid,
+          // Shown as "@handle" only when it is exactly a canonical handle.
+          fromHandle: handle is String && Handle.parse(handle) == handle ? handle : null,
           fromName: name.isEmpty ? 'Usuário' : name,
           rawFromName: rawName,
           fromPhoto: photo is String ? SocialPhoto.sanitize(photo) : null,
@@ -592,6 +585,13 @@ class SocialRepository {
     );
   }
 
+  /// The Google photo of the account changed (or was removed) while the card
+  /// shows a photo: the card (and the invite copy) get [googlePhotoUrl]
+  /// sanitised, or no photo when it does not pass the rules' test.
+  Future<void> replaceCardPhoto(String? googlePhotoUrl) => _data.updateCard(
+    CardPatch(changePhoto: true, photoUrl: SocialPhoto.sanitize(googlePhotoUrl)),
+  );
+
   Future<void> setDiscoverable(bool value) => _data.updateCard(CardPatch(discoverable: value));
 
   Future<void> setPhotoVisible(bool visible, {String? googlePhotoUrl}) {
@@ -641,14 +641,16 @@ class SocialRepository {
   /// sweeps. Throws [AccountDeletionFailure]. Retryable and idempotent: a
   /// second run finds no pointer and just finishes the sweeps.
   ///
-  /// Rollout: while the rules are not published the first read is denied and
-  /// no social data can exist, so there is nothing to delete.
+  /// Rollout: while the rules are not published the first read (the own
+  /// pointer) is denied and no social data can exist, so there is nothing to
+  /// delete. A denial of anything else (the close batch) FAILS the deletion:
+  /// skipping the sweeps would leave card, handle and pairs behind (G5).
   Future<void> wipeForAccountDeletion() async {
     try {
       try {
         await _data.closeSocial();
       } on SocialFailure catch (e) {
-        if (e.kind == SocialFailureKind.denied) return;
+        if (e.kind == SocialFailureKind.denied && e.code == kSocialReadDeniedCode) return;
         rethrow;
       }
       for (final kind in SweepKind.values) {
