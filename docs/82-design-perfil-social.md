@@ -20,7 +20,7 @@ Contexto, alternativas e justificativa da revisão de "estatísticas sem contado
 | Revogação | Desfazer amizade/bloquear: próxima leitura negada, sem reescrever dados |
 | Cota | Perfil de amigo: 2 leituras a frio, 0 no TTL; quem não liga nada: 0 escritas novas; recálculo sem mudança: 0 escritas |
 | Contenção | ≤ 1 escrita por 5 s por documento compartilhado (limite do Firestore ≈ 1/s sustentado) |
-| Limite das regras | Pior escrita ≤ 65% do limite de 1000 expressões (medido: ≈ 62%); ≤ 1 chamada `exists` por operação |
+| Limite das regras | Pior escrita **do app** ≤ 65% e pior documento **legal** ≤ 70% do limite de 1000 expressões, folga travada por teste (medido na Fatia 0, docs/84: ≈ 64% e ≈ 65%); ≤ 1 chamada `exists` por operação |
 | Compatibilidade | App antigo × regras novas: tudo igual (376/376 testes atuais passam); app novo × regras antigas: interruptores falham com mensagem, favoritos intactos |
 | Acessibilidade | 320–1440 px, fonte 1×–3×, claro/escuro, teclado, leitor de tela (docs/81 RNF7) |
 
@@ -235,9 +235,17 @@ Camada: **R** = regras (testes no emulador + mutação), **D** = validador Dart 
 |---|---|
 | Validação item a item (10 atividades + 50 recomendados + recortes com tetos e coerência) | **Negado** ("maximum of 1000 expressions"); estatísticas sozinhas já estouravam |
 | Comparação simples sobre parâmetro | ≈ 6–7 expressões cada (≈ 145 cabem numa requisição vazia) |
-| Regras finais, pior escrita (cria/atualiza estatísticas + 10 atividades + 50 recomendados) | aceita; usa ≈ 62% (folga ≈ 50 comparações) |
-| Recálculo só de estatísticas / só atividades / só recomendados | ≈ 21% / 14% / 7% do limite |
-`rules_budget.test.mjs` ganha um teste de **folga** (pior payload + N comparações extras) para impedir que uma mudança futura aproxime o limite sem perceber.
+| Regras finais, pior escrita (cria/atualiza estatísticas + 10 atividades + 50 recomendados) | aceita; usa ≈ 62% (folga ≈ 50 comparações) — **spike; revisto abaixo** |
+| Recálculo só de estatísticas / só atividades / só recomendados | ≈ 21% / 14% / 7% do limite (spike) |
+
+**Revisão (Fatia 0, 2026-10-10; decisão do Orquestrador pelo Arquiteto, docs/84).** O spike media escritas cujas estatísticas eram iguais às gravadas (`validStats` não era avaliada). Método corrigido: todas as seções **mudam**; unidade = 1 comparação extra, agrupada 10 por função; uma requisição vazia comporta ≈ 123. Com as otimizações equivalentes da Fatia 0 (sem `is map`/`is string` redundantes, `let` para a lista de chaves dos recortes e para `l.size()`, `affectedKeys()` calculado uma vez, `validRecs` só com `hasOnly`):
+| Escrita (todas as seções mudando) | Comparações livres | Uso |
+|---|---|---|
+| Criar 3 seções, 10 atividades, 50 recomendados (pior documento legal; o app nunca faz) | 43 | ≈ 65% |
+| `set` sobre documento existente, 3 seções | 47 | ≈ 62% |
+| Mudar consentimento + 3 seções (pior escrita do app) | 44 | ≈ 64% |
+| Recálculo das 3 seções | 47 | ≈ 62% |
+**NFR revisto:** pior escrita do app ≤ 65%; pior documento legal ≤ 70%; **folga travada** em `rules_budget.test.mjs` (pior escrita do app + 44 comparações e pior documento + 37 têm de passar; requisição vazia comporta ≥ 120 e 140 estouram).
 
 ### 4.6 Validação no emulador (spike)
 - Cópia de `firestore_rules_test/` no scratchpad, `firebase emulators:exec` com JDK 24. **376/376** testes atuais passam com as regras do §4.3 (`firestore.rules.test`, `recommended`, `social`, `social_compat`, `rules_budget`, `dart_payloads`).

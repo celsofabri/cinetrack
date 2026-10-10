@@ -377,33 +377,36 @@ service cloud.firestore {
       return p.watchedMovies >= 0 && p.watchedEpisodes >= 0 && p.watchedSeries >= 0
         && p.completedSeries >= 0 && p.minutes >= 0;
     }
+    // Otimizado para o limite de expressoes (docs/82 §4.5): tipo errado (recorte que
+    // nao e mapa, chave que nao e texto) da erro de avaliacao em keys()/matches() = negado.
     function validStats(s) {
+      let pk = ['key', 'watchedMovies', 'watchedEpisodes', 'watchedSeries',
+                'completedSeries', 'minutes', 'estimated', 'unknown'];
       return s is map
         && s.keys().hasOnly(['total', 'month', 'year', 'undatedMovies', 'undatedEpisodes', 'datedFrom', 'memberSince'])
-        && s.total is map && s.month is map && s.year is map
         && s.total.keys().hasOnly(['favorites', 'movies', 'series', 'watchedMovies', 'watchedEpisodes',
                                    'watchedSeries', 'completedSeries', 'minutes', 'estimated', 'unknown'])
-        && s.month.keys().hasOnly(['key', 'watchedMovies', 'watchedEpisodes', 'watchedSeries',
-                                   'completedSeries', 'minutes', 'estimated', 'unknown'])
-        && s.year.keys().hasOnly(['key', 'watchedMovies', 'watchedEpisodes', 'watchedSeries',
-                                  'completedSeries', 'minutes', 'estimated', 'unknown'])
+        && s.month.keys().hasOnly(pk)
+        && s.year.keys().hasOnly(pk)
         && rankOk(s.total) && rankOk(s.month) && rankOk(s.year)
-        && s.year.key is string && s.year.key.matches('^20[0-9]{2}$')
-        && s.month.key is string && s.month.key.matches('^20[0-9]{2}-(0[1-9]|1[0-2])$')
+        && s.year.key.matches('^20[0-9]{2}$')
+        && s.month.key.matches('^20[0-9]{2}-(0[1-9]|1[0-2])$')
         && s.month.key.split('-')[0] == s.year.key;
     }
     // Ate 10 itens; cada um com `at` >= actSince: nada anterior ao consentimento
     // vigente e publicado, nem por um aparelho que ainda tenha o actSince antigo.
     function validActivities(l, since) {
-      return l is list && l.size() <= 10
-        && (l.size() <= 0 || l[0].at >= since) && (l.size() <= 1 || l[1].at >= since)
-        && (l.size() <= 2 || l[2].at >= since) && (l.size() <= 3 || l[3].at >= since)
-        && (l.size() <= 4 || l[4].at >= since) && (l.size() <= 5 || l[5].at >= since)
-        && (l.size() <= 6 || l[6].at >= since) && (l.size() <= 7 || l[7].at >= since)
-        && (l.size() <= 8 || l[8].at >= since) && (l.size() <= 9 || l[9].at >= since);
+      let n = l.size();
+      return l is list && n <= 10
+        && (n <= 0 || l[0].at >= since) && (n <= 1 || l[1].at >= since)
+        && (n <= 2 || l[2].at >= since) && (n <= 3 || l[3].at >= since)
+        && (n <= 4 || l[4].at >= since) && (n <= 5 || l[5].at >= since)
+        && (n <= 6 || l[6].at >= since) && (n <= 7 || l[7].at >= since)
+        && (n <= 8 || l[8].at >= since) && (n <= 9 || l[9].at >= since);
     }
     function validRecs(r) {
-      return r is map && r.keys().hasOnly(['count', 'items']) && r.keys().hasAll(['count', 'items'])
+      // hasOnly + leitura de count e items (ausente = erro = negado) = exatamente essas 2 chaves.
+      return r is map && r.keys().hasOnly(['count', 'items'])
         && r.items is list && r.items.size() <= 50
         && r.count is int && r.count >= r.items.size() && r.count <= 100000;
     }
@@ -432,6 +435,15 @@ service cloud.firestore {
         && (!('actSince' in ch) || !('actSince' in d) || d.actSince == request.time);
     }
 
+    // Update: affectedKeys() calculado uma vez (limite de expressoes). Recalculo (sem
+    // mudar `sharing`/`actSince`): 0 chamadas. Mudar o consentimento: amizades ativas
+    // (1 exists) e conta Google.
+    function sharedUpdateOk(uid, ch) {
+      return validShared(request.resource.data)
+        && sharedSectionsOk(request.resource.data, ch)
+        && (!ch.hasAny(['sharing', 'actSince']) || (isGoogle() && exists(socialPath(uid))));
+    }
+
     match /shared_profiles/{uid} {
       // Amigo lendo documento inexistente recebe "nao existe"; nao amigo recebe
       // permission-denied exista ou nao o documento.
@@ -442,13 +454,8 @@ service cloud.firestore {
         && validShared(request.resource.data)
         && sharedSectionsOk(request.resource.data, request.resource.data.keys())
         && exists(socialPath(uid));
-      // Recalculo (sem mudar `sharing`/`actSince`): 0 chamadas. Mudar o
-      // consentimento: amizades ativas (1 exists) e conta Google.
       allow update: if isOwner(uid)
-        && validShared(request.resource.data)
-        && sharedSectionsOk(request.resource.data, request.resource.data.diff(resource.data).affectedKeys())
-        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['sharing', 'actSince'])
-            || (isGoogle() && exists(socialPath(uid))));
+        && sharedUpdateOk(uid, request.resource.data.diff(resource.data).affectedKeys());
       // Desligar a ultima secao, desativar amizades, excluir a conta: so o dono.
       allow delete: if isOwner(uid);
     }

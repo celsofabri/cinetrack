@@ -112,19 +112,19 @@ const MUTATIONS = [
   ['SP10 create without sharedSectionsOk',
     [["        && sharedSectionsOk(request.resource.data, request.resource.data.keys())\n", "\n"]], SP],
   ['SP11 update without isOwner',
-    [["      allow update: if isOwner(uid)\n        && validShared(request.resource.data)\n", "      allow update: if request.auth != null\n        && validShared(request.resource.data)\n"]], SP],
+    [["      allow update: if isOwner(uid)\n        && sharedUpdateOk(", "      allow update: if request.auth != null\n        && sharedUpdateOk("]], SP],
   ['SP12 update without validShared',
-    [["      allow update: if isOwner(uid)\n        && validShared(request.resource.data)\n", "      allow update: if isOwner(uid)\n"]], SP],
+    [["      return validShared(request.resource.data)\n        && sharedSectionsOk(request.resource.data, ch)", "      return sharedSectionsOk(request.resource.data, ch)"]], SP],
   ['SP13 update does not revalidate changed sections',
-    [["sharedSectionsOk(request.resource.data, request.resource.data.diff(resource.data).affectedKeys())", "true"]], SP],
+    [["sharedSectionsOk(request.resource.data, ch)", "true"]], SP],
   ['SP14 consent change without social/{uid}',
-    [["            || (isGoogle() && exists(socialPath(uid))));", "            || (isGoogle()));"]], SP],
+    [["|| (isGoogle() && exists(socialPath(uid))));", "|| (isGoogle()));"]], SP],
   ['SP15 consent change without the Google check',
-    [["            || (isGoogle() && exists(socialPath(uid))));", "            || (exists(socialPath(uid))));"]], SP],
+    [["|| (isGoogle() && exists(socialPath(uid))));", "|| (exists(socialPath(uid))));"]], SP],
   ['SP16 changing actSince is not treated as a consent change',
     [["hasAny(['sharing', 'actSince'])", "hasAny(['sharing'])"]], SP],
   ['SP17 recalculation pays an exists(social) (and fails without social)',
-    [["        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['sharing', 'actSince'])\n", "        && exists(socialPath(uid)) && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['sharing', 'actSince'])\n"]], SP],
+    [["        && (!ch.hasAny(['sharing', 'actSince'])", "        && exists(socialPath(uid)) && (!ch.hasAny(['sharing', 'actSince'])"]], SP],
   ['SP18 anyone signed in deletes a shared profile',
     [["      allow delete: if isOwner(uid);\n    }\n\n    // Everything", "      allow delete: if request.auth != null;\n    }\n\n    // Everything"]], SP],
   ['SP19 document keys not closed (hasOnly removed)',
@@ -145,8 +145,8 @@ const MUTATIONS = [
   ['SP33 actSince decoupled from the activity consent', [["        && ('actSince' in d) == ('activity' in s);", ";"]], SP],
   ['SP34 stats keys not closed', [["      return s is map\n        && s.keys().hasOnly(['total', 'month', 'year', 'undatedMovies', 'undatedEpisodes', 'datedFrom', 'memberSince'])\n", "      return s is map\n"]], SP],
   ['SP35 stats.total keys not closed', [["        && s.total.keys().hasOnly(['favorites', 'movies', 'series', 'watchedMovies', 'watchedEpisodes',\n                                   'watchedSeries', 'completedSeries', 'minutes', 'estimated', 'unknown'])\n", "\n"]], SP],
-  ['SP36 stats.month keys not closed', [["        && s.month.keys().hasOnly(['key', 'watchedMovies', 'watchedEpisodes', 'watchedSeries',\n                                   'completedSeries', 'minutes', 'estimated', 'unknown'])\n", "\n"]], SP],
-  ['SP37 stats.year keys not closed', [["        && s.year.keys().hasOnly(['key', 'watchedMovies', 'watchedEpisodes', 'watchedSeries',\n                                  'completedSeries', 'minutes', 'estimated', 'unknown'])\n", "\n"]], SP],
+  ['SP36 stats.month keys not closed', [["        && s.month.keys().hasOnly(pk)\n", "\n"]], SP],
+  ['SP37 stats.year keys not closed', [["        && s.year.keys().hasOnly(pk)\n", "\n"]], SP],
   ...['watchedMovies', 'watchedEpisodes', 'watchedSeries', 'completedSeries', 'minutes'].map((m, i) =>
     [`SP${38 + i} ranking metric ${m} may be negative/missing`, [[`p.${m} >= 0`, 'true']], SP]),
   ...['total', 'month', 'year'].map((sl, i) =>
@@ -154,15 +154,15 @@ const MUTATIONS = [
   // SP46 (year.key format removed) is EQUIVALENT and was dropped after surviving the 2026-10-10 run:
   // month.key must match ^20YY-MM and month.key.split('-')[0] == year.key, which already forces
   // year.key = '20YY'. The year regex stays in the rules as defense in depth (docs/84).
-  ['SP47 month.key format not checked', [["&& s.month.key is string && s.month.key.matches('^20[0-9]{2}-(0[1-9]|1[0-2])$')", "&& s.month.key is string"]], SP],
+  ['SP47 month.key format not checked', [["        && s.month.key.matches('^20[0-9]{2}-(0[1-9]|1[0-2])$')\n", "\n"]], SP],
   ['SP48 month.key accepts month 00/13', [["(0[1-9]|1[0-2])", "[0-9]{2}"]], SP],
   ['SP49 month.key year differs from year.key', [["        && s.month.key.split('-')[0] == s.year.key;", ";"]], SP],
-  ['SP50 more than 10 activities', [["      return l is list && l.size() <= 10\n", "      return l is list\n"]], SP],
+  ['SP50 more than 10 activities', [["      return l is list && n <= 10\n", "      return l is list\n"]], SP],
   ...Array.from({ length: 10 }, (_, i) =>
-    [`SP${51 + i} activity #${i} may predate actSince`, [[`(l.size() <= ${i} || l[${i}].at >= since)`, 'true']], SP]),
+    [`SP${51 + i} activity #${i} may predate actSince`, [[`(n <= ${i} || l[${i}].at >= since)`, 'true']], SP]),
   ['SP61 activities not revalidated when actSince changes',
     [["((!('activity' in ch) && !('actSince' in ch)) || !('activity' in d)", "(!('activity' in ch) || !('activity' in d)"]], SP],
-  ['SP62 recs keys not closed', [["      return r is map && r.keys().hasOnly(['count', 'items']) && r.keys().hasAll", "      return r is map && r.keys().hasAll"]], SP],
+  ['SP62 recs keys not closed', [["      return r is map && r.keys().hasOnly(['count', 'items'])\n", "      return r is map\n"]], SP],
   ['SP63 recs.items not a list', [["        && r.items is list && r.items.size() <= 50", "        && r.items.size() <= 50"]], SP],
   ['SP64 more than 50 recommended items', [["        && r.items is list && r.items.size() <= 50", "        && r.items is list"]], SP],
   ['SP65 recs.count not an int', [["        && r.count is int && r.count >= r.items.size()", "        && r.count >= r.items.size()"]], SP],
@@ -177,6 +177,16 @@ const MUTATIONS = [
   ['SP74 favorites: epsAt without the 5000 cap', [["(d.epsAt is map && d.epsAt.size() <= 5000)", "(d.epsAt is map)"]], SP],
   ['SP75 favorites opened to friends of a shared profile',
     [["        allow read, delete: if isOwner(uid);\n        allow create: if isOwner(uid) && validFavorite(key);", "        allow read: if isOwner(uid) || (isGoogle() && isFriend(uid, request.auth.uid));\n        allow delete: if isOwner(uid);\n        allow create: if isOwner(uid) && validFavorite(key);"]], SP],
+  // Round 2 (Code Review + QA of 6a96a3b, docs/84).
+  ['SP76 updatedAt in the future accepted (>= request.time)', [["        && d.updatedAt == request.time\n        && d.tz", "        && d.updatedAt >= request.time\n        && d.tz"]], SP],
+  ['SP77 actSince in the future accepted (>= request.time)', [["|| d.actSince == request.time);", "|| d.actSince >= request.time);"]], SP],
+  ['SP78 activity that is not a list accepted', [["      return l is list && n <= 10\n", "      return n <= 10\n"]], SP],
+  ['SP79 favorites: epsAt mandatory (old payloads denied)', [["(!('epsAt' in d) || (d.epsAt is map && d.epsAt.size() <= 5000))", "(d.epsAt is map && d.epsAt.size() <= 5000)"]], SP],
+  ['SP80 owner read requires Google (probe/export/deletion of non-Google owner break)', [["allow get: if isOwner(uid) ||", "allow get: if (isGoogle() && isOwner(uid)) ||"]], SP],
+  ['SP81 owner cannot delete the shared profile', [["      allow delete: if isOwner(uid);\n    }\n\n    // Everything", "      allow delete: if false;\n    }\n\n    // Everything"]], SP],
+  ['SP82 ranking metric bound loosened (> -1000)', [["p.minutes >= 0;", "p.minutes > -1000;"]], SP],
+  ['SP83 activity at == actSince denied (> instead of >=)', [["(n <= 0 || l[0].at >= since)", "(n <= 0 || l[0].at > since)"]], SP],
+  ['SP84 favorites readable by any Google user', [["        allow read, delete: if isOwner(uid);\n", "        allow read: if isOwner(uid) || isGoogle();\n        allow delete: if isOwner(uid);\n"]], SP],
 ];
 
 // Mutations of the PAYLOADS (the Dart side) instead of the rules: a deliberately broken copy of the

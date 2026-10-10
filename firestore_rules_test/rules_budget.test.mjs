@@ -12,7 +12,7 @@ import {
   RULES_URL, U, acceptBatch, commit, makeTools, newEnv, requestRef,
 } from './social_helpers.mjs';
 import {
-  HOUR, acts, createAll, createStats, past, recs, stats, stored, st,
+  HOUR, acts, createAll, createStats, past, recs, stats, stored, st, total,
 } from './shared_profile_helpers.mjs';
 
 const MARKER = '    // Everything not allowed above is denied';
@@ -40,12 +40,16 @@ const xGroups = (tag, n) => Array.from({ length: Math.ceil(n / 10) }, (_, g) =>
   `    function x${tag}${g}() { return ${Array.from({ length: Math.min(10, n - g * 10) }, (_, i) =>
     `request.resource.data.tz != ${2000 + g * 10 + i}`).join(' && ')}; }`).join('\n');
 const xCall = (tag, n) => Array.from({ length: Math.ceil(n / 10) }, (_, g) => `x${tag}${g}()`).join(' && ');
-// Calibrated in the emulator (2026-10-10): an empty request fits ~123 such comparisons; the
-// heaviest legal document (create with 3 sections, 10 activities, 50 recs) leaves ~37 (~70% used);
-// the heaviest write the app makes (all 3 sections at once, update) leaves ~66-70 (~45% used).
-const HEAD_WORST = 30; // >= ~24% of the limit free on the theoretical worst payload
-const HEAD_APP = 55; // >= ~45% free on the heaviest write the app sends
-const OVER_LIMIT = 140; // sanity: this many comparisons alone exceed 1000 expressions
+// NFR (docs/82 §4.5, revised 2026-10-10): heaviest APP write <= 65% of the 1000-expression limit;
+// heaviest LEGAL document <= 70%. Unit = 1 comparison grouped 10 per function; an empty request fits
+// ~123 of them (CAPACITY, locked below). "Uses <= X%" is locked as "still fits (1 - X) * CAPACITY
+// extra comparisons". Calibrated in the emulator after the round-2 optimization (docs/84):
+//   create 3 sections/10 activities/50 recs: 43 free (~65%) | set over existing, all changing: 47 (~62%)
+//   consent change + 3 sections all changing (heaviest app write): 44 (~64%) | recalc 3 changing: 47 (~62%)
+const CAPACITY = 120; // an empty request must fit at least this many (measured 123)
+const OVER_LIMIT = 140; // ... and this many must exceed the limit (the limit is real and counted)
+const HEAD_APP = Math.ceil(0.35 * 123); // 44 -> heaviest app write <= 65%
+const HEAD_WORST = Math.ceil(0.30 * 123); // 37 -> heaviest legal document <= 70%
 
 const probes = `
     match /probe_sp_get9/{uid} { allow get: if ${spExpr('get')} && ${chain(9, 's')}; }
@@ -58,10 +62,12 @@ const probes = `
 ${xGroups('w', HEAD_WORST)}
 ${xGroups('a', HEAD_APP)}
 ${xGroups('o', OVER_LIMIT)}
+${xGroups('c', CAPACITY)}
     match /probe_sp_headw/{uid} { allow create: if ${spExpr('create')} && ${xCall('w', HEAD_WORST)}; }
+    match /probe_sp_headws/{uid} { allow update: if ${spExpr('update')} && ${xCall('w', HEAD_WORST)}; }
     match /probe_sp_heada/{uid} { allow update: if ${spExpr('update')} && ${xCall('a', HEAD_APP)}; }
     match /probe_sp_over/{uid} { allow create: if ${xCall('o', OVER_LIMIT)}; }
-    match /probe_sp_under/{uid} { allow create: if ${xCall('a', HEAD_APP)}; }
+    match /probe_sp_cap/{uid} { allow create: if ${xCall('c', CAPACITY)}; }
     match /probe_get10/{id} { allow get: if request.auth != null && ${chain(10, 'a')}; }
     match /probe_get11/{id} { allow get: if request.auth != null && ${chain(11, 'a')}; }
     match /probe_rep/{id} { allow get: if request.auth != null && ${Array.from({ length: 12 }, () => `exists(${P('a0')})`).join(' && ')}; }
@@ -294,7 +300,7 @@ describe('Phase 2 shared_profiles: rules calls (real expressions + N distinct ex
     const noRecs = () => { const s = stored(); delete s.sharing.recs; delete s.recs; return s; };
     await t.seedDoc(['probe_sp_update10', ana], noRecs());
     await t.seedDoc(['probe_sp_update9', ana], noRecs());
-    const recalc = { stats: stats(), activity: acts(10, past(HOUR)), updatedAt: st() };
+    const recalc = { stats: stats({ total: total({ minutes: 20777 }) }), activity: acts(10, past(HOUR)), updatedAt: st() };
     const consent = { 'sharing.recs': true, recs: recs(5), updatedAt: st() };
     await assertSucceeds(updateDoc(sp(t.db(ana), 'probe_sp_update10'), recalc));
     await assertFails(updateDoc(sp(t.db(ana), 'probe_sp_update10'), consent));
@@ -309,23 +315,37 @@ describe('Phase 2 shared_profiles: rules calls (real expressions + N distinct ex
 
 describe('Phase 2 shared_profiles: headroom under the 1000-expression limit (docs/82 §4.5)', () => {
   const sp = (d, col) => doc(d, col, ana);
-  it(`sanity: ${OVER_LIMIT} extra comparisons alone exceed the limit; ${HEAD_APP} alone fit`, async () => {
-    await assertFails(setDoc(sp(t.db(ana), 'probe_sp_over'), { tz: 1 }));
-    await assertSucceeds(setDoc(sp(t.db(ana), 'probe_sp_under'), { tz: 1 }));
+  // Every section CHANGES (stored values differ), so every validator is evaluated.
+  const changed = () => ({
+    stats: stats({ total: total({ minutes: 20777 }) }), activity: acts(10, past(HOUR / 2)), recs: recs(50, 121),
   });
-  it(`heaviest legal document (create: 3 sections, 10 activities, 50 recs) + ${HEAD_WORST} comparisons still fits`, async () => {
+  it(`sanity: an empty request fits ${CAPACITY} comparisons and ${OVER_LIMIT} exceed the limit`, async () => {
+    await assertSucceeds(setDoc(sp(t.db(ana), 'probe_sp_cap'), { tz: 1 }));
+    await assertFails(setDoc(sp(t.db(ana), 'probe_sp_over'), { tz: 1 }));
+  });
+  it(`heaviest legal document (create: 3 sections, 10 activities, 50 recs) <= 70%: + ${HEAD_WORST} comparisons fit`, async () => {
     await t.seedSocial(ana);
     await assertSucceeds(setDoc(sp(t.db(ana), 'probe_sp_headw'), createAll()));
   });
-  it(`heaviest app write (update: consent + all 3 sections) + ${HEAD_APP} comparisons still fits`, async () => {
+  it(`owner set over an existing document, all sections changing, <= 70%: + ${HEAD_WORST} comparisons fit`, async () => {
+    const seed = stored();
+    await t.seedDoc(['probe_sp_headws', ana], seed);
+    await assertSucceeds(setDoc(sp(t.db(ana), 'probe_sp_headws'), { ...seed, ...changed(), updatedAt: st() }));
+  });
+  it(`heaviest app write (consent change + 3 sections all changing) <= 65%: + ${HEAD_APP} comparisons fit`, async () => {
     await t.seedSocial(ana);
     const s = stored();
     delete s.sharing.recs;
     delete s.recs;
     await t.seedDoc(['probe_sp_heada', ana], s);
     await assertSucceeds(updateDoc(sp(t.db(ana), 'probe_sp_heada'), {
-      'sharing.recs': true, recs: recs(50, 120), stats: stats(), activity: acts(10, past(HOUR)),
-      tz: -180, calc: 1, updatedAt: st(),
+      'sharing.recs': true, ...changed(), tz: -180, calc: 1, updatedAt: st(),
+    }));
+  });
+  it(`recalculation of the 3 sections, all changing, <= 65%: + ${HEAD_APP} comparisons fit`, async () => {
+    await t.seedDoc(['probe_sp_heada', ana], stored());
+    await assertSucceeds(updateDoc(sp(t.db(ana), 'probe_sp_heada'), {
+      ...changed(), tz: -120, calc: 1, updatedAt: st(),
     }));
   });
 });

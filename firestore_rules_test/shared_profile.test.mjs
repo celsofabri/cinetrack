@@ -271,6 +271,24 @@ describe('shared_profiles: document schema (docs/82 §4.4, rows R)', () => {
     await badCreate(createStats({ actSince: st() }));
   });
 
+  it('updatedAt in the future (client clock ahead) is denied (create and update)', async () => {
+    await badCreate(createStats({ updatedAt: future(HOUR) }));
+    await seedShared(ana);
+    await assertFails(updateDoc(spRef(anaDb(), ana), { tz: 0, updatedAt: future(HOUR) }));
+  });
+
+  it('actSince in the future is denied (create and re-enable)', async () => {
+    await badCreate(createActivity({ actSince: future(HOUR) }));
+    const s = stored();
+    delete s.sharing.activity;
+    delete s.activity;
+    delete s.actSince;
+    await seedShared(ana, s);
+    await assertFails(updateDoc(spRef(anaDb(), ana), {
+      'sharing.activity': true, activity: [], actSince: future(HOUR), updatedAt: st(),
+    }));
+  });
+
   it('actSince must be the server time when it is written', async () => {
     await badCreate(createActivity({ actSince: past(HOUR) }));
     await badCreate(createActivity({ actSince: Timestamp.now() }));
@@ -283,6 +301,33 @@ describe('shared_profiles: stats section', () => {
     await badCreate(createStats({ stats: stats({ total: total({ x: 1 }) }) }));
     await badCreate(createStats({ stats: stats({ month: period('2026-10', { favorites: 1 }) }) }));
     await badCreate(createStats({ stats: stats({ year: period('2026', { other: 0 }) }) }));
+  });
+
+  // The optimization of docs/84 (round 2) removed `s.total/month/year is map` and the `is string`
+  // before `.matches`: wrong types must still be denied by an evaluation error. Edge values that
+  // have size 0 / keys() / matches() of their own are the ones that could slip through.
+  it('wrong types for a slice (\'\', [], {}, null, number, list of keys) are denied', async () => {
+    for (const slice of ['total', 'year', 'month']) {
+      for (const bad of ['', [], {}, null, 0, ['watchedMovies', 'minutes'], true]) {
+        await badCreate(createStats({ stats: stats({ [slice]: bad }) }));
+      }
+    }
+    await seedShared(ana);
+    await assertFails(updateDoc(spRef(anaDb(), ana), { 'stats.total': {}, updatedAt: st() }));
+    await assertFails(updateDoc(spRef(anaDb(), ana), { 'stats.month': '', updatedAt: st() }));
+  });
+
+  it('wrong types for year.key / month.key (number, list, map, null, bool, timestamp) are denied', async () => {
+    for (const bad of [2026, ['2026'], { 0: '2026' }, null, true, Timestamp.now()]) {
+      await badCreate(createStats({ stats: stats({ year: period(bad), month: period('2026-10') }) }));
+    }
+    for (const bad of [202610, ['2026-10'], { k: '2026-10' }, null, false, Timestamp.now()]) {
+      await badCreate(createStats({ stats: stats({ month: period(bad) }) }));
+    }
+  });
+
+  it('stats that is not a map ({} edge included) is denied', async () => {
+    for (const bad of ['', [], {}, null, 1]) await badCreate(createStats({ stats: bad }));
   });
 
   it('minimal stats (optional counters and dates absent) is accepted', async () => {
@@ -346,6 +391,14 @@ describe('shared_profiles: activity section', () => {
       await badCreate(createActivity({ activity: l }));
     });
   }
+
+  it('activity that is not a list but has size 0 ({} or "") is denied', async () => {
+    await badCreate(createActivity({ activity: {} }));
+    await badCreate(createActivity({ activity: '' }));
+    await seedShared(ana);
+    await assertFails(updateDoc(spRef(anaDb(), ana), { activity: {}, updatedAt: st() }));
+    await assertFails(updateDoc(spRef(anaDb(), ana), { activity: '', updatedAt: st() }));
+  });
 
   it('not a list, item without `at` or with a non-timestamp `at` is denied', async () => {
     await badCreate(createActivity({ activity: { 0: act(future(HOUR)) } }));
@@ -467,6 +520,22 @@ describe('shared_profiles: update (recalculation, consent, stale device)', () =>
     await t.seedSocial(ana);
     await assertFails(updateDoc(spRef(anaDb(), ana), { stats: deleteField(), updatedAt: st() }));
     await assertSucceeds(updateDoc(spRef(anaDb(), ana), turnOff));
+    // what a friend reads right after: neither the section nor its consent
+    await t.seedFriendship(ana, bruno);
+    const seen = (await assertSucceeds(getDoc(spRef(t.db(bruno), ana)))).data();
+    assert.equal('stats' in seen, false);
+    assert.equal('stats' in seen.sharing, false);
+    assert.equal(seen.sharing.activity, true);
+  });
+
+  it('removing every section but keeping the document (sharing: {}) is denied, even with social', async () => {
+    await seedShared(ana);
+    await t.seedSocial(ana);
+    await assertFails(updateDoc(spRef(anaDb(), ana), {
+      sharing: {}, stats: deleteField(), activity: deleteField(), actSince: deleteField(), recs: deleteField(),
+      updatedAt: st(),
+    }));
+    assert.equal(await spExists(ana), true);
   });
 
   it('turning activity off and on again: new actSince (server time) and empty list', async () => {
@@ -504,6 +573,27 @@ describe('shared_profiles: delete', () => {
     await assertSucceeds(deleteDoc(spRef(anaDb(), ana)));
     await seedShared(ana);
     await assertSucceeds(deleteDoc(spRef(t.dbWith(ana, 'password'), ana)));
+    assert.equal(await spExists(ana), false);
+  });
+
+  it('interrupted deactivation fallback: owner deletes without social/{uid}, any provider or no claim', async () => {
+    await seedShared(ana); // social/{ana} never seeded
+    await assertSucceeds(deleteDoc(spRef(t.dbNoClaim(ana), ana)));
+    assert.equal(await spExists(ana), false);
+    await seedShared(ana);
+    await assertSucceeds(deleteDoc(spRef(t.dbWith(ana, 'anonymous'), ana)));
+    assert.equal(await spExists(ana), false);
+  });
+
+  it('A8 residue: friendship without social/{owner} and no shared doc -> friend reads "does not exist"', async () => {
+    // docs/82 §4.3/§7.2: the read rule has no exists(social); the shared doc is deleted before
+    // and after closing social, so the residue (pair left behind) only ever sees "does not exist".
+    await t.seedFriendship(ana, bruno);
+    assert.equal(await t.exists(['social', ana]), false);
+    const r = await assertSucceeds(getDoc(spRef(t.db(bruno), ana)));
+    assert.equal(r.exists(), false);
+    // ...and nothing can be (re)created in that state
+    await assertFails(setDoc(spRef(anaDb(), ana), createStats()));
     assert.equal(await spExists(ana), false);
   });
 

@@ -37,7 +37,11 @@ async function phase2DeniedNoSideEffect(t, env) {
   await assertFails(setDoc(spRef(d, ana), createStats()));
   await assertFails(setDoc(spRef(d, ana), createAll()));
   await t.seed(async (x) => assert.equal((await getDoc(doc(x, 'shared_profiles', ana))).exists(), false));
-  await t.seedDoc(['users', ana, 'favorites', '2-tv'], { ...legacyFav(2), mediaType: 'tv', eps: {} });
+  const lw = Timestamp.fromMillis(Date.now() - 3600 * 1000);
+  const up = Timestamp.fromMillis(Date.now() - 1800 * 1000);
+  await t.seedDoc(['users', ana, 'favorites', '2-tv'], {
+    ...legacyFav(2), mediaType: 'tv', eps: {}, lastWatchedAt: lw, updatedAt: up,
+  });
   await assertFails(updateDoc(doc(d, 'users', ana, 'favorites', '2-tv'), {
     'eps.1_1': true, 'epsAt.1_1': Timestamp.now(), lastWatchedAt: st(), updatedAt: st(),
   }));
@@ -47,6 +51,8 @@ async function phase2DeniedNoSideEffect(t, env) {
   const after = (await getDoc(doc(d, 'users', ana, 'favorites', '2-tv'))).data();
   assert.deepEqual(after.eps, {}, 'denied write must not mark the episode');
   assert.equal('epsAt' in after, false);
+  assert.ok(after.lastWatchedAt.isEqual(lw), 'lastWatchedAt must be unchanged');
+  assert.ok(after.updatedAt.isEqual(up), 'updatedAt must be unchanged');
   assert.equal((await getDoc(doc(d, 'users', ana, 'favorites', '3-tv'))).exists(), false);
   // without epsAt (probe said "old rules") the same marking works
   await assertSucceeds(updateDoc(doc(d, 'users', ana, 'favorites', '2-tv'), {
