@@ -75,7 +75,7 @@ Equivalentes (otimização para o limite de expressões, pedidas pelo Code Revie
 
 ### Mutações equivalentes (não podem morrer)
 - **SP46** (formato de `year.key` removido) sobreviveu na rodada 1 e é equivalente: `month.key` precisa casar `^20YY-MM` e ter o mesmo prefixo de `year.key`, o que já obriga `year.key = '20YY'`. A regex fica no texto (defesa em profundidade) e a mutação saiu da lista, com comentário no `mutations.mjs`.
-- Não incluídas por serem equivalentes: `d.keys().hasAll([...])` de `validShared` (as 5 chaves são lidas adiante) e `s is map` de `validStats`/`s is map` de `validShared` (o acesso seguinte falha). Por D12/D16 e a correção do docs/83 §4, "teto removido" e "margem de data removida" são mutações do validador Dart (Fatia 1).
+- Não incluídas por serem equivalentes: `d.keys().hasAll([...])` de `validShared` (as 5 chaves são lidas adiante) e `s is map` de `validStats`/`s is map` de `validShared`/`r is map` de `validRecs` (o acesso seguinte falha; confirmado pelo QA, mutações Y1, Y2, Y4). Por D12/D16 e a correção do docs/83 §4, "teto removido" e "margem de data removida" são mutações do validador Dart (Fatia 1).
 
 ### Índices: por que mexi em `firestore.indexes.json`
 Não há índice composto novo (nenhuma consulta nova, só `get` por id). Acrescentei a **isenção** `favorites.epsAt` (docs/82 §4.7, recomendada e listada na Fatia 0): sem ela o Firestore indexaria cada subcampo de `epsAt` (até 5000 por documento, ≈ 20 000 entradas com `eps` numa série longa: abaixo do limite de 40 000, mas custo de armazenamento e escrita sem uso). Não muda dado nem regra; é inofensiva se publicada antes ou depois das regras. Publicação **opcional** (`firebase deploy --only firestore:indexes`). **Ao publicar: nunca usar `--force` e responder "não" a qualquer pergunta de apagar índices** (os 2 índices da Fase 1 estão no arquivo, mas a CLI pergunta sobre qualquer índice que só exista no console).
@@ -128,3 +128,8 @@ Não há índice composto novo (nenhuma consulta nova, só `get` por id). Acresc
 | QA F4 | leitura do amigo depois de desligar; `lastWatchedAt`/`updatedAt` intactos; `sharing: {}` negado mesmo com `social` |
 | QA F5 | teste nomeado "A8 residue…" com `exists() === false` |
 | QA F6 | README; registro do `AccountDeleter` e do órfão do app antigo |
+
+### Fechamento (Orquestrador, pós-gates)
+
+- Code Review rodada 2: APROVADO (0 🔴/🟡). QA rodada 2: APROVADO (0 🔴/🟡).
+- 🟢 fechados sem mudar `firestore.rules` (sha256 `6135322e…e612` inalterado): G1 (`r is map` de `validRecs` na lista de equivalentes), G2 (`shared_profile_shapes.test.mjs` com os casos adversariais do QA: recortes sem `key`, `recs` malformado, updates pontilhados com tipos errados, controle positivo), comentário no `rules_budget` (falha ⇒ rever NFR, nunca baixar a folga).

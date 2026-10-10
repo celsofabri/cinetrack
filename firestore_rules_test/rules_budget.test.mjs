@@ -48,6 +48,8 @@ const xCall = (tag, n) => Array.from({ length: Math.ceil(n / 10) }, (_, g) => `x
 //   consent change + 3 sections all changing (heaviest app write): 44 (~64%) | recalc 3 changing: 47 (~62%)
 const CAPACITY = 120; // an empty request must fit at least this many (measured 123)
 const OVER_LIMIT = 140; // ... and this many must exceed the limit (the limit is real and counted)
+// If a new shared_profiles clause makes these fail, revisit the NFR (docs/82 §4.5, ADR-006) or
+// optimize the rules; never just lower HEAD_APP/HEAD_WORST to make the test pass.
 const HEAD_APP = Math.ceil(0.35 * 123); // 44 -> heaviest app write <= 65%
 const HEAD_WORST = Math.ceil(0.30 * 123); // 37 -> heaviest legal document <= 70%
 
