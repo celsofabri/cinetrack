@@ -7,6 +7,7 @@ import '../social/invite_code.dart';
 import '../social/social_models.dart';
 import '../social/social_validation.dart';
 import 'account_providers.dart';
+import 'shared_profile_providers.dart';
 import 'social_lists_providers.dart';
 import 'social_refresh_providers.dart';
 import 'providers.dart';
@@ -28,7 +29,10 @@ final socialDataSourceProvider = Provider<SocialDataSource>((ref) {
 });
 
 final socialRepositoryProvider = Provider<SocialRepository>(
-  (ref) => SocialRepository(ref.watch(socialDataSourceProvider)),
+  (ref) => SocialRepository(
+    ref.watch(socialDataSourceProvider),
+    sharedProfile: ref.watch(sharedProfileDataSourceProvider),
+  ),
 );
 
 /// Bumped when friendships are turned on or off: everything held in memory

@@ -73,7 +73,12 @@ class ProfileStats {
     );
   }
 
-  static bool _isCompleted(FavoriteDoc doc, List<SeasonCache> cached) {
+  /// The "Concluídos" rule for one series (public for the shared profile,
+  /// which evaluates it against its injected clock, docs/82 §5.2).
+  static bool isCompleted(FavoriteDoc doc, List<SeasonCache> cached, {DateTime? now}) =>
+      _isCompleted(doc, cached, now: now);
+
+  static bool _isCompleted(FavoriteDoc doc, List<SeasonCache> cached, {DateTime? now}) {
     final summaries = doc.seasonSummaries;
     final cachedNumbers = {for (final s in cached) s.seasonNumber};
     final catalogCovers =
@@ -82,7 +87,7 @@ class ProfileStats {
       final seasons = [
         for (final s in cached) FavoriteMapper.overlayWatched(s, doc.watchedEpisodes)
       ];
-      return ProgressCalculator.compute(seasons).isCaughtUp;
+      return ProgressCalculator.compute(seasons, now: now).isCaughtUp;
     }
     final total = summaries.fold<int>(0, (sum, s) => sum + s.episodeCount);
     return total > 0 && doc.watchedEpisodes.length >= total;

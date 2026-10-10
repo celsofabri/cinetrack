@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import '../account/account_deletion_failure.dart';
+import '../data/shared_profile_data_source.dart';
 import '../data/social_data_source.dart';
 import '../social/invite_code.dart';
 import '../social/social_models.dart';
@@ -82,6 +83,11 @@ class RefreshResult {
 /// calls that reach the server for them are reads.
 class SocialRepository {
   final SocialDataSource _data;
+
+  /// `shared_profiles/{uid}` (docs/82 §8): deactivating friendships deletes
+  /// it before and after closing the door. Inert by default (tests that do
+  /// not care); the app passes the real one.
+  final SharedProfileDataSource _shared;
   final DateTime Function() _now;
 
   /// Documents deleted per batch (Firestore allows 500).
@@ -100,7 +106,9 @@ class SocialRepository {
     this.pageSize = 400,
     this.maxPages = 500,
     this.random,
-  }) : _now = now ?? DateTime.now;
+    SharedProfileDataSource? sharedProfile,
+  }) : _now = now ?? DateTime.now,
+       _shared = sharedProfile ?? const SignedOutSharedProfileDataSource();
 
   /// Server first; when the server cannot be reached, whatever the device has.
   /// Throws [SocialFailure] ([SocialFailureKind.denied] = the rules that allow
@@ -612,10 +620,17 @@ class SocialRepository {
   /// [SocialFailure] with code [cleanupPendingCode] (the UI offers
   /// [finishCleanup]; account deletion also always sweeps). Retryable and
   /// idempotent; pages of [pageSize].
+  ///
+  /// The shared profile (docs/82 §8, D11) is deleted FIRST (a failure there
+  /// keeps friendships on: retry) and again right after closing the door
+  /// (removes one a device created in between; afterwards the rules allow no
+  /// new one). A failure of that second delete is "cleanup pending" too.
   Future<void> deactivate() async {
+    await _shared.deleteOwn();
     await sweepAll();
     await _data.closeSocial();
     try {
+      await _shared.deleteOwn();
       await sweepAll();
     } on SocialFailure catch (e) {
       throw SocialFailure(e.kind, code: cleanupPendingCode);
@@ -633,8 +648,12 @@ class SocialRepository {
     }
   }
 
-  /// Completes a deactivation whose last sweep failed.
-  Future<void> finishCleanup() => sweepAll();
+  /// Completes a deactivation whose last sweep failed (the shared profile
+  /// is deleted again too: idempotent).
+  Future<void> finishCleanup() async {
+    await _shared.deleteOwn();
+    await sweepAll();
+  }
 
   /// Account deletion: the pointer goes FIRST ("close the door": without
   /// `social` nobody can send or accept a request for this uid), then the

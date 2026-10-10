@@ -24,6 +24,7 @@ import '../services/local_store.dart';
 import '../services/favorite_status.dart';
 import '../services/tmdb_api_client.dart';
 import '../services/tmdb_exception.dart';
+import 'shared_profile_providers.dart';
 
 /// Overridden in main() with the instance created (and initialized)
 /// before runApp, since opening the Hive box is async.
@@ -80,7 +81,14 @@ typedef FavoritesDataSourceFactory = FavoritesDataSource Function(String uid);
 /// Builds the cloud data source for a uid. Overridden in tests with fakes.
 final favoritesDataSourceFactoryProvider = Provider<FavoritesDataSourceFactory>((ref) {
   final sink = ref.watch(syncFailureSinkProvider);
-  return (uid) => FirestoreFavoritesDataSource(uid: uid, sink: sink);
+  final clock = ref.watch(serverClockProvider);
+  final gate = ref.watch(sharedRulesGateProvider);
+  return (uid) => FirestoreFavoritesDataSource(
+        uid: uid,
+        sink: sink,
+        clock: clock,
+        datesEnabled: () => gate.open,
+      );
 });
 
 /// The single door to the user's data. Depends on the uid, so it is

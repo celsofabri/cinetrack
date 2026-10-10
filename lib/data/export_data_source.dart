@@ -57,6 +57,10 @@ abstract class ExportDataSource {
   /// then no social data can exist, and the export must still work).
   Future<RawSocial?> readSocial({required bool fromServer});
 
+  /// Raw `shared_profiles/{uid}` (docs/82 §8), or null when it does not exist
+  /// or the rules that allow it are not published yet (then none can exist).
+  Future<RawDoc?> readSharedProfile({required bool fromServer});
+
   /// Documents after [cursor] of one social list, at most [limit]: friendships
   /// (`members` contains the user), requests sent / received, blocks.
   Future<RawPage> readSocialPage(

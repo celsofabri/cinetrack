@@ -50,7 +50,9 @@ class PrivacySummary extends StatelessWidget {
         const SizedBox(height: 8),
         const Text(
           'Guardamos o identificador da sua conta, o apelido (se você definir) e as suas '
-          'listas (favoritos, recomendações e progresso) para sincronizar entre aparelhos. Suas '
+          'listas (favoritos, recomendações e progresso) para sincronizar entre aparelhos. '
+          'Quando você marca um episódio, guardamos também a data dessa marcação, só para você, '
+          'para as estatísticas por mês e por ano. Suas '
           'listas e recomendações são privadas: só você as vê, por enquanto. Nome e e-mail '
           'vêm do Google e não são copiados para o banco. A foto também não, a menos que você '
           'ative as amizades e deixe a foto marcada: aí copiamos o endereço da foto, seu '

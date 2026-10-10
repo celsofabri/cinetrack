@@ -999,7 +999,7 @@ void main() {
         );
         expect(social['counts']['friends'], 1);
         expect(social['counts']['requestsReceived'], 1);
-        expect(kExportSchemaVersion, 2, reason: 'same schema: the lists already existed');
+        expect(kExportSchemaVersion, 3, reason: 'only the shared profile (phase 2) bumped it, docs/82 §8');
       },
     );
   });

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../social/social_models.dart';
 import 'export_data_source.dart';
+import 'firestore_shared_profile_data_source.dart';
 import 'firestore_social_data_source.dart';
 import 'social_payloads.dart';
 
@@ -81,6 +82,28 @@ class FirestoreExportDataSource implements ExportDataSource {
       throw const ExportReadException(ExportReadFailureKind.unknown, code: 'invite-unreadable');
     }
     return raw;
+  }
+
+  /// Read by the SAME code the app uses for the own document (one `get`).
+  @override
+  Future<RawDoc?> readSharedProfile({required bool fromServer}) async {
+    final Map<String, dynamic>? data;
+    try {
+      data = await FirestoreSharedProfileDataSource(
+        uid: uid,
+        timeout: timeout,
+        firestore: _db,
+      ).readOwn(fromServer: fromServer);
+    } on SocialFailure catch (e) {
+      // Rules not published yet (denied): no shared profile can exist.
+      if (e.kind == SocialFailureKind.denied) return null;
+      throw ExportReadException(switch (e.kind) {
+        SocialFailureKind.offline || SocialFailureKind.uncertain => ExportReadFailureKind.unreachable,
+        SocialFailureKind.sessionExpired => ExportReadFailureKind.denied,
+        _ => ExportReadFailureKind.unknown,
+      }, code: e.code);
+    }
+    return data == null ? null : RawDoc(uid, data);
   }
 
   // The social lists use the same query shapes as the account-deletion sweeps

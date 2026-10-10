@@ -7,6 +7,7 @@ import 'package:cinetrack/repositories/social_repository.dart';
 import 'package:cinetrack/social/social_models.dart';
 
 import 'support/fake_auth_repository.dart';
+import 'support/fake_shared_profile_cloud.dart';
 import 'support/fake_social_cloud.dart';
 import 'support/in_memory_favorites_data_source.dart';
 
@@ -369,9 +370,19 @@ void main() {
         auth: auth,
         profile: InMemoryProfileDataSource(cloud, uid: 'uid-ana'),
         social: SocialRepository(InMemorySocialDataSource(social, uid: 'uid-ana')),
+        sharedProfile: InMemorySharedProfileDataSource(
+          FakeSharedProfileCloud(log: cloud.deletionLog),
+          uid: 'uid-ana',
+        ),
       );
       await deleter.run();
-      expect(cloud.deletionLog.take(3), ['ensureOnline', 'markDeleting', 'closeSocial']);
+      // docs/82 §8: the shared profile goes before AND after closing the door.
+      expect(cloud.deletionLog.take(4), [
+        'ensureOnline',
+        'markDeleting',
+        'deleteSharedProfile',
+        'closeSocial',
+      ]);
       expect(
         cloud.deletionLog.indexOf('delete:friendships:1'),
         lessThan(cloud.deletionLog.indexOf('deleteAllFavorites')),
@@ -393,6 +404,7 @@ void main() {
         auth: auth,
         profile: InMemoryProfileDataSource(cloud, uid: 'uid-ana'),
         social: SocialRepository(InMemorySocialDataSource(social, uid: 'uid-ana')),
+        sharedProfile: InMemorySharedProfileDataSource(FakeSharedProfileCloud(), uid: 'uid-ana'),
       );
       await expectLater(deleter.run(), throwsA(isA<AccountDeletionFailure>()));
       expect(cloud.deletionLog, isNot(contains('deleteAllFavorites')));

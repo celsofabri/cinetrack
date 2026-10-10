@@ -47,9 +47,14 @@ class _Recording extends InMemoryFavoritesDataSource {
   }
 
   @override
-  Future<void> setEpisodes(String key, Map<String, bool> changes) {
+  Future<void> setEpisodes(
+    String key,
+    Map<String, bool> changes, {
+    FavoriteDoc? current,
+    Map<String, DateTime>? restoreDates,
+  }) {
     calls.add('setEpisodes:$key');
-    return super.setEpisodes(key, changes);
+    return super.setEpisodes(key, changes, current: current, restoreDates: restoreDates);
   }
 
   @override

@@ -89,5 +89,8 @@ Future<ExportFile> runExport({
   }
   // Without pointer and without residue there is nothing social: no section (as before).
   if (hasPointer || residue) builder.social = section;
+  // Schema 3 (docs/82 §8): the shared profile, raw (null when it does not exist).
+  builder.sharedProfile = await source.readSharedProfile(fromServer: fromServer);
+  if (!isCurrent()) throw const ExportCancelled();
   return builder.build(exportedAt: now(), source: from, profile: profile);
 }

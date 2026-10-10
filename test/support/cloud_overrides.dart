@@ -2,10 +2,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:cinetrack/providers/account_providers.dart';
 import 'package:cinetrack/providers/providers.dart';
+import 'package:cinetrack/providers/shared_profile_providers.dart';
 import 'package:cinetrack/providers/social_providers.dart';
 import 'package:cinetrack/providers/sync_providers.dart';
 
 import 'fake_auth_repository.dart';
+import 'fake_shared_profile_cloud.dart';
 import 'fake_social_cloud.dart';
 import 'favorites_harness.dart';
 import 'in_memory_favorites_data_source.dart';
@@ -19,11 +21,13 @@ List<Override> cloudOverrides({
   FakeLocalStore? store,
   FakeTmdbApiClient? api,
   FakeSocialCloud? socialCloud,
+  FakeSharedProfileCloud? sharedCloud,
   List<String>? createdFor,
   Duration grace = Duration.zero,
   Duration stall = Duration.zero,
 }) {
   final social = socialCloud ?? FakeSocialCloud();
+  final shared = sharedCloud ?? FakeSharedProfileCloud(log: cloud.deletionLog);
   return [
     authRepositoryProvider.overrideWithValue(auth),
     // No trailing timers in widget tests; the debounce has its own test.
@@ -38,6 +42,8 @@ List<Override> cloudOverrides({
         .overrideWithValue((uid) => InMemoryProfileDataSource(cloud, uid: uid)),
     socialDataSourceFactoryProvider
         .overrideWithValue((uid) => InMemorySocialDataSource(social, uid: uid)),
+    sharedProfileDataSourceFactoryProvider
+        .overrideWithValue((uid) => InMemorySharedProfileDataSource(shared, uid: uid)),
     localStoreProvider.overrideWithValue(store ?? FakeLocalStore()),
     tmdbApiKeyProvider.overrideWithValue('test'),
     tmdbApiClientProvider.overrideWithValue(api ?? FakeTmdbApiClient()),

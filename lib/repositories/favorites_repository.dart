@@ -311,7 +311,19 @@ class FavoritesRepository {
     required bool watched,
   }) async {
     final key = '$tvId-${MediaType.tv.jsonValue}';
-    await _data.setEpisodes(key, {FavoriteMapper.episodeKey(seasonNumber, episodeNumber): watched});
+    // The current document lets the mark carry its date (and clean orphan
+    // dates); unknown (cold cache offline) = the mark goes without a date.
+    FavoriteDoc? current;
+    try {
+      current = await _data.get(key);
+    } on FavoritesUnavailableException {
+      current = null;
+    }
+    await _data.setEpisodes(
+      key,
+      {FavoriteMapper.episodeKey(seasonNumber, episodeNumber): watched},
+      current: current,
+    );
   }
 
   /// Returns cached episodes for [seasonNumber] if we already have them;
@@ -356,7 +368,11 @@ class FavoritesRepository {
     if (doc == null) return;
 
     final episodeKey = FavoriteMapper.episodeKey(seasonNumber, episodeNumber);
-    await _data.setEpisodes(key, {episodeKey: !doc.watchedEpisodes.contains(episodeKey)});
+    await _data.setEpisodes(
+      key,
+      {episodeKey: !doc.watchedEpisodes.contains(episodeKey)},
+      current: doc,
+    );
   }
 
   /// Marks every already-aired episode of a season as watched (or
@@ -370,13 +386,14 @@ class FavoritesRepository {
     final season = await loadSeason(tvId, seasonNumber);
 
     final key = '$tvId-${MediaType.tv.jsonValue}';
-    if (await _data.get(key) == null) return;
+    final doc = await _data.get(key);
+    if (doc == null) return;
 
     await _data.setEpisodes(key, {
       for (final episode in season.episodes)
         if (episode.hasAired)
           FavoriteMapper.episodeKey(seasonNumber, episode.episodeNumber): watched,
-    });
+    }, current: doc);
   }
 
   // --- whole-series mark / unmark (docs/30) ---
@@ -478,12 +495,18 @@ class FavoritesRepository {
     final after = FavoriteMapper.applyEpisodeChanges(before, changes);
     // The rules cap the whole `eps` map: validate the final size, not the diff.
     if (after.length > kMaxBulkEpisodes) throw const BulkTooLargeException();
-    await _data.setEpisodes(plan.docKey, changes);
+    await _data.setEpisodes(plan.docKey, changes, current: doc);
     return SeriesBulkUndo(
       docKey: plan.docKey,
       uid: uid,
       inverse: {for (final e in changes.entries) e.key: !e.value},
       expected: after,
+      // Unmarking erases the dates: the undo puts them back (docs/82 §4.2),
+      // so "unmark all + Desfazer" never makes the history younger.
+      restoreDates: {
+        for (final e in changes.entries)
+          if (!e.value) e.key: ?doc.markedAt(e.key),
+      },
     );
   }
 
@@ -496,7 +519,12 @@ class FavoritesRepository {
         !doc.watchedEpisodes.containsAll(undo.expected)) {
       return UndoOutcome.changed;
     }
-    await _data.setEpisodes(undo.docKey, undo.inverse);
+    await _data.setEpisodes(
+      undo.docKey,
+      undo.inverse,
+      current: doc,
+      restoreDates: undo.restoreDates,
+    );
     return UndoOutcome.restored;
   }
 }

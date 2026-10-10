@@ -1,7 +1,9 @@
 import '../auth/auth_failure.dart';
 import '../auth/auth_repository.dart';
 import '../data/profile_data_source.dart';
+import '../data/shared_profile_data_source.dart';
 import '../repositories/social_repository.dart';
+import '../social/social_models.dart';
 import 'account_deletion_failure.dart';
 
 enum AccountDeletionStep { reauthenticating, deletingData, deletingAccount }
@@ -13,9 +15,12 @@ enum AccountDeletionStep { reauthenticating, deletingData, deletingAccount }
 /// 1. re-authenticate the SAME account (also proves we are online);
 /// 2. confirm the server is reachable (nothing is written while offline);
 /// 3. mark `users/{uid}.deleting = true` (so the app can offer to resume);
-/// 4. delete the social data (handle, card, friends, requests, blocks; a
-///    no-op for accounts that never turned friendships on), so the user
-///    disappears from other people's friend lists and nothing is orphaned;
+/// 4. delete the shared profile (`shared_profiles/{uid}`, docs/82 §8: its
+///    content leaves before the sweeps), then the social data (handle, card,
+///    friends, requests, blocks; a no-op for accounts that never turned
+///    friendships on), so the user disappears from other people's friend
+///    lists and nothing is orphaned, then the shared profile AGAIN (one a
+///    device created in between; with `social` gone none can be created);
 /// 5. delete the favorites in batches, then the profile document;
 /// 6. delete the Firebase user. If that fails, the marker is written again,
 ///    since the profile document is gone and a resume must stay possible
@@ -29,6 +34,7 @@ class AccountDeleter {
   final AuthRepository _auth;
   final ProfileDataSource _profile;
   final SocialRepository _social;
+  final SharedProfileDataSource _sharedProfile;
   final String uid;
 
   /// Called right before the Firebase user is deleted, and [onDeleteAborted]
@@ -42,6 +48,7 @@ class AccountDeleter {
     required this._auth,
     required this._profile,
     required this._social,
+    required this._sharedProfile,
     void Function()? onBeforeUserDelete,
     void Function()? onDeleteAborted,
   })  : onBeforeUserDelete = onBeforeUserDelete ?? _noop,
@@ -63,7 +70,9 @@ class AccountDeleter {
     onStep?.call(AccountDeletionStep.deletingData);
     await _profile.ensureOnline();
     await _profile.markDeleting();
+    await _deleteSharedProfile();
     await _social.wipeForAccountDeletion();
+    await _deleteSharedProfile();
     await _profile.deleteAllFavorites();
     await _profile.deleteProfile();
 
@@ -101,6 +110,16 @@ class AccountDeleter {
         // account and can repeat the deletion.
       }
       throw _fromAuth(e);
+    }
+  }
+
+  /// Idempotent; with the rules not published yet it is a no-op (see
+  /// [SharedProfileDataSource.deleteOwn]).
+  Future<void> _deleteSharedProfile() async {
+    try {
+      await _sharedProfile.deleteOwn();
+    } on SocialFailure catch (e) {
+      throw toAccountDeletionFailure(e);
     }
   }
 

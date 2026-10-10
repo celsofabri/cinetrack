@@ -549,7 +549,7 @@ class FirestoreSocialDataSource implements SocialDataSource {
 
   /// Runs [action] with a timeout, mapping provider errors to [SocialFailure].
   /// A timed-out WRITE is "uncertain": the SDK may still deliver it later.
-  @visibleForTesting
+  /// Shared with the shared-profile source (same mapping, docs/82 §9).
   static Future<T> guard<T>(
     Future<T> Function() action,
     Duration timeout, {
@@ -570,7 +570,7 @@ class FirestoreSocialDataSource implements SocialDataSource {
     }
   }
 
-  @visibleForTesting
+  /// Timestamps to `DateTime` at any depth (also used by the shared profile).
   static Map<String, dynamic> convert(Map<String, dynamic> data) => {
     for (final e in data.entries) e.key: convertValue(e.value),
   };

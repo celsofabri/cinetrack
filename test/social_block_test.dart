@@ -386,7 +386,7 @@ void main() {
         expect(block['createdAt'], '2026-10-05T00:00:00.000Z');
         expect(jsonEncode(social['blocks']), isNot(contains('googleusercontent')));
         expect(social['counts']['blocks'], 1);
-        expect(kExportSchemaVersion, 2, reason: 'the blocks list already existed: same schema');
+        expect(kExportSchemaVersion, 3, reason: 'only the shared profile (phase 2) bumped it, docs/82 §8');
       },
     );
 

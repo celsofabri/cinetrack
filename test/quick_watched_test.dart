@@ -88,7 +88,12 @@ class _FailingEpisodes extends InMemoryFavoritesDataSource {
   _FailingEpisodes(super.cloud, {required super.uid});
 
   @override
-  Future<void> setEpisodes(String key, Map<String, bool> changes) =>
+  Future<void> setEpisodes(
+    String key,
+    Map<String, bool> changes, {
+    FavoriteDoc? current,
+    Map<String, DateTime>? restoreDates,
+  }) =>
       Future.error(StateError('boom'));
 }
 

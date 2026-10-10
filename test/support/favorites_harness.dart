@@ -58,6 +58,14 @@ class FakeLocalStore extends LocalStore {
       ? socialHints.remove(uid)
       : socialHints[uid] = (active: active, at: at ?? DateTime.now());
 
+  final Set<String> sharedRules = {};
+
+  @override
+  bool sharedRulesReady(String project) => sharedRules.contains(project);
+
+  @override
+  Future<void> setSharedRulesReady(String project) async => sharedRules.add(project);
+
   final Map<int, List<SeasonCache>> _catalog = {};
   final _controller = StreamController<void>.broadcast();
 

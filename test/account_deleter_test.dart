@@ -17,6 +17,7 @@ import 'package:cinetrack/providers/sync_providers.dart';
 
 import 'support/cloud_overrides.dart';
 import 'support/fake_auth_repository.dart';
+import 'support/fake_shared_profile_cloud.dart';
 import 'support/fake_social_cloud.dart';
 import 'support/favorites_harness.dart';
 import 'support/in_memory_favorites_data_source.dart';
@@ -48,12 +49,14 @@ class _Rig {
   final cloud = FakeCloud();
   final auth = FakeAuthRepository(initialUser: kAna);
   late final profile = InMemoryProfileDataSource(cloud, uid: 'uid-ana');
+  late final shared = FakeSharedProfileCloud(log: cloud.deletionLog);
   final expectedSignOut = <String>[];
   late final deleter = AccountDeleter(
     uid: 'uid-ana',
     auth: auth,
     profile: profile,
     social: SocialRepository(InMemorySocialDataSource(FakeSocialCloud(), uid: 'uid-ana')),
+    sharedProfile: InMemorySharedProfileDataSource(shared, uid: 'uid-ana'),
     onBeforeUserDelete: () => expectedSignOut.add('expect'),
     onDeleteAborted: () => expectedSignOut.add('cancel'),
   );
@@ -82,8 +85,15 @@ void main() {
       await rig.deleter.run(onStep: steps.add);
 
       expect(rig.auth.reauthCalls, 1);
-      expect(rig.cloud.deletionLog,
-          ['ensureOnline', 'markDeleting', 'deleteAllFavorites', 'deleteProfile']);
+      // docs/82 §8: the shared profile before and after the social step.
+      expect(rig.cloud.deletionLog, [
+        'ensureOnline',
+        'markDeleting',
+        'deleteSharedProfile',
+        'deleteSharedProfile',
+        'deleteAllFavorites',
+        'deleteProfile',
+      ]);
       expect(rig.cloud.server['uid-ana'], isEmpty);
       expect(rig.cloud.profiles['uid-ana'], isNull);
       expect(rig.auth.deleteUserCalls, 1);
@@ -201,6 +211,7 @@ void main() {
         auth: auth,
         profile: profile,
         social: SocialRepository(InMemorySocialDataSource(FakeSocialCloud(), uid: 'uid-ana')),
+        sharedProfile: InMemorySharedProfileDataSource(FakeSharedProfileCloud(), uid: 'uid-ana'),
       );
 
       await expectLater(

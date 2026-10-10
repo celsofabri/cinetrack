@@ -5,9 +5,13 @@ import 'package:flutter/foundation.dart';
 
 import '../models/favorite_doc.dart';
 import '../models/tv_season_summary.dart';
+import '../services/episode_dates.dart';
 import '../services/favorite_mapper.dart';
 import 'activity_overlay.dart';
+import 'favorite_payloads.dart';
 import 'favorites_data_source.dart';
+import 'server_clock.dart';
+import 'social_payloads.dart' show DeleteField, ServerTimestamp;
 import 'sync_status.dart';
 
 /// Firestore implementation: one document per favorite under
@@ -22,13 +26,25 @@ class FirestoreFavoritesDataSource implements FavoritesDataSource {
   final FirebaseFirestore _db;
   final String uid;
   final SyncFailureSink _sink;
-  final ActivityOverlay _activity = ActivityOverlay();
+  final ServerClock clock;
+  late final ActivityOverlay _activity = ActivityOverlay(clock: clock);
+
+  /// True once the rules that accept `epsAt` are confirmed (docs/82 §4.2,
+  /// D17). Until then marks go without dates: the old rules would refuse the
+  /// WHOLE update (the mark itself would be lost).
+  final bool Function() datesEnabled;
 
   FirestoreFavoritesDataSource({
     required this.uid,
     required this._sink,
     FirebaseFirestore? firestore,
-  })  : _db = firestore ?? FirebaseFirestore.instance;
+    ServerClock? clock,
+    bool Function()? datesEnabled,
+  })  : _db = firestore ?? FirebaseFirestore.instance,
+        clock = clock ?? ServerClock(),
+        datesEnabled = datesEnabled ?? _off;
+
+  static bool _off() => false;
 
   CollectionReference<Map<String, dynamic>> get _col =>
       _db.collection('users').doc(uid).collection('favorites');
@@ -113,17 +129,54 @@ class FirestoreFavoritesDataSource implements FavoritesDataSource {
   }
 
   @override
-  Future<void> setEpisodes(String key, Map<String, bool> changes) {
-    _activity.stamp(key);
-    return _fire(
-      () => _col.doc(key).update({
-        for (final entry in changes.entries)
-          'eps.${entry.key}': entry.value ? true : FieldValue.delete(),
-        'lastWatchedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }),
+  Future<void> setEpisodes(
+    String key,
+    Map<String, bool> changes, {
+    FavoriteDoc? current,
+    Map<String, DateTime>? restoreDates,
+  }) {
+    final data = episodesUpdate(
+      changes,
+      current: current,
+      restoreDates: restoreDates,
+      datesEnabled: datesEnabled(),
+      instant: clock.now(),
     );
+    _activity.stamp(key);
+    return _fire(() => _col.doc(key).update(resolve(data)));
   }
+
+  /// The exact `update` payload of [setEpisodes] (sentinels unresolved).
+  @visibleForTesting
+  static Map<String, Object?> episodesUpdate(
+    Map<String, bool> changes, {
+    required FavoriteDoc? current,
+    required Map<String, DateTime>? restoreDates,
+    required bool datesEnabled,
+    required DateTime instant,
+  }) => FavoritePayloads.setEpisodes(
+    changes,
+    dates: datesEnabled
+        ? EpisodeDates.plan(
+            changes: changes,
+            current: current,
+            instant: instant,
+            restore: restoreDates,
+          )
+        : EpisodeDatesPlan.none,
+  );
+
+  /// Sentinels and dates to Firestore values.
+  @visibleForTesting
+  static Map<String, Object?> resolve(Map<String, Object?> data) => {
+    for (final e in data.entries)
+      e.key: switch (e.value) {
+        ServerTimestamp() => FieldValue.serverTimestamp(),
+        DeleteField() => FieldValue.delete(),
+        final DateTime d => Timestamp.fromDate(d),
+        final other => other,
+      },
+  };
 
   @override
   Future<void> setSeasonSummaries(String key, List<TvSeasonSummary> summaries) => _fire(
@@ -161,8 +214,17 @@ class FirestoreFavoritesDataSource implements FavoritesDataSource {
     }
   }
 
+  /// Timestamps to `DateTime`, nested ones included (`epsAt` is a map of
+  /// timestamps).
   Map<String, dynamic> _fromFirestore(Map<String, dynamic> data) => {
-        for (final entry in data.entries)
-          entry.key: entry.value is Timestamp ? (entry.value as Timestamp).toDate() : entry.value,
+        for (final entry in data.entries) entry.key: convertValue(entry.value),
+      };
+
+  @visibleForTesting
+  static Object? convertValue(Object? value) => switch (value) {
+        Timestamp() => value.toDate(),
+        Map() => {for (final e in value.entries) '${e.key}': convertValue(e.value)},
+        List() => [for (final item in value) convertValue(item)],
+        _ => value,
       };
 }

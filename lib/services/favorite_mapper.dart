@@ -42,6 +42,7 @@ class FavoriteMapper {
   }
 
   /// Document body to create a favorite. Date values stay `DateTime`.
+  /// Never emits `epsAt`: an add stays bit-for-bit what it always was.
   ///
   /// `recommended` is written ONLY when true: a plain add stays bit-for-bit
   /// what it always was (accepted even by the previous security rules), and
@@ -72,6 +73,7 @@ class FavoriteMapper {
       if ('$id-${mediaType.jsonValue}' != key) return null;
 
       final eps = map['eps'];
+      final epsAt = map['epsAt'];
       return FavoriteDoc(
         id: id,
         mediaType: mediaType,
@@ -90,6 +92,12 @@ class FavoriteMapper {
           if (eps is Map)
             for (final entry in eps.entries)
               if (entry.value == true && parseEpisodeKey('${entry.key}') != null) '${entry.key}',
+        },
+        // Tolerant: a value that is not a date (or a malformed key) is ignored.
+        watchedAt: {
+          if (epsAt is Map)
+            for (final entry in epsAt.entries)
+              if (parseEpisodeKey('${entry.key}') != null) '${entry.key}': ?_date(entry.value),
         },
       );
     } catch (_) {

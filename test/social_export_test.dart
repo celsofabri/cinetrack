@@ -24,7 +24,7 @@ Future<Map<String, dynamic>> _export(FakeExportDataSource source, {int pageSize 
 void main() {
   test('without friendships: schema 2 with social null, everything else as before', () async {
     final json = await _export(FakeExportDataSource({'1-movie': fakeMovieDoc(1)}));
-    expect(json['schemaVersion'], 2);
+    expect(json['schemaVersion'], 3);
     expect(json.containsKey('social'), isTrue);
     expect(json['social'], isNull);
     expect((json['favorites'] as List), hasLength(1));

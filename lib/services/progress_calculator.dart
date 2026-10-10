@@ -32,7 +32,9 @@ class SeriesProgress {
 class ProgressCalculator {
   const ProgressCalculator._();
 
-  static SeriesProgress compute(List<SeasonCache> seasons) {
+  /// [now] defaults to the device clock (see `EpisodeCache.hasAiredAt`).
+  static SeriesProgress compute(List<SeasonCache> seasons, {DateTime? now}) {
+    final at = now ?? DateTime.now();
     final ordered = [...seasons]..sort((a, b) {
         // "Specials" (season 0) are ordered last.
         if (a.seasonNumber == 0) return 1;
@@ -56,7 +58,8 @@ class ProgressCalculator {
 
       for (final episode in episodesInOrder) {
         total++;
-        if (episode.hasAired) {
+        final aired = episode.hasAiredAt(at);
+        if (aired) {
           anyAired++;
           if (episode.watched) anyAiredWatched++;
           if (!isSpecial) {
@@ -66,7 +69,7 @@ class ProgressCalculator {
         }
         if (episode.watched) {
           watched++;
-        } else if (nextEpisode == null && episode.hasAired) {
+        } else if (nextEpisode == null && aired) {
           nextEpisode = episode;
           nextSeasonNumber = season.seasonNumber;
         }

@@ -34,6 +34,17 @@ class FakeExportDataSource implements ExportDataSource {
   /// Social list page calls: kind and cursor.
   final socialCalls = <({SocialExportKind kind, String? cursor, bool fromServer})>[];
 
+  /// Raw `shared_profiles/{uid}` (null = none / old rules).
+  RawDoc? sharedProfile;
+  int sharedProfileReads = 0;
+
+  @override
+  Future<RawDoc?> readSharedProfile({required bool fromServer}) async {
+    sharedProfileReads++;
+    if (fromServer && serverFailure != null) throw serverFailure!;
+    return sharedProfile;
+  }
+
   final calls = <({String? cursor, int limit, bool fromServer})>[];
   int profileReads = 0;
 

@@ -6,6 +6,7 @@ import 'package:cinetrack/data/profile_data_source.dart';
 import 'package:cinetrack/data/sync_status.dart';
 import 'package:cinetrack/models/favorite_doc.dart';
 import 'package:cinetrack/models/tv_season_summary.dart';
+import 'package:cinetrack/services/episode_dates.dart';
 import 'package:cinetrack/services/favorite_mapper.dart';
 
 typedef CloudOp = void Function(Map<String, FavoriteDoc> docs);
@@ -46,6 +47,17 @@ class FakeCloud {
   /// Simulates a cold cache while offline: `get` cannot tell whether the
   /// document exists and throws [FavoritesUnavailableException].
   bool readsUnavailable = false;
+
+  /// The rules that accept `epsAt` are confirmed: marks carry dates, planned
+  /// by the same pure code as the Firestore source (`EpisodeDates.plan`).
+  bool datesEnabled = false;
+
+  /// Clock of the mark dates (the device's `ServerClock`).
+  DateTime Function() clock = DateTime.now;
+
+  /// Every `setEpisodes` payload, as the Firestore source would send it.
+  final List<({String uid, String key, EpisodeDatesPlan dates, Map<String, bool> changes})>
+      episodeWrites = [];
   final _changes = StreamController<void>.broadcast();
 
   Map<String, FavoriteDoc> view(String uid) {
@@ -137,14 +149,31 @@ class InMemoryFavoritesDataSource implements FavoritesDataSource {
       });
 
   @override
-  Future<void> setEpisodes(String key, Map<String, bool> changes) async => cloud.write(uid, (docs) {
-        final doc = docs[key];
-        if (doc == null) return;
-        docs[key] = doc.copyWith(
-          watchedEpisodes: FavoriteMapper.applyEpisodeChanges(doc.watchedEpisodes, changes),
-          lastWatchedAt: DateTime.now(),
-        );
-      });
+  Future<void> setEpisodes(
+    String key,
+    Map<String, bool> changes, {
+    FavoriteDoc? current,
+    Map<String, DateTime>? restoreDates,
+  }) async {
+    final dates = cloud.datesEnabled
+        ? EpisodeDates.plan(
+            changes: changes,
+            current: current,
+            instant: cloud.clock().toUtc(),
+            restore: restoreDates,
+          )
+        : EpisodeDatesPlan.none;
+    cloud.episodeWrites.add((uid: uid, key: key, dates: dates, changes: changes));
+    cloud.write(uid, (docs) {
+      final doc = docs[key];
+      if (doc == null) return;
+      docs[key] = doc.copyWith(
+        watchedEpisodes: FavoriteMapper.applyEpisodeChanges(doc.watchedEpisodes, changes),
+        lastWatchedAt: DateTime.now(),
+        watchedAt: dates.applyTo(doc.watchedAt),
+      );
+    });
+  }
 
   @override
   Future<void> setSeasonSummaries(String key, List<TvSeasonSummary> summaries) async =>

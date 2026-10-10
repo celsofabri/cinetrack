@@ -35,7 +35,11 @@ class EpisodeCache {
 
   /// Episodes without a known air date are treated as already aired
   /// (TMDB sometimes omits it for older content).
-  bool get hasAired => airDate == null || !airDate!.isAfter(DateTime.now());
+  bool get hasAired => hasAiredAt(DateTime.now());
+
+  /// [hasAired] against an injected clock (shared-profile calculation and
+  /// tests, docs/82 §5).
+  bool hasAiredAt(DateTime now) => airDate == null || !airDate!.isAfter(now);
 
   EpisodeCache copyWith({bool? watched}) => EpisodeCache(
         episodeNumber: episodeNumber,

@@ -117,6 +117,15 @@ class LocalStore {
       ? _discoveryBox.put('socialRefresh:$uid', true)
       : _discoveryBox.delete('socialRefresh:$uid');
 
+  /// The phase-2 rules (that accept the mark dates `epsAt`) were seen
+  /// published on [project] (docs/82 §4.2, D17). Rules never go back, so once
+  /// true the probe is never read again on this device. A boolean, no
+  /// personal data.
+  bool sharedRulesReady(String project) => _discoveryBox.get('sharedRules:$project') == true;
+
+  Future<void> setSharedRulesReady(String project) =>
+      _discoveryBox.put('sharedRules:$project', true);
+
   /// Last answer the server gave about "friendships on?" for [uid] and when
   /// (docs/59): lets the Amigos icon appear without reading the server on
   /// every session. A boolean per uid, no personal data. Null = never known.

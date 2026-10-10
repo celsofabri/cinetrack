@@ -58,7 +58,7 @@ void main() {
       final file = _build({'1-movie': fakeMovieDoc(1)}, profile: {'displayName': 'Ana'});
       final json = _decode(file);
       expect(json['schema'], 'cinetrack-export');
-      expect(json['schemaVersion'], 2);
+      expect(json['schemaVersion'], 3);
       expect(json['exportedAt'], '2026-10-03T12:00:00.000Z');
       expect(json['app'], {'name': 'CineTrack', 'version': kAppVersion});
       expect(json['source'], 'server');
@@ -311,6 +311,9 @@ class _StuckSource implements ExportDataSource {
 
   @override
   Future<RawSocial?> readSocial({required bool fromServer}) async => null;
+
+  @override
+  Future<RawDoc?> readSharedProfile({required bool fromServer}) async => null;
 
   @override
   Future<RawPage> readSocialPage(

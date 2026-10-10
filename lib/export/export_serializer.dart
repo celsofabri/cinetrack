@@ -15,7 +15,11 @@ const kExportSchemaId = 'cinetrack-export';
 /// user never turned friendships on). Purely additive: a version-1 file has
 /// no `social` key and every other field keeps its meaning, so readers that
 /// ignore unknown keys read both.
-const kExportSchemaVersion = 2;
+///
+/// Version 3 (shared profile, docs/82 §8): adds the top-level
+/// `sharedProfile` key (null when there is none). Favorites may carry `epsAt`
+/// (mark dates, as ISO strings inside `data`). Purely additive again.
+const kExportSchemaVersion = 3;
 
 /// Must match `version:` in pubspec.yaml (a test enforces it).
 const kAppName = 'CineTrack';
@@ -107,8 +111,10 @@ String exportFileName(DateTime now) {
 /// Builds the export file incrementally (one document at a time), so a big
 /// collection can be processed page by page. Pure Dart, no Firebase types.
 ///
-/// File layout (schemaVersion 2): header fields, `profile`, `social`
-/// (see [SocialExport]; null without friendships), `counts`,
+/// File layout (schemaVersion 3): header fields, `profile`, `social`
+/// (see [SocialExport]; null without friendships), `sharedProfile` (the raw
+/// shared profile as `{"id", "timestampFields", "data"}`; null without one),
+/// `counts`,
 /// `issues`, and `favorites`: one entry per Firestore document, written on
 /// its own line, as `{"key": "doc id", "timestampFields": [...], "data":
 /// {all fields as stored}}`. Timestamps are ISO 8601 UTC strings;
@@ -134,6 +140,9 @@ class ExportBuilder {
 
   /// Social section (null = friendships not activated). Set before [build].
   SocialExport? social;
+
+  /// Raw `shared_profiles/{uid}` (null = none). Set before [build].
+  RawDoc? sharedProfile;
 
   void add(RawDoc doc) {
     _documents++;
@@ -172,6 +181,7 @@ class ExportBuilder {
     required ExportSource source,
     required Map<String, dynamic>? profile,
   }) {
+    final shared = _sharedJson(); // before the summary: it may add an issue
     final summary = ExportSummary(
       documents: _documents,
       movies: _movies,
@@ -200,6 +210,7 @@ class ExportBuilder {
               'data': encodeValue(profile, <bool>[]),
             },
       'social': social?.toJson(),
+      'sharedProfile': shared,
       'counts': summary.toJson(),
       'issues': [for (final i in summary.issues) i.toJson()],
     };
@@ -213,6 +224,22 @@ class ExportBuilder {
     }
     buffer.write(_lines.isEmpty ? ']\n}\n' : '\n  ]\n}\n');
     return ExportFile(buffer.toString(), summary);
+  }
+
+  Map<String, Object?>? _sharedJson() {
+    final doc = sharedProfile;
+    if (doc == null) return null;
+    final unsupported = <bool>[];
+    final json = {
+      'id': doc.id,
+      'timestampFields': [
+        for (final e in doc.data.entries)
+          if (e.value is DateTime) e.key,
+      ],
+      'data': encodeValue(doc.data, unsupported),
+    };
+    if (unsupported.isNotEmpty) _issues.add(ExportIssue('sharedProfile', ExportIssue.unsupportedValue));
+    return json;
   }
 
   static FavoriteDoc? _tryParse(RawDoc doc) {

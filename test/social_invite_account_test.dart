@@ -160,7 +160,7 @@ void main() {
       expect(invite['createdAt'], '2026-10-05T12:00:00.000Z');
       expect(invite['expiresAt'], '2026-10-12T12:00:00.000Z');
       expect(invite['exists'], isTrue);
-      expect(kExportSchemaVersion, 2, reason: 'additive key inside social: same schema version');
+      expect(kExportSchemaVersion, 3, reason: 'only the shared profile (phase 2) bumped it, docs/82 §8');
       // the raw pointer already lists it too
       expect(jsonEncode(social['pointer']), contains(invite['code'] as String));
     });

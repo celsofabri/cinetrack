@@ -25,6 +25,13 @@ class FavoriteDoc {
   /// is ever written (see `FavoriteMapper.toMap`).
   final bool recommended;
 
+  /// When each episode was marked by the current mark (`epsAt` in the
+  /// document, docs/82 §4.2), keyed like [watchedEpisodes]. Private to the
+  /// owner. Only marks made by this version carry a date; an entry whose key
+  /// is NOT in [watchedEpisodes] is an orphan (left by an older app that
+  /// unmarked the episode) and never counts. Empty for old documents.
+  final Map<String, DateTime> watchedAt;
+
   const FavoriteDoc({
     required this.id,
     required this.mediaType,
@@ -37,7 +44,17 @@ class FavoriteDoc {
     this.seasonSummaries = const [],
     this.watchedEpisodes = const {},
     this.recommended = false,
+    this.watchedAt = const {},
   });
+
+  /// Date of the CURRENT mark of episode [key], or null (no date, or orphan).
+  DateTime? markedAt(String key) => watchedEpisodes.contains(key) ? watchedAt[key] : null;
+
+  /// Dates whose episode is no longer marked (see [watchedAt]).
+  Set<String> get orphanDates => {
+        for (final k in watchedAt.keys)
+          if (!watchedEpisodes.contains(k)) k,
+      };
 
   /// Same composite key as `FavoriteItem.storageKey`.
   String get key => '$id-${mediaType.jsonValue}';
@@ -48,6 +65,7 @@ class FavoriteDoc {
     List<TvSeasonSummary>? seasonSummaries,
     Set<String>? watchedEpisodes,
     bool? recommended,
+    Map<String, DateTime>? watchedAt,
   }) =>
       FavoriteDoc(
         id: id,
@@ -61,5 +79,6 @@ class FavoriteDoc {
         seasonSummaries: seasonSummaries ?? this.seasonSummaries,
         watchedEpisodes: watchedEpisodes ?? this.watchedEpisodes,
         recommended: recommended ?? this.recommended,
+        watchedAt: watchedAt ?? this.watchedAt,
       );
 }

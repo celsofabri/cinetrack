@@ -55,7 +55,17 @@ abstract class FavoritesDataSource {
   /// Applies per-episode changes (`true` = watched, `false` = unwatched) as
   /// field-level updates and stamps `lastWatchedAt`. An empty map only
   /// stamps `lastWatchedAt`.
-  Future<void> setEpisodes(String key, Map<String, bool> changes);
+  ///
+  /// Mark dates (`epsAt`, docs/82 §4.2) go in the SAME update, only once the
+  /// rules that accept them are confirmed (see `SharedRulesGate`); [current]
+  /// is the document as the caller read it (null = unknown: no new dates),
+  /// [restoreDates] the dates an undo puts back (see `EpisodeDates.plan`).
+  Future<void> setEpisodes(
+    String key,
+    Map<String, bool> changes, {
+    FavoriteDoc? current,
+    Map<String, DateTime>? restoreDates,
+  });
 
   Future<void> setSeasonSummaries(String key, List<TvSeasonSummary> summaries);
 
@@ -92,7 +102,12 @@ class SignedOutFavoritesDataSource implements FavoritesDataSource {
       Future.error(const AuthRequiredException());
 
   @override
-  Future<void> setEpisodes(String key, Map<String, bool> changes) =>
+  Future<void> setEpisodes(
+    String key,
+    Map<String, bool> changes, {
+    FavoriteDoc? current,
+    Map<String, DateTime>? restoreDates,
+  }) =>
       Future.error(const AuthRequiredException());
 
   @override

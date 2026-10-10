@@ -50,11 +50,17 @@ class SeriesBulkUndo {
   final Map<String, bool> inverse;
   final Set<String> expected;
 
+  /// Dates the episodes had before the change (only those that had one):
+  /// the undo re-marks with them, never with "now" (docs/82 §4.2). Episodes
+  /// the undo re-marks without an entry here go back without a date.
+  final Map<String, DateTime> restoreDates;
+
   const SeriesBulkUndo({
     required this.docKey,
     required this.uid,
     required this.inverse,
     required this.expected,
+    this.restoreDates = const {},
   });
 }
 

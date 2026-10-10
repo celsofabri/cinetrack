@@ -501,7 +501,7 @@ void main() {
       expect(sent['createdAt'], '2026-10-05T00:00:00.000Z');
       expect(jsonEncode(sent), isNot(contains('googleusercontent')));
       expect(social['counts']['requestsSent'], 1);
-      expect(kExportSchemaVersion, 2);
+      expect(kExportSchemaVersion, 3, reason: 'only the shared profile (phase 2) bumped it, docs/82 §8');
     });
   });
 
