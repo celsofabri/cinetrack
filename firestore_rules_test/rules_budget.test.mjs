@@ -6,11 +6,14 @@ import { readFileSync } from 'node:fs';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where,
+  collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where,
 } from 'firebase/firestore';
 import {
   RULES_URL, U, acceptBatch, commit, makeTools, newEnv, requestRef,
 } from './social_helpers.mjs';
+import {
+  HOUR, acts, createAll, createStats, past, recs, stats, stored, st,
+} from './shared_profile_helpers.mjs';
 
 const MARKER = '    // Everything not allowed above is denied';
 const base = readFileSync(RULES_URL, 'utf8');
@@ -22,7 +25,43 @@ const chain = (n, prefix) =>
 const lit = (prefix, n, fn) =>
   Array.from({ length: n }, (_, i) => fn(`'${prefix}${i}'`)).join(' && ');
 
+// Phase 2 (docs/82 §4.3/§4.5): the REAL allow-expressions of shared_profiles/{uid}, extracted from
+// the rules text (so a mutation of the rules changes the probes too), plus N extra distinct exists()
+// (call budget) or N extra comparisons (expression budget).
+const SP = base.slice(base.indexOf('    match /shared_profiles/{uid} {'));
+assert.ok(SP.length > 0, 'shared_profiles block not found');
+const spExpr = (verb) => {
+  const m = SP.match(new RegExp(`allow ${verb}: if ([\\s\\S]*?);\\n`));
+  assert.ok(m, `allow ${verb} not found in shared_profiles`);
+  return `(${m[1]})`;
+};
+// N extra comparisons, grouped 10 per function (a flat chain of 100+ does not compile).
+const xGroups = (tag, n) => Array.from({ length: Math.ceil(n / 10) }, (_, g) =>
+  `    function x${tag}${g}() { return ${Array.from({ length: Math.min(10, n - g * 10) }, (_, i) =>
+    `request.resource.data.tz != ${2000 + g * 10 + i}`).join(' && ')}; }`).join('\n');
+const xCall = (tag, n) => Array.from({ length: Math.ceil(n / 10) }, (_, g) => `x${tag}${g}()`).join(' && ');
+// Calibrated in the emulator (2026-10-10): an empty request fits ~123 such comparisons; the
+// heaviest legal document (create with 3 sections, 10 activities, 50 recs) leaves ~37 (~70% used);
+// the heaviest write the app makes (all 3 sections at once, update) leaves ~66-70 (~45% used).
+const HEAD_WORST = 30; // >= ~24% of the limit free on the theoretical worst payload
+const HEAD_APP = 55; // >= ~45% free on the heaviest write the app sends
+const OVER_LIMIT = 140; // sanity: this many comparisons alone exceed 1000 expressions
+
 const probes = `
+    match /probe_sp_get9/{uid} { allow get: if ${spExpr('get')} && ${chain(9, 's')}; }
+    match /probe_sp_get10/{uid} { allow get: if ${spExpr('get')} && ${chain(10, 's')}; }
+    match /probe_sp_create9/{uid} { allow create: if ${spExpr('create')} && ${chain(9, 's')}; }
+    match /probe_sp_create10/{uid} { allow create: if ${spExpr('create')} && ${chain(10, 's')}; }
+    match /probe_sp_update9/{uid} { allow update: if ${spExpr('update')} && ${chain(9, 's')}; }
+    match /probe_sp_update10/{uid} { allow update: if ${spExpr('update')} && ${chain(10, 's')}; }
+    match /probe_sp_delete10/{uid} { allow delete: if ${spExpr('delete')} && ${chain(10, 's')}; }
+${xGroups('w', HEAD_WORST)}
+${xGroups('a', HEAD_APP)}
+${xGroups('o', OVER_LIMIT)}
+    match /probe_sp_headw/{uid} { allow create: if ${spExpr('create')} && ${xCall('w', HEAD_WORST)}; }
+    match /probe_sp_heada/{uid} { allow update: if ${spExpr('update')} && ${xCall('a', HEAD_APP)}; }
+    match /probe_sp_over/{uid} { allow create: if ${xCall('o', OVER_LIMIT)}; }
+    match /probe_sp_under/{uid} { allow create: if ${xCall('a', HEAD_APP)}; }
     match /probe_get10/{id} { allow get: if request.auth != null && ${chain(10, 'a')}; }
     match /probe_get11/{id} { allow get: if request.auth != null && ${chain(11, 'a')}; }
     match /probe_rep/{id} { allow get: if request.auth != null && ${Array.from({ length: 12 }, () => `exists(${P('a0')})`).join(' && ')}; }
@@ -233,3 +272,60 @@ describe('real operations stay inside the budget', () => {
   });
 });
 
+describe('Phase 2 shared_profiles: rules calls (real expressions + N distinct exists)', () => {
+  const sp = (d, col, uid = ana) => doc(d, col, uid);
+  it('friend read costs exactly 1 call (passes with +9, denied with +10); owner read costs 0', async () => {
+    await seedProbePaths('s', 10);
+    await t.seedFriendship(ana, bruno);
+    for (const c of ['probe_sp_get9', 'probe_sp_get10']) await t.seedDoc([c, ana], stored());
+    await assertSucceeds(getDoc(sp(t.db(bruno), 'probe_sp_get9')));
+    await assertFails(getDoc(sp(t.db(bruno), 'probe_sp_get10')));
+    await assertSucceeds(getDoc(sp(t.db(ana), 'probe_sp_get10')));
+  });
+  it('create (first toggle) costs exactly 1 call', async () => {
+    await seedProbePaths('s', 10);
+    await t.seedSocial(ana);
+    await assertSucceeds(setDoc(sp(t.db(ana), 'probe_sp_create9'), createStats()));
+    await assertFails(setDoc(sp(t.db(ana), 'probe_sp_create10'), createStats()));
+  });
+  it('recalculation costs 0 calls; a consent change costs exactly 1', async () => {
+    await seedProbePaths('s', 10);
+    await t.seedSocial(ana);
+    const noRecs = () => { const s = stored(); delete s.sharing.recs; delete s.recs; return s; };
+    await t.seedDoc(['probe_sp_update10', ana], noRecs());
+    await t.seedDoc(['probe_sp_update9', ana], noRecs());
+    const recalc = { stats: stats(), activity: acts(10, past(HOUR)), updatedAt: st() };
+    const consent = { 'sharing.recs': true, recs: recs(5), updatedAt: st() };
+    await assertSucceeds(updateDoc(sp(t.db(ana), 'probe_sp_update10'), recalc));
+    await assertFails(updateDoc(sp(t.db(ana), 'probe_sp_update10'), consent));
+    await assertSucceeds(updateDoc(sp(t.db(ana), 'probe_sp_update9'), consent));
+  });
+  it('delete costs 0 calls', async () => {
+    await seedProbePaths('s', 10);
+    await t.seedDoc(['probe_sp_delete10', ana], stored());
+    await assertSucceeds(deleteDoc(sp(t.db(ana), 'probe_sp_delete10')));
+  });
+});
+
+describe('Phase 2 shared_profiles: headroom under the 1000-expression limit (docs/82 §4.5)', () => {
+  const sp = (d, col) => doc(d, col, ana);
+  it(`sanity: ${OVER_LIMIT} extra comparisons alone exceed the limit; ${HEAD_APP} alone fit`, async () => {
+    await assertFails(setDoc(sp(t.db(ana), 'probe_sp_over'), { tz: 1 }));
+    await assertSucceeds(setDoc(sp(t.db(ana), 'probe_sp_under'), { tz: 1 }));
+  });
+  it(`heaviest legal document (create: 3 sections, 10 activities, 50 recs) + ${HEAD_WORST} comparisons still fits`, async () => {
+    await t.seedSocial(ana);
+    await assertSucceeds(setDoc(sp(t.db(ana), 'probe_sp_headw'), createAll()));
+  });
+  it(`heaviest app write (update: consent + all 3 sections) + ${HEAD_APP} comparisons still fits`, async () => {
+    await t.seedSocial(ana);
+    const s = stored();
+    delete s.sharing.recs;
+    delete s.recs;
+    await t.seedDoc(['probe_sp_heada', ana], s);
+    await assertSucceeds(updateDoc(sp(t.db(ana), 'probe_sp_heada'), {
+      'sharing.recs': true, recs: recs(50, 120), stats: stats(), activity: acts(10, past(HOUR)),
+      tz: -180, calc: 1, updatedAt: st(),
+    }));
+  });
+});

@@ -17,5 +17,11 @@
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "favorites",
+      "fieldPath": "epsAt",
+      "indexes": []
+    }
+  ]
 }
