@@ -52,6 +52,7 @@ class FakeSharedProfileCloud {
 
   /// Holds toggles / recalculation writes until completed (in flight).
   Completer<void>? toggleGate;
+  Completer<void>? readGate;
   Completer<void>? writeGate;
 
   /// Every write the fake ACCEPTED, in order (the payloads as sent).
@@ -153,6 +154,8 @@ class InMemorySharedProfileDataSource implements SharedProfileDataSource {
   @override
   Future<Map<String, dynamic>?> readOwn({required bool fromServer}) async {
     cloud.log.add('readOwn');
+    final gate = cloud.readGate;
+    if (gate != null) await gate.future;
     final failure = cloud._take('readOwn');
     if (failure != null) throw failure;
     if (cloud.oldRules) throw _denied;
