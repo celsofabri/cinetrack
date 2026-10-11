@@ -48,6 +48,10 @@ jobs:
         run: flutter analyze
 
       - name: Test
+        # A zone other than UTC on purpose: the period tests (docs/85, rodada 3)
+        # must also see DateTimes whose wall clock differs from UTC.
+        env:
+          TZ: America/Sao_Paulo
         run: flutter test
 
       # GitHub Pages drops dotfiles, so the key is compiled in with

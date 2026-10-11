@@ -118,7 +118,11 @@ Todos os achados fechados nesta rodada, sem ressalvas. `firestore.rules` continu
 
 **`timestampFields` da exportação**: lista só os campos de **primeiro nível** que eram timestamp (`updatedAt`, `actSince`). Datas aninhadas (`stats.datedFrom`, `stats.memberSince`, `activity[].at`, `epsAt.*` nos favoritos) saem como texto ISO 8601 UTC dentro de `data`, sem marcação; quem restaurar precisa conhecer o schema (mesma convenção dos favoritos desde o schema 1).
 
-**Risco da autocorreção** (só acontece se as regras regredirem, o que o processo proíbe): o reenvio sem datas sai quando a recusa chega. Se, nesse meio-tempo, a pessoa desmarcou o mesmo episódio, o reenvio pode marcá-lo de novo. Preferimos isso a perder a marcação; a janela é a de uma ida e volta ao servidor.
+**Risco da autocorreção** (só existe se as regras regredirem, o que o processo proíbe; revisto na rodada 3):
+- O reenvio sem datas sai quando a recusa chega. Offline, várias escritas ficam na fila e as recusas podem chegar **depois** de um desmarcar posterior já aceito: o reenvio marca de novo o episódio. Pode acontecer com mais de um episódio de uma vez.
+- A persistência offline está ligada (`lib/services/firebase_bootstrap.dart`). Uma marcação com data ainda na fila quando a página fecha é reenviada pelo SDK na sessão seguinte **sem** o callback de autocorreção; se as regras tiverem regredido, ela é recusada e **a marcação se perde**.
+- O fallback também dispara com `permission-denied` que não tem nada a ver com a data (corrida de sessão encerrada, `eps` acima de 5000). Custo: a sessão segue sem datas e a próxima sessão faz 1 leitura de sonda; a marcação é reenviada sem datas (e, se o motivo era outro, é recusada de novo e vai para o banner, como antes).
+Conclusão: aceitável porque depende de regressão de regras; a proteção real é a ordem do rollout (regras antes do app, nunca voltar).
 
 **Decisões do Orquestrador nas perguntas abertas**
 1. Fatia 2: **sim**, reaproveitar a leitura de sessão do próprio documento como sonda quando vier do servidor (`isFromCache == false`): existe/não existe = `ready`, `permission-denied` = `oldRules`, alimentando a **mesma** instância de `SharedRulesGate`. A sonda dedicada continua para quem não tem amizades ativas.
@@ -135,3 +139,19 @@ Todos os achados fechados nesta rodada, sem ressalvas. `firestore.rules` continu
 | `flutter test` (2 rodadas) | **1654/1654** nas duas (+19) |
 | `npm test` | **518 pass, 0 fail, 0 todo** (regras e testes de regra inalterados; `test:mutations` não foi rodado de novo por isso) |
 | `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp) | lista completa: 55 de 56 mortas; a sobrevivente `E14` (`invalidate` sem `_refused`) passava porque o fake limpa a marca do Hive na hora. Teste novo ("invalidate closes the gate at once, even if forgetting the device flag fails") e reexecução de `E13 E14 E15`: todas **KILLED**. Total: **56/56** (16 da Fase 1 + 23 `G` + 17 `E`) |
+
+
+## Rodada 3 (gates de aa7729c: Code Review APROVADO com 2 🟢 de documentação; QA REPROVADO com 1 🟡)
+| Achado | Correção |
+|---|---|
+| QA 🟡 F6 autocorreção sem teste no `FirestoreFavoritesDataSource` real (X1, X2, X5, X8 sobreviviam) | seam `@visibleForTesting updater(path, data)` usado por `setEpisodes`. Testes: (1) datas recusadas com `permission-denied` = exatamente 2 escritas, a 2ª sem `epsAt.*` e com `eps.1_1 == true`, `onDatesRefused` 1 vez, nada no banner; (2) `unavailable` = 1 escrita, sem recusa, erro no sink; (3) escrita **sem** datas recusada = 1 escrita, sem reenvio, erro no sink. Mutações X1–X8 do QA em `tool/dart_mutations.py` |
+| QA 🟢 G7 teste "independente do fuso" não era (CI em UTC) | `TZ: America/Sao_Paulo` no passo `flutter test` de `.github/workflows/deploy-pages.yml` (único workflow com testes); comentário do teste corrigido (as asserções valem em qualquer fuso; só detectam a E10 fora de UTC). Conferido também com `TZ=UTC` (passa) |
+| QA 🟢 G8 e CR 🟢 (1)(2) risco da autocorreção subestimado | texto revisto acima ("Risco da autocorreção") |
+
+### Números da rodada 3
+| Comando | Resultado |
+|---|---|
+| `flutter analyze` | No issues found |
+| `flutter test` (2 rodadas) | **1657/1657** nas duas (+3) |
+| `npm test` | não rodado de novo (regras, testes de regra e fixture inalterados; rodada 2: 518/0/0) |
+| `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp) | **64/64 KILLED** (16 da Fase 1 + 23 `G` + 17 `E` + 8 `X`), "All Dart mutations were killed." |

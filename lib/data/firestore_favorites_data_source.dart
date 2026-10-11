@@ -39,6 +39,10 @@ class FirestoreFavoritesDataSource implements FavoritesDataSource {
   /// [FavoritePayloads.sendWithDatesFallback]).
   final void Function() onDatesRefused;
 
+  /// Test seam: runs the field-level `update` of [setEpisodes] (document
+  /// path, resolved data). Default: Firestore.
+  final Future<void> Function(String path, Map<String, Object?> data)? updater;
+
   FirestoreFavoritesDataSource({
     required this.uid,
     required this._sink,
@@ -46,6 +50,7 @@ class FirestoreFavoritesDataSource implements FavoritesDataSource {
     ServerClock? clock,
     bool Function()? datesEnabled,
     void Function()? onDatesRefused,
+    @visibleForTesting this.updater,
   })  : clock = clock ?? ServerClock(),
         datesEnabled = datesEnabled ?? _off,
         onDatesRefused = onDatesRefused ?? _noop;
@@ -155,11 +160,17 @@ class FirestoreFavoritesDataSource implements FavoritesDataSource {
       () => FavoritePayloads.sendWithDatesFallback(
         withDates: data,
         withoutDates: plain,
-        send: (d) => _col.doc(key).update(resolve(d)),
+        send: (d) => _update(key, resolve(d)),
         isDenied: (e) => e is FirebaseException && e.code == 'permission-denied',
         onDatesRefused: onDatesRefused,
       ),
     );
+  }
+
+  Future<void> _update(String key, Map<String, Object?> data) {
+    final custom = updater;
+    if (custom != null) return custom('users/$uid/favorites/$key', data);
+    return _col.doc(key).update(data);
   }
 
   /// The exact `update` payload of [setEpisodes] (sentinels unresolved).

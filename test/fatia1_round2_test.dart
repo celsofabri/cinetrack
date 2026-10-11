@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -9,6 +10,7 @@ import 'package:cinetrack/data/firestore_favorites_data_source.dart';
 import 'package:cinetrack/data/server_clock.dart';
 import 'package:cinetrack/data/shared_profile_data_source.dart';
 import 'package:cinetrack/data/shared_rules_gate.dart';
+import 'package:cinetrack/data/sync_status.dart';
 import 'package:cinetrack/export/data_exporter.dart';
 import 'package:cinetrack/export/export_serializer.dart';
 import 'package:cinetrack/models/favorite_doc.dart';
@@ -81,6 +83,8 @@ ProviderContainer _realFactory(FakeSharedProfileCloud shared, FakeLocalStore sto
   c.listen(authStateProvider, (_, _) {});
   return c;
 }
+
+FirebaseException _fx(String code) => FirebaseException(plugin: 'cloud_firestore', code: code);
 
 Future<void> _settle() async {
   for (var i = 0; i < 5; i++) {
@@ -244,6 +248,64 @@ void main() {
     );
   });
 
+  group('F6 self-heal in the REAL FirestoreFavoritesDataSource (updater seam)', () {
+    FavoriteDoc doc() => _show(added: _since);
+    ({FirestoreFavoritesDataSource source, List<Map<String, Object?>> calls, SyncFailureSink sink, int Function() refused})
+    rig(Object? Function(Map<String, Object?> data) failure, {bool dates = true}) {
+      final calls = <Map<String, Object?>>[];
+      var refused = 0;
+      final sink = SyncFailureSink();
+      addTearDown(sink.dispose);
+      final source = FirestoreFavoritesDataSource(
+        uid: 'uid-ana',
+        sink: sink,
+        clock: ServerClock(deviceNow: () => _now),
+        datesEnabled: () => dates,
+        onDatesRefused: () => refused++,
+        updater: (path, data) async {
+          expect(path, 'users/uid-ana/favorites/10-tv');
+          calls.add(data);
+          final error = failure(data);
+          if (error != null) throw error;
+        },
+      );
+      return (source: source, calls: calls, sink: sink, refused: () => refused);
+    }
+
+    bool dated(Map<String, Object?> d) => d.keys.any((k) => k.startsWith('epsAt.'));
+
+    test('dates refused: exactly 2 writes, the 2nd without dates, gate told once', () async {
+      final r = rig((d) => dated(d) ? _fx('permission-denied') : null);
+      await r.source.setEpisodes('10-tv', {'1_1': true}, current: doc());
+      await _settle();
+      expect(r.calls, hasLength(2));
+      expect(dated(r.calls.first), isTrue);
+      expect(dated(r.calls.last), isFalse);
+      expect(r.calls.last['eps.1_1'], true);
+      expect(r.refused(), 1);
+      expect(r.sink.unacknowledged, isNull, reason: 'the marking was saved');
+    });
+
+    test('another error (unavailable): 1 write, no refusal, the error reaches the sink', () async {
+      final r = rig((d) => _fx('unavailable'));
+      await r.source.setEpisodes('10-tv', {'1_1': true}, current: doc());
+      await _settle();
+      expect(r.calls, hasLength(1));
+      expect(r.refused(), 0);
+      expect(r.sink.unacknowledged?.code, 'unavailable');
+    });
+
+    test('a write WITHOUT dates refused: 1 write, no resend, reported', () async {
+      final r = rig((d) => _fx('permission-denied'), dates: false);
+      await r.source.setEpisodes('10-tv', {'1_1': true}, current: doc());
+      await _settle();
+      expect(r.calls, hasLength(1));
+      expect(dated(r.calls.single), isFalse);
+      expect(r.refused(), 0);
+      expect(r.sink.unacknowledged?.code, 'permission-denied');
+    });
+  });
+
   test('F2 favorite-then-mark path (setEpisodeWatched) carries the date', () async {
     final h = FavoritesHarness();
     h.cloud
@@ -288,10 +350,12 @@ void main() {
       }
     });
 
-    test('machine-zone independent: a non-UTC DateTime whose wall clock differs from UTC', () {
-      // 31/10/2026 23:30 on the wall of a UTC-3 machine is 01/11 02:30 UTC. A
-      // DateTime built from UTC fields but NOT flagged as UTC must not be
-      // mistaken for its fields: build it from microseconds (always an instant).
+    test('a non-UTC DateTime is read as its instant (machine zone)', () {
+      // `fromMicrosecondsSinceEpoch` gives a DateTime in the MACHINE's zone. On a
+      // UTC machine its wall clock equals UTC and this test cannot tell a bug
+      // that reads wall-clock fields (mutation E10); that is why CI runs the
+      // tests with TZ=America/Sao_Paulo (.github/workflows/deploy-pages.yml),
+      // like this development machine. The assertions hold in ANY zone.
       final instant = DateTime.utc(2026, 11, 1, 2, 30);
       final local = DateTime.fromMicrosecondsSinceEpoch(instant.microsecondsSinceEpoch);
       expect(local.isUtc, isFalse);
