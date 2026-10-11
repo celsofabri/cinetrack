@@ -139,7 +139,7 @@ M=[
   "        datesEnabled: datesEnabled,","        datesEnabled: () => true,",
   ['test/fatia1_round2_test.dart']),
  ('E2 gate provider never starts the probe','lib/providers/shared_profile_providers.dart',
-  "  gate.start();\n  return gate;","  return gate;",
+  "      gate.start();\n    }\n","    }\n",
   ['test/fatia1_round2_test.dart']),
  ('E3 overlay samples a settled snapshot never seen pending','lib/data/activity_overlay.dart',
   "done != null && done.seenPending && fromDoc != null","done != null && fromDoc != null",
