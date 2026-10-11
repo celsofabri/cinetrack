@@ -28,16 +28,17 @@ final kAnaUser = AppUser(
   createdAt: kAnaSince,
 );
 
-FavoriteDoc sharingMovie(int id, {bool watched = false, DateTime? at, String? title}) => FavoriteDoc(
-  id: id,
-  mediaType: MediaType.movie,
-  title: title ?? 'Filme $id',
-  posterPath: '/p$id.jpg',
-  overview: '',
-  addedAt: DateTime.utc(2026, 1, 1),
-  watchedMovie: watched,
-  lastWatchedAt: watched ? (at ?? DateTime.utc(2026, 1, 2)) : null,
-);
+FavoriteDoc sharingMovie(int id, {bool watched = false, DateTime? at, String? title}) =>
+    FavoriteDoc(
+      id: id,
+      mediaType: MediaType.movie,
+      title: title ?? 'Filme $id',
+      posterPath: '/p$id.jpg',
+      overview: '',
+      addedAt: DateTime.utc(2026, 1, 1),
+      watchedMovie: watched,
+      lastWatchedAt: watched ? (at ?? DateTime.utc(2026, 1, 2)) : null,
+    );
 
 /// Fakes + overrides for the sharing controller and the engine: an
 /// in-memory cloud, Ana with active friendships, a fixed clock (UTC-3).
