@@ -67,7 +67,8 @@ class _Rig {
 }
 
 Future<void> _open(WidgetTester tester, _Rig rig, {double width = 800}) async {
-  tester.view.physicalSize = Size(width, 2400);
+  // Tall enough for the whole profile (the privacy summary grew in Fatia 2).
+  tester.view.physicalSize = Size(width, 3000);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(rig.app());
@@ -412,7 +413,7 @@ void main() {
         tester,
       ) async {
         final rig = _Rig();
-        tester.view.physicalSize = Size(width, 2600);
+        tester.view.physicalSize = Size(width, 3600); // privacy summary grew (Fatia 2)
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);
         await tester.pumpWidget(
@@ -448,7 +449,8 @@ void main() {
         rig.ana.deviceDocs = {
           'zzz': {'foo': 1},
         };
-        await tester.drag(find.byType(Scrollable).first, const Offset(0, -2500));
+        // (scrolls to it: the privacy summary grew in Fatia 2)
+        await tester.ensureVisible(find.text('Exportar dados deste aparelho'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Exportar dados deste aparelho'));
         await tester.pumpAndSettle();

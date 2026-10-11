@@ -230,8 +230,10 @@ Future<SharedProfileContent?> showSharingConsentDialog(
         final preview = ref.watch(sharedPreviewProvider(section));
         final stats = preview?.stats;
         return AlertDialog(
+          // The whole dialog scrolls: 320 px at 3x font still fits (RNF7).
+          scrollable: true,
           title: Text(texts.title),
-          content: SingleChildScrollView(
+          content: SizedBox(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,

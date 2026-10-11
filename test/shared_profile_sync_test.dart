@@ -7,7 +7,6 @@ import 'package:cinetrack/data/profile_data_source.dart';
 import 'package:cinetrack/data/sync_status.dart';
 import 'package:cinetrack/models/favorite_doc.dart';
 import 'package:cinetrack/models/media_type.dart';
-import 'package:cinetrack/providers/providers.dart';
 import 'package:cinetrack/providers/shared_profile_providers.dart';
 import 'package:cinetrack/providers/sharing_providers.dart';
 import 'package:cinetrack/providers/sync_providers.dart';
@@ -274,6 +273,24 @@ void main() {
       });
     });
 
+    test('served from the cache with nothing pending: a due pulse is not written', () {
+      fakeAsync((async) {
+        final rig = sharingStats();
+        final c = start(async, rig);
+        rig.cloud.offline = true;
+        async.flushMicrotasks();
+        expect(c.read(syncStatusProvider).fromCache, isTrue);
+        expect(c.read(syncStatusProvider).hasPendingWrites, isFalse);
+        rig.now = rig.now.add(const Duration(hours: 25));
+        async.elapse(const Duration(hours: 25));
+        expect(rig.shared.writeAttempts, 0);
+        rig.cloud.offline = false;
+        async.elapse(const Duration(seconds: 6));
+        expect(rig.writes, 1, reason: 'back online: the pulse');
+        c.dispose();
+      });
+    });
+
     test('pending writes: 0 writes; once acknowledged: 1', () {
       fakeAsync((async) {
         final rig = sharingStats();
@@ -300,6 +317,10 @@ void main() {
         rig.cloud.write('uid-ana', (_) {});
         async.elapse(const Duration(minutes: 1));
         expect(rig.writes, 0);
+        // A change seen while the deletion runs is not written either.
+        watch(rig, 2);
+        async.elapse(const Duration(minutes: 1));
+        expect(rig.shared.writeAttempts, 0);
         c.dispose();
       });
     });
@@ -393,6 +414,7 @@ void main() {
         ).setEpisodes('50-tv', {'1_3': true}, current: rig.cloud.server['uid-ana']!['50-tv']);
         async.elapse(const Duration(seconds: 6));
         expect(rig.cloud.episodeWrites.single.dates.isEmpty, isFalse);
+        expect(rig.writes, 1, reason: 'the stats changed and were written');
         expect(rig.doc!.containsKey('activity'), isFalse);
         expect(rig.shared.writes.every((w) => !w.ops.single.data!.containsKey('activity')), isTrue);
         c.dispose();
