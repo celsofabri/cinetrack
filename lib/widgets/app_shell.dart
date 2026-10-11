@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/catalog_sync_providers.dart';
+import '../providers/sharing_providers.dart';
 import '../providers/providers.dart';
 import '../providers/social_lists_providers.dart';
 import '../providers/social_providers.dart';
@@ -219,6 +220,9 @@ class AppShell extends ConsumerWidget {
     // login/device) for every main screen, desktop included. read, not
     // watch: its progress must not rebuild the shell.
     ref.read(catalogSyncProvider);
+    // The shared-profile engine (docs/82 §6): idle for anyone who shares
+    // nothing (no read, no write).
+    ref.read(sharedProfileSyncProvider);
     if (!isMobileWidth(context)) return child;
 
     final user = ref.watch(currentUserProvider);

@@ -6,6 +6,8 @@ import '../data/shared_profile_data_source.dart';
 import '../data/shared_rules_gate.dart';
 import '../firebase_options.dart';
 import 'providers.dart';
+import 'sharing_providers.dart';
+import 'social_providers.dart';
 
 typedef SharedProfileDataSourceFactory = SharedProfileDataSource Function(String uid);
 
@@ -37,8 +39,11 @@ final serverClockProvider = Provider<ServerClock>((ref) {
 /// Project whose rules the probe confirmed (the flag is per project).
 final firebaseProjectIdProvider = Provider<String>((ref) => DefaultFirebaseOptions.web.projectId);
 
-/// The `epsAt` gate (docs/82 §4.2, D17): created with the account session,
-/// it probes the rules once (unless this device already saw them published).
+/// The `epsAt` gate (docs/82 §4.2, D17): created with the account session.
+/// Unless this device already saw the rules published, ONE read decides it
+/// (docs/85, decision Q1): with active friendships it is the owner's session
+/// read of `shared_profiles/{uid}` (the sharing controller feeds this SAME
+/// gate); without them, the dedicated probe.
 final sharedRulesGateProvider = Provider<SharedRulesGate>((ref) {
   final uid = ref.watch(currentUidProvider);
   if (uid == null) return SharedRulesGate.closed();
@@ -51,7 +56,25 @@ final sharedRulesGateProvider = Provider<SharedRulesGate>((ref) {
     storeReady: () => store.setSharedRulesReady(project),
     clearStored: () => store.clearSharedRulesReady(project),
   );
-  gate.start();
+  if (!gate.open) {
+    void decide(SocialPhase phase) {
+      if (gate.open || gate.lastProbe != null) return;
+      final social = ref.read(socialControllerProvider.notifier);
+      final active =
+          phase == SocialPhase.active || (phase == SocialPhase.loading && social.hinted == true);
+      if (active) {
+        // The session read is the probe: make sure it runs.
+        Future.microtask(() => ref.read(sharingControllerProvider));
+        return;
+      }
+      // Still loading with no hint: the friendships answer is on its way.
+      if (phase == SocialPhase.loading && social.hinted == null) return;
+      gate.start();
+    }
+
+    ref.listen(socialControllerProvider.select((s) => s.phase), (_, phase) => decide(phase));
+    Future.microtask(() => decide(ref.read(socialControllerProvider).phase));
+  }
   return gate;
 });
 

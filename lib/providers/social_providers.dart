@@ -144,6 +144,12 @@ class SocialController extends Notifier<SocialState> {
     }
   }
 
+  /// The fresh local hint (null = none): `true` friendships on.
+  bool? get hinted {
+    final uid = ref.read(currentUidProvider);
+    return uid == null ? null : _freshHint(uid)?.active;
+  }
+
   /// Hint for the icon while the state is not confirmed yet.
   bool get hintedActive {
     final uid = ref.read(currentUidProvider);

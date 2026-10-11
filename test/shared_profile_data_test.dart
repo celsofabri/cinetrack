@@ -12,6 +12,7 @@ import 'package:cinetrack/data/export_data_source.dart';
 import 'package:cinetrack/data/firestore_shared_profile_data_source.dart';
 import 'package:cinetrack/data/profile_data_source.dart';
 import 'package:cinetrack/data/shared_profile_data_source.dart';
+import 'package:cinetrack/data/social_payloads.dart';
 import 'package:cinetrack/data/shared_rules_gate.dart';
 import 'package:cinetrack/export/data_exporter.dart';
 import 'package:cinetrack/export/export_serializer.dart';
@@ -489,4 +490,11 @@ class _CountingShared implements SharedProfileDataSource {
   @override
   Future<Map<String, dynamic>?> readOwn({required bool fromServer}) =>
       inner.readOwn(fromServer: fromServer);
+
+  @override
+  Future<void> toggle(SocialWrite Function(Map<String, dynamic>? current) plan) =>
+      inner.toggle(plan);
+
+  @override
+  Future<void> writeSections(SocialWrite write) => inner.writeSections(write);
 }
