@@ -218,7 +218,7 @@ M=[
   "    !status.fromCache &&\n","",
   ['test/shared_profile_sync_test.dart']),
  ('S4 activity published with its toggle off','lib/providers/sharing_providers.dart',
-  "        sections: doc.sharing,\n","        sections: {...doc.sharing, SharedSection.activity},\n",
+  "    final sections = doc.sharing;","    final sections = {...doc.sharing, SharedSection.activity};",
   ['test/shared_profile_sync_test.dart']),
  ('S5 turning off only hides (nothing deleted on the server)','lib/providers/sharing_providers.dart',
   "      await ref.read(sharedProfileRepositoryProvider).turnOff(section);\n","",

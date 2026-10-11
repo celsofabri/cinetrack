@@ -562,6 +562,8 @@ class SharedProfileSync extends Notifier<SharedSyncState> {
     final now = ref.read(serverClockProvider).now();
     final tz = ref.read(sharedTzProvider)(now);
     final store = ref.read(localStoreProvider);
+    // Only what the server has consent for (D6): built AND compared.
+    final sections = doc.sharing;
     final SharedProfileContent content;
     try {
       content = SharedProfileBuilder.build(
@@ -569,7 +571,7 @@ class SharedProfileSync extends Notifier<SharedSyncState> {
         catalog: store.readSeasonCatalog,
         movieRuntime: store.readMovieRuntime,
         tvFallbackRuntime: store.readTvFallbackRuntime,
-        sections: doc.sharing,
+        sections: sections,
         now: now,
         tzMinutes: tz,
         actSince: doc.actSince,
@@ -578,7 +580,7 @@ class SharedProfileSync extends Notifier<SharedSyncState> {
     } catch (_) {
       return;
     }
-    final decision = SharedSyncPolicy.decide(doc, content, now);
+    final decision = SharedSyncPolicy.decide(doc, content, now, sections: sections);
     if (!decision.writes) return _scheduleWake(generation, doc, tz, now);
     final repo = ref.read(sharedProfileRepositoryProvider);
     final optimistic = decision.changed.isEmpty

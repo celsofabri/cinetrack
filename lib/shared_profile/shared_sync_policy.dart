@@ -32,14 +32,18 @@ class SharedSyncPolicy {
   /// ("só grava se mudou"), keeps the server's time figures when this device
   /// would make them less complete ("não regredir") and asks for a pulse
   /// when nothing changed for [kSharedPulseAge].
+  ///
+  /// [sections] = the sections the server has consent for (the caller built
+  /// [next] with exactly these); nothing else is ever compared or written.
   static SharedSyncDecision decide(
     SharedProfileDoc server,
     SharedProfileContent next,
-    DateTime now,
-  ) {
+    DateTime now, {
+    Set<SharedSection>? sections,
+  }) {
     final current = server.content;
     final changed = <SharedSection>{
-      for (final s in server.sharing)
+      for (final s in sections ?? server.sharing)
         if (!_same(s, current, next)) s,
     };
     if (changed.contains(SharedSection.stats) &&

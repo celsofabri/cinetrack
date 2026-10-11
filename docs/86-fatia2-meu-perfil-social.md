@@ -47,8 +47,8 @@ Prioridade: P1 (o primeiro dado compartilhado com amigos; a Fatia 3 lê o que es
 | Comando | Resultado |
 |---|---|
 | `flutter analyze` | **No issues found** |
-| `flutter test` (2 rodadas) | NUM_TESTS |
-| `TZ=UTC flutter test` | NUM_UTC |
+| `flutter test` (2 rodadas, fuso da máquina) | **1773/1773** nas duas (antes: 1657; +116) |
+| `TZ=UTC flutter test` | **1773/1773** |
 | `flutter build web --base-href /cinetrack/` | ✓ Built build/web |
 | `npm test` (regras) | **não rodado**: `firestore.rules`, fixtures e payloads (golden) inalterados (última rodada: 518/0/0, docs/85) |
 | `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp) | NUM_MUT |

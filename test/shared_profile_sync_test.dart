@@ -406,6 +406,10 @@ void main() {
         rig.seedShared({SharedSection.stats});
         final c = start(async, rig);
         expect(((rig.doc!['stats'] as Map)['month'] as Map)['key'], '2026-10');
+        // The session's own triggers settle first: nothing to write in October.
+        async.elapse(const Duration(seconds: 6));
+        expect(rig.writes, 0);
+        // No mark, no other trigger: only the engine's wake-up at the turn.
         rig.now = DateTime.utc(2026, 11, 1, 3, 0, 1);
         async.elapse(const Duration(seconds: 20));
         expect(rig.writes, 1);

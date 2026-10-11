@@ -53,6 +53,29 @@ void main() {
       expect(rig.store.sharedHints['uid-ana'], isEmpty);
     });
 
+    test('gate created at session start (as the favorites factory does): the session read '
+        'is the probe, no dedicated read (Q1)', () async {
+      final rig = SharingRig()..seed(sharingMovie(1));
+      final c = rig.container();
+      addTearDown(c.dispose);
+      // The favorites factory keeps the gate alive from the session start.
+      c.listen(sharedRulesGateProvider, (_, _) {});
+      await _settle();
+      expect(c.read(sharedRulesGateProvider).open, isTrue);
+      expect(rig.log, ['readOwn']);
+      expect(rig.store.sharedRules, isNotEmpty);
+    });
+
+    test('same, without friendships: the dedicated probe, the document is not read', () async {
+      final rig = SharingRig(active: false);
+      final c = rig.container();
+      addTearDown(c.dispose);
+      c.listen(sharedRulesGateProvider, (_, _) {});
+      await _settle();
+      expect(c.read(sharedRulesGateProvider).open, isTrue);
+      expect(rig.log, ['probe']);
+    });
+
     test('no active friendships: hidden, the document is never read', () async {
       final rig = SharingRig(active: false);
       final c = await _start(rig);
