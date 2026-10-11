@@ -61,6 +61,26 @@ class SharedRulesGate {
     }
   }
 
+  /// The owner's session read of `shared_profiles/{uid}` from the SERVER
+  /// (docs/85, decision Q1) is itself a probe: it feeds the SAME gate, so a
+  /// user with active friendships pays no dedicated read. `ready` opens and
+  /// is remembered like [start]; `oldRules` is recorded (gate stays closed);
+  /// `unreachable` changes nothing.
+  Future<void> feed(RulesProbe result) async {
+    if (result == RulesProbe.unreachable) return;
+    _last = result;
+    if (result != RulesProbe.ready || _refused) return;
+    final already = open;
+    _ready = true;
+    _running ??= Future.value(RulesProbe.ready);
+    if (already) return;
+    try {
+      await _storeReady();
+    } catch (_) {
+      // The next session probes again: one more read, nothing lost.
+    }
+  }
+
   /// Runs the probe once per gate (= per session and account), unless the
   /// device already knows the rules are published.
   Future<RulesProbe> start() {

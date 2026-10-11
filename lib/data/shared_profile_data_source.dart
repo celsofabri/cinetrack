@@ -1,3 +1,4 @@
+import '../data/social_payloads.dart';
 import '../social/social_models.dart';
 
 /// Answer of the rules probe (docs/82 §4.2, D17).
@@ -17,10 +18,10 @@ enum RulesProbe {
 /// Firestore, signed-out (inert) and an in-memory fake (tests). Every method
 /// throws [SocialFailure] (never Firebase types), like the social source.
 ///
-/// Fatia 1: INERT. Nothing in the app writes a shared profile yet; the only
-/// calls are the rules probe, the deletion (account deletion, deactivating
-/// friendships: data that cannot exist yet must still be covered BEFORE the
-/// first byte is shared) and the export read.
+/// Fatia 2: the owner's toggles ([toggle], a transaction) and the
+/// recalculation engine ([writeSections], its own `update`, never in a batch
+/// with a favorite, D4) write the document; deletion, export and the rules
+/// probe come from Fatia 1.
 abstract class SharedProfileDataSource {
   /// The signed-in user this source works for ('' when signed out).
   String get uid;
@@ -37,6 +38,22 @@ abstract class SharedProfileDataSource {
   /// success). `permission-denied` = old rules = nothing can exist: success.
   /// Timeout: [SocialFailureKind.uncertain] (retry; it is idempotent).
   Future<void> deleteOwn();
+
+  /// A consent change as ONE transaction (docs/82 §7.1, RF-P4–P7): reads the
+  /// own document, [plan] builds the write for what was read (it may throw a
+  /// [SocialFailure] to stop), and the write is applied in the same
+  /// transaction. Never queued. Failures: [SocialFailureKind.offline] =
+  /// nothing was sent (the read failed); [SocialFailureKind.uncertain] = the
+  /// write was sent and no answer came (timeout, `unavailable` /
+  /// `deadline-exceeded` on the commit): the caller reconciles with a server
+  /// read; [SocialFailureKind.denied] = old rules or friendships off.
+  Future<void> toggle(SocialWrite Function(Map<String, dynamic>? current) plan);
+
+  /// A recalculation or pulse (docs/82 §6): ONE `update` of the own document,
+  /// resolved when the server acknowledges it. Its failures go to the caller
+  /// only (never to the favorites' sync banner). `not-found` comes out as
+  /// [SocialFailureKind.unknown] with code `not-found`.
+  Future<void> writeSections(SocialWrite write);
 
   /// A friend's document, from the SERVER only (never the device cache).
   /// Null = it does not exist (the reader is a friend). Not a friend:
@@ -59,6 +76,14 @@ class SignedOutSharedProfileDataSource implements SharedProfileDataSource {
 
   @override
   Future<void> deleteOwn() async {}
+
+  @override
+  Future<void> toggle(SocialWrite Function(Map<String, dynamic>? current) plan) =>
+      Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<void> writeSections(SocialWrite write) =>
+      Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
 
   @override
   Future<Map<String, dynamic>?> readFriend(String friendUid) =>

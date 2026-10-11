@@ -129,6 +129,20 @@ class LocalStore {
   Future<void> clearSharedRulesReady(String project) =>
       _discoveryBox.delete('sharedRules:$project');
 
+  /// Sections of the shared profile ("O que seus amigos veem") the server
+  /// last confirmed for [uid] (docs/82 §7.1, RF-P10): shows the toggles at
+  /// once while the session read confirms them. Section names only, no
+  /// personal data. Null = never known.
+  Set<String>? sharedHint(String uid) {
+    final raw = _discoveryBox.get('sharedHint:$uid');
+    if (raw is! String) return null;
+    return raw.isEmpty ? <String>{} : raw.split(',').toSet();
+  }
+
+  Future<void> setSharedHint(String uid, Set<String>? sections) => sections == null
+      ? _discoveryBox.delete('sharedHint:$uid')
+      : _discoveryBox.put('sharedHint:$uid', (sections.toList()..sort()).join(','));
+
   /// Last answer the server gave about "friendships on?" for [uid] and when
   /// (docs/59): lets the Amigos icon appear without reading the server on
   /// every session. A boolean per uid, no personal data. Null = never known.

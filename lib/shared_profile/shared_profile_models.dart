@@ -490,3 +490,81 @@ bool _listEq<T>(List<T> a, List<T> b) {
 
 bool _dateEq(DateTime? a, DateTime? b) =>
     a == null ? b == null : b != null && a.millisecondsSinceEpoch == b.millisecondsSinceEpoch;
+
+int? _nonNegInt(Object? v) => v is int && v >= 0 ? v : null;
+
+/// Defensive readers of the stored sections (docs/82 §4.4, RF-F9): anything
+/// malformed is null (the section is treated as absent), never thrown.
+class SharedSectionParsers {
+  const SharedSectionParsers._();
+
+  static PeriodStats? period(Object? raw) {
+    if (raw is! Map) return null;
+    final key = raw['key'];
+    if (key is! String) return null;
+    final m = <int>[];
+    for (final name in PeriodStats.metricNames) {
+      final v = _nonNegInt(raw[name]);
+      if (v == null) return null;
+      m.add(v);
+    }
+    return PeriodStats(key: key).withMetrics(m);
+  }
+
+  static TotalStats? total(Object? raw) {
+    if (raw is! Map) return null;
+    final favorites = _nonNegInt(raw['favorites']);
+    final movies = _nonNegInt(raw['movies']);
+    final series = _nonNegInt(raw['series']);
+    if (favorites == null || movies == null || series == null) return null;
+    final m = <int>[];
+    for (final name in PeriodStats.metricNames) {
+      final v = _nonNegInt(raw[name]);
+      if (v == null) return null;
+      m.add(v);
+    }
+    return TotalStats(favorites: favorites, movies: movies, series: series).copyWith(metrics: m);
+  }
+
+  static SharedStats? stats(Object? raw) {
+    if (raw is! Map) return null;
+    final total = SharedSectionParsers.total(raw['total']);
+    final year = period(raw['year']);
+    final month = period(raw['month']);
+    if (total == null || year == null || month == null) return null;
+    final datedFrom = raw['datedFrom'];
+    final memberSince = raw['memberSince'];
+    return SharedStats(
+      total: total,
+      year: year,
+      month: month,
+      undatedMovies: _nonNegInt(raw['undatedMovies']) ?? 0,
+      undatedEpisodes: _nonNegInt(raw['undatedEpisodes']) ?? 0,
+      datedFrom: datedFrom is DateTime ? datedFrom.toUtc() : null,
+      memberSince: memberSince is DateTime ? memberSince.toUtc() : null,
+    );
+  }
+
+  static SharedRecs? recs(Object? raw) {
+    if (raw is! Map) return null;
+    final count = _nonNegInt(raw['count']);
+    final items = raw['items'];
+    if (count == null || items is! List) return null;
+    return SharedRecs(
+      count: count,
+      items: [
+        for (final i in items)
+          if (i is Map &&
+              i['id'] is int &&
+              i['title'] is String &&
+              (i['mediaType'] == 'movie' || i['mediaType'] == 'tv'))
+            RecItem(
+              id: i['id'] as int,
+              mediaType: i['mediaType'] as String,
+              title: i['title'] as String,
+              poster: i['poster'] is String ? i['poster'] as String : null,
+            ),
+      ],
+    );
+  }
+}

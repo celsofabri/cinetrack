@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cinetrack/data/shared_profile_data_source.dart';
+import 'package:cinetrack/data/social_payloads.dart';
 import 'package:cinetrack/social/social_models.dart';
 
 /// In-memory `shared_profiles` (docs/83 §4 "fakes novos"): one document per
@@ -12,7 +13,8 @@ class FakeSharedProfileCloud {
   final Map<String, Map<String, dynamic>> docs = {};
 
   /// Operations in order: `readOwn`, `probe`, `deleteSharedProfile`,
-  /// `readFriend:<uid>`.
+  /// `readFriend:<uid>`, `toggle` (a transaction that reached the server),
+  /// `writeShared` (a recalculation / pulse that reached the server).
   final List<String> log;
 
   /// Documents read (every `get`, as Firestore bills them).
@@ -34,6 +36,97 @@ class FakeSharedProfileCloud {
 
   /// Holds `deleteOwn` until completed (operations in flight).
   Completer<void>? deleteGate;
+
+  /// Server clock (`serverTimestamp`).
+  DateTime Function() clock = () => DateTime.now().toUtc();
+
+  /// Uids whose `social/{uid}` does not exist: consent changes are denied
+  /// (the rules need it to create or change `sharing`).
+  final Set<String> socialClosed = {};
+
+  /// A toggle failing with [SocialFailureKind.uncertain] still committed.
+  bool deliverUncertainToggles = false;
+
+  /// A recalculation failing with [SocialFailureKind.uncertain] still landed.
+  bool deliverUncertainWrites = false;
+
+  /// Holds toggles / recalculation writes until completed (in flight).
+  Completer<void>? toggleGate;
+  Completer<void>? writeGate;
+
+  /// Every write the fake ACCEPTED, in order (the payloads as sent).
+  final List<SocialWrite> toggles = [];
+  final List<SocialWrite> writes = [];
+
+  /// Recalculation attempts (accepted or not).
+  int writeAttempts = 0;
+
+  static const _denied = SocialFailure(SocialFailureKind.denied, code: 'permission-denied');
+  static const _notFound = SocialFailure(SocialFailureKind.unknown, code: 'not-found');
+
+  Object? _value(Object? v) => switch (v) {
+    ServerTimestamp() => clock(),
+    Map() => {for (final e in v.entries) '${e.key}': _value(e.value)},
+    List() => [for (final i in v) _value(i)],
+    _ => v,
+  };
+
+  /// Applies [write] to [uid]'s document like the server and the rules of
+  /// docs/84 would (subset: update of a missing document = not-found; a
+  /// section without its consent = denied; consent change without `social`
+  /// = denied). Throws without changing anything when refused.
+  void apply(String uid, SocialWrite write, {required bool consent}) {
+    if (oldRules) throw _denied;
+    for (final op in write.ops) {
+      final id = op.path.split('/').last;
+      switch (op.op) {
+        case 'delete':
+          docs.remove(id);
+        case 'set':
+          if (consent && socialClosed.contains(uid)) throw _denied;
+          final next = Map<String, dynamic>.from(_value(op.data) as Map);
+          _check(next);
+          docs[id] = next;
+        case 'update':
+          final current = docs[id];
+          if (current == null) throw _notFound;
+          final touchesConsent = op.data!.keys.any(
+            (k) => k.startsWith('sharing') || k == 'actSince',
+          );
+          if (touchesConsent && socialClosed.contains(uid)) throw _denied;
+          final next = _deepCopy(current);
+          for (final e in op.data!.entries) {
+            final parts = e.key.split('.');
+            Map<String, dynamic> target = next;
+            for (final p in parts.take(parts.length - 1)) {
+              target = (target[p] ??= <String, dynamic>{}) as Map<String, dynamic>;
+            }
+            if (e.value is DeleteField) {
+              target.remove(parts.last);
+            } else {
+              target[parts.last] = _value(e.value);
+            }
+          }
+          _check(next);
+          docs[id] = next;
+      }
+    }
+  }
+
+  static Map<String, dynamic> _deepCopy(Map<String, dynamic> m) => {
+    for (final e in m.entries)
+      e.key: e.value is Map<String, dynamic> ? _deepCopy(e.value as Map<String, dynamic>) : e.value,
+  };
+
+  /// "section present <=> consent present" (validShared).
+  void _check(Map<String, dynamic> d) {
+    final sharing = d['sharing'];
+    if (sharing is! Map || sharing.isEmpty) throw _denied;
+    for (final f in ['stats', 'activity', 'recs']) {
+      if (d.containsKey(f) != (sharing[f] == true)) throw _denied;
+    }
+    if (d.containsKey('actSince') != (sharing['activity'] == true)) throw _denied;
+  }
 
   void failNext(String op, SocialFailure failure) => (failures[op] ??= []).add(failure);
 
@@ -96,6 +189,42 @@ class InMemorySharedProfileDataSource implements SharedProfileDataSource {
     cloud.log.add('deleteSharedProfile');
     if (cloud.oldRules) return; // denied = nothing can exist (see the interface)
     cloud.docs.remove(uid);
+  }
+
+  @override
+  Future<void> toggle(SocialWrite Function(Map<String, dynamic>? current) plan) async {
+    final gate = cloud.toggleGate;
+    if (gate != null) await gate.future;
+    final failure = cloud._take('toggle');
+    if (failure != null && failure.kind != SocialFailureKind.uncertain) throw failure;
+    if (cloud.oldRules) throw _denied;
+    cloud.reads++;
+    final current = cloud.docs[uid];
+    final write = plan(current == null ? null : FakeSharedProfileCloud._deepCopy(current));
+    if (failure != null && !cloud.deliverUncertainToggles) throw failure;
+    cloud.apply(uid, write, consent: true);
+    cloud.toggles.add(write);
+    cloud.log.add('toggle');
+    if (failure != null) throw failure;
+  }
+
+  @override
+  Future<void> writeSections(SocialWrite write) async {
+    cloud.writeAttempts++;
+    final gate = cloud.writeGate;
+    if (gate != null) await gate.future;
+    final failure = cloud._take('write');
+    if (failure != null) {
+      if (failure.kind == SocialFailureKind.uncertain && cloud.deliverUncertainWrites) {
+        cloud.apply(uid, write, consent: false);
+        cloud.writes.add(write);
+        cloud.log.add('writeShared');
+      }
+      throw failure;
+    }
+    cloud.apply(uid, write, consent: false);
+    cloud.writes.add(write);
+    cloud.log.add('writeShared');
   }
 
   @override

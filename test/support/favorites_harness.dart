@@ -60,6 +60,15 @@ class FakeLocalStore extends LocalStore {
 
   final Set<String> sharedRules = {};
 
+  final Map<String, Set<String>> sharedHints = {};
+
+  @override
+  Set<String>? sharedHint(String uid) => sharedHints[uid];
+
+  @override
+  Future<void> setSharedHint(String uid, Set<String>? sections) async =>
+      sections == null ? sharedHints.remove(uid) : sharedHints[uid] = {...sections};
+
   @override
   bool sharedRulesReady(String project) => sharedRules.contains(project);
 
