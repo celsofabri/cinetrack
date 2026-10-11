@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +11,7 @@ import 'package:cinetrack/models/favorite_doc.dart';
 import 'package:cinetrack/models/media_type.dart';
 import 'package:cinetrack/providers/shared_profile_providers.dart';
 import 'package:cinetrack/providers/sharing_providers.dart';
+import 'package:cinetrack/providers/social_providers.dart';
 import 'package:cinetrack/providers/sync_providers.dart';
 import 'package:cinetrack/shared_profile/shared_profile_models.dart';
 import 'package:cinetrack/social/social_models.dart';
@@ -321,6 +324,26 @@ void main() {
         watch(rig, 2);
         async.elapse(const Duration(minutes: 1));
         expect(rig.shared.writeAttempts, 0);
+        c.dispose();
+      });
+    });
+
+    test('a friendships operation holds the write; when it ends, 1 write', () {
+      fakeAsync((async) {
+        final rig = sharingStats();
+        final c = start(async, rig);
+        rig.social.writeGate = Completer<void>();
+        unawaited(c.read(socialControllerProvider.notifier).revokeInvite());
+        async.flushMicrotasks();
+        expect(c.read(socialControllerProvider).busy, isTrue);
+        watch(rig, 1);
+        async.elapse(const Duration(seconds: 40));
+        expect(rig.shared.writeAttempts, 0);
+        rig.social.writeGate!.complete();
+        rig.social.writeGate = null;
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 6));
+        expect(rig.writes, 1);
         c.dispose();
       });
     });

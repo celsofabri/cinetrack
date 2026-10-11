@@ -271,6 +271,12 @@ M=[
  ('S21 "Compartilhar" enabled before the data is trustworthy','lib/widgets/sharing_section.dart',
   "onPressed: preview == null ? null : () => Navigator.of(dialogContext).pop(preview),","onPressed: () => Navigator.of(dialogContext).pop(preview),",
   ['test/sharing_section_test.dart']),
+ ('S22 engine does not wait for a friendships operation','lib/providers/sharing_providers.dart',
+  "    if (ref.read(socialControllerProvider).busy) return false;\n","",
+  ['test/shared_profile_sync_test.dart']),
+ ('S23 write held by a friendships operation never resumes','lib/providers/sharing_providers.dart',
+  "      if (!busy) _resume(generation);","      if (false) _resume(generation);",
+  ['test/shared_profile_sync_test.dart']),
 ]
 only=sys.argv[2:]
 bad=0

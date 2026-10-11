@@ -478,6 +478,10 @@ class SharedProfileSync extends Notifier<SharedSyncState> {
       }
     }, fireImmediately: true);
     ref.listen(syncStatusProvider, (_, _) => _resume(generation));
+    // A friendships operation held a pending write: go on when it ends.
+    ref.listen(socialControllerProvider.select((s) => s.busy), (_, busy) {
+      if (!busy) _resume(generation);
+    });
     ref.listen(profileProvider.select((p) => p.valueOrNull?.deleting ?? false), (_, deleting) {
       if (deleting) _discard();
     });
