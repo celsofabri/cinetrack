@@ -126,6 +126,9 @@ class LocalStore {
   Future<void> setSharedRulesReady(String project) =>
       _discoveryBox.put('sharedRules:$project', true);
 
+  Future<void> clearSharedRulesReady(String project) =>
+      _discoveryBox.delete('sharedRules:$project');
+
   /// Last answer the server gave about "friendships on?" for [uid] and when
   /// (docs/59): lets the Amigos icon appear without reading the server on
   /// every session. A boolean per uid, no personal data. Null = never known.

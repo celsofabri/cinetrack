@@ -49,7 +49,20 @@ final sharedRulesGateProvider = Provider<SharedRulesGate>((ref) {
     probe: source.probeRules,
     isStoredReady: () => store.sharedRulesReady(project),
     storeReady: () => store.setSharedRulesReady(project),
+    clearStored: () => store.clearSharedRulesReady(project),
   );
   gate.start();
   return gate;
+});
+
+/// Whether a marking may carry its date NOW (asked at every write).
+final favoritesDatesEnabledProvider = Provider<bool Function()>((ref) {
+  final gate = ref.watch(sharedRulesGateProvider);
+  return () => gate.open;
+});
+
+/// Called when the server refused a marking because of its date.
+final favoritesDatesRefusedProvider = Provider<void Function()>((ref) {
+  final gate = ref.watch(sharedRulesGateProvider);
+  return gate.invalidate;
 });

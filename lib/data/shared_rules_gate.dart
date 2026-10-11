@@ -15,12 +15,30 @@ class SharedRulesGate {
   final Future<RulesProbe> Function() _probe;
   final bool Function() _isStoredReady;
   final Future<void> Function() _storeReady;
+  final Future<void> Function()? _clearStored;
 
   bool _ready = false;
   Future<RulesProbe>? _running;
   RulesProbe? _last;
 
-  SharedRulesGate({required this._probe, required this._isStoredReady, required this._storeReady});
+  SharedRulesGate({
+    required this._probe,
+    required this._isStoredReady,
+    required this._storeReady,
+    this._clearStored,
+  });
+
+  bool _refused = false;
+
+  /// The server refused a marking because of its date (docs/85, rodada 2):
+  /// the rules do not accept `epsAt` after all. Closes the gate for this
+  /// session and forgets the device flag, so the next session probes again.
+  void invalidate() {
+    _refused = true;
+    _ready = false;
+    final clear = _clearStored;
+    if (clear != null) unawaited(clear().catchError((Object _) {}));
+  }
 
   /// A gate that never opens (signed out, no Firebase).
   factory SharedRulesGate.closed() => SharedRulesGate(
@@ -30,7 +48,7 @@ class SharedRulesGate {
   )..start();
 
   /// Marks may carry dates.
-  bool get open => _ready || _safeStored();
+  bool get open => !_refused && (_ready || _safeStored());
 
   /// Answer of this session's probe (null: not run / still running).
   RulesProbe? get lastProbe => _last;

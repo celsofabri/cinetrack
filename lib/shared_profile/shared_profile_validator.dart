@@ -56,7 +56,11 @@ class SharedProfileValidator {
     final limit = now.toUtc().add(kSharedDateMargin);
     bool late(DateTime? at) => at != null && at.toUtc().isAfter(limit);
     if (content.calc < 1 || content.calc > kMaxCalc) out.add('calc');
-    if (content.tz < kMinTzMinutes || content.tz > kMaxTzMinutes) out.add('tz');
+    // normalizeTz is the identity on every legal value; it also rules out -0
+    // (on the web a double, refused by the rule `tz is int`).
+    if (content.tz != normalizeTz(content.tz) || (content.tz == 0 && content.tz.isNegative)) {
+      out.add('tz');
+    }
 
     final stats = content.stats;
     if (stats != null) {

@@ -66,6 +66,9 @@ class FakeLocalStore extends LocalStore {
   @override
   Future<void> setSharedRulesReady(String project) async => sharedRules.add(project);
 
+  @override
+  Future<void> clearSharedRulesReady(String project) async => sharedRules.remove(project);
+
   final Map<int, List<SeasonCache>> _catalog = {};
   final _controller = StreamController<void>.broadcast();
 

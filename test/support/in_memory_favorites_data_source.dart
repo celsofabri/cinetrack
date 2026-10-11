@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cinetrack/account/account_deletion_failure.dart';
+import 'package:cinetrack/data/favorite_payloads.dart';
 import 'package:cinetrack/data/favorites_data_source.dart';
 import 'package:cinetrack/data/profile_data_source.dart';
 import 'package:cinetrack/data/sync_status.dart';
@@ -55,6 +56,15 @@ class FakeCloud {
   /// Clock of the mark dates (the device's `ServerClock`).
   DateTime Function() clock = DateTime.now;
 
+  /// The server rules do NOT accept `epsAt` (rules went back): a write that
+  /// carries dates is refused with `permission-denied`, like the real ones.
+  bool rejectDates = false;
+
+  /// Called when a marking was refused because of its dates (the gate's
+  /// `invalidate` in the app); counts the refusals.
+  void Function()? onDatesRefused;
+  int datesRefused = 0;
+
   /// Every `setEpisodes` payload, as the Firestore source would send it.
   final List<({String uid, String key, EpisodeDatesPlan dates, Map<String, bool> changes})>
       episodeWrites = [];
@@ -88,6 +98,11 @@ class FakeCloud {
   }
 
   Stream<void> get changes => _changes.stream;
+}
+
+/// `permission-denied` of the fake server.
+class FakeDenied implements Exception {
+  const FakeDenied();
 }
 
 class InMemoryFavoritesDataSource implements FavoritesDataSource {
@@ -163,16 +178,30 @@ class InMemoryFavoritesDataSource implements FavoritesDataSource {
             restore: restoreDates,
           )
         : EpisodeDatesPlan.none;
-    cloud.episodeWrites.add((uid: uid, key: key, dates: dates, changes: changes));
-    cloud.write(uid, (docs) {
-      final doc = docs[key];
-      if (doc == null) return;
-      docs[key] = doc.copyWith(
-        watchedEpisodes: FavoriteMapper.applyEpisodeChanges(doc.watchedEpisodes, changes),
-        lastWatchedAt: DateTime.now(),
-        watchedAt: dates.applyTo(doc.watchedAt),
-      );
-    });
+    // Same self-heal as FirestoreFavoritesDataSource (shared helper).
+    await FavoritePayloads.sendWithDatesFallback(
+      withDates: FavoritePayloads.setEpisodes(changes, dates: dates),
+      withoutDates: FavoritePayloads.setEpisodes(changes),
+      send: (data) async {
+        final sent = FavoritePayloads.carriesDates(data) ? dates : EpisodeDatesPlan.none;
+        if (cloud.rejectDates && !sent.isEmpty) throw const FakeDenied();
+        cloud.episodeWrites.add((uid: uid, key: key, dates: sent, changes: changes));
+        cloud.write(uid, (docs) {
+          final doc = docs[key];
+          if (doc == null) return;
+          docs[key] = doc.copyWith(
+            watchedEpisodes: FavoriteMapper.applyEpisodeChanges(doc.watchedEpisodes, changes),
+            lastWatchedAt: DateTime.now(),
+            watchedAt: sent.applyTo(doc.watchedAt),
+          );
+        });
+      },
+      isDenied: (e) => e is FakeDenied,
+      onDatesRefused: () {
+        cloud.datesRefused++;
+        cloud.onDatesRefused?.call();
+      },
+    );
   }
 
   @override

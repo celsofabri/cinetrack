@@ -1,4 +1,5 @@
 import '../data/social_payloads.dart';
+import 'period_key.dart';
 import 'shared_profile_models.dart';
 import 'shared_profile_validator.dart';
 
@@ -43,7 +44,7 @@ class SharedProfilePayloads {
             'v': kSharedSchemaVersion,
             'calc': content.calc,
             'updatedAt': serverTimestamp,
-            'tz': content.tz,
+            'tz': normalizeTz(content.tz),
             'sharing': {section.field: true},
             if (isActivity) 'actSince': serverTimestamp,
             section.field: value,
@@ -53,7 +54,7 @@ class SharedProfilePayloads {
             section.field: value,
             if (isActivity) 'actSince': serverTimestamp,
             'calc': content.calc,
-            'tz': content.tz,
+            'tz': normalizeTz(content.tz),
             'updatedAt': serverTimestamp,
           });
     return SocialWrite(SocialWriteMode.transaction, [op], reads: [path(uid)]);
@@ -93,7 +94,7 @@ class SharedProfilePayloads {
       SocialOp.update(path(uid), {
         for (final s in ordered) s.field: _section(content, s),
         'calc': content.calc,
-        'tz': content.tz,
+        'tz': normalizeTz(content.tz),
         'updatedAt': serverTimestamp,
       }),
     ]);

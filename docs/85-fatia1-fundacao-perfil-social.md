@@ -95,3 +95,43 @@ Não aplicáveis nesta fatia (o motor `SharedProfileSync`, os interruptores e o 
 
 ### Critério de aceite deste handoff
 - Code Review e QA aprovados; `flutter analyze` limpo, `flutter test`, `npm test` e as duas suítes de mutação verdes no ambiente do revisor. Depois, merge (sem publicar nada além do app e da política).
+
+## Rodada 2 (gates de bc4c85e: Code Review APROVADO com 5 🟢; QA REPROVADO com 5 🟡 de lacunas de teste)
+Todos os achados fechados nesta rodada, sem ressalvas. `firestore.rules` continua intacto (sha256 `6135322e…e612`); fixture do golden inalterada.
+
+| Achado | Correção |
+|---|---|
+| QA F1 fiação do portão sem teste (E1, E2 sobreviviam) | `favoritesDatesEnabledProvider` (e `favoritesDatesRefusedProvider`) extraídos; a fábrica real usa os dois. Testes com a **fábrica real** (o `FirestoreFavoritesDataSource` e o `FirestoreExportDataSource` passaram a buscar o `FirebaseFirestore` de forma preguiçosa, então constroem sem Firebase): regras antigas = sem datas, regras novas = datas depois da sonda; o provider do portão sonda sozinho (ninguém chama `start`) |
+| QA F2 `setEpisodeWatched` (favoritar e marcar) sem teste de data (E11) | teste: a marcação leva a data do relógio |
+| QA F3 guarda da amostra do relógio (E3) | teste: foto assentada nunca vista pendente não é amostra (offset 0) |
+| QA F4 teste local × instante vazio (E10) | teste das 48 h em volta de 31/10 + teste independente do fuso da máquina (`DateTime` não UTC montado a partir do instante, inclusive pelo builder) |
+| QA F5 §5.3.3 favoritar + episódio em ≤ 10 min (E7) | teste: só "assistiu episódios" |
+| QA 🟢 G1 limite superior dos 10 min | 10 min = mesmo gesto; 11 min = dois itens |
+| QA 🟢 G2 fronteira exata de 5000 | 4999 datas + 1 nova = a nova recebe data |
+| QA 🟢 G3 segunda amostra substitui a primeira | teste (E12) |
+| QA 🟢 G4 exportação | `FirestoreExportDataSource.readSharedProfile`: negado = `null`, offline = `unreachable`, documento = bruto; exportação abandonada durante a leitura do compartilhado não entrega nada (E5, E8) |
+| QA 🟢 G6 fábrica usa o `ServerClock` da sessão | teste de identidade (E9) |
+| CR 🟢1 autocorreção do portão | `FavoritePayloads.sendWithDatesFallback`: se o servidor recusar (`permission-denied`) uma marcação **que levava datas**, o portão fecha (`SharedRulesGate.invalidate`: fecha na sessão e apaga a marca do Hive, a próxima sessão sonda de novo) e a **mesma** marcação é reenviada **sem** datas. Outros erros seguem para o banner como antes. O fake de favoritos usa o mesmo helper (modo `rejectDates`); testes do helper, do fake e da fiação; mutações E13–E15 |
+| CR 🟢3 tz −0 | `SharedProfilePayloads` aplica `normalizeTz` em todo `tz`; o validador recusa `tz` que não é o próprio `normalizeTz` (inclui −0 e fora de −840..840); teste e mutação E16 |
+| CR 🟢4 `timestampFields` | documentado abaixo |
+| Política | as duas linhas sobre datas viraram uma só em `web/privacidade.html`; `PrivacySummary` sem mudança (teste literal segue igual) |
+
+**`timestampFields` da exportação**: lista só os campos de **primeiro nível** que eram timestamp (`updatedAt`, `actSince`). Datas aninhadas (`stats.datedFrom`, `stats.memberSince`, `activity[].at`, `epsAt.*` nos favoritos) saem como texto ISO 8601 UTC dentro de `data`, sem marcação; quem restaurar precisa conhecer o schema (mesma convenção dos favoritos desde o schema 1).
+
+**Risco da autocorreção** (só acontece se as regras regredirem, o que o processo proíbe): o reenvio sem datas sai quando a recusa chega. Se, nesse meio-tempo, a pessoa desmarcou o mesmo episódio, o reenvio pode marcá-lo de novo. Preferimos isso a perder a marcação; a janela é a de uma ida e volta ao servidor.
+
+**Decisões do Orquestrador nas perguntas abertas**
+1. Fatia 2: **sim**, reaproveitar a leitura de sessão do próprio documento como sonda quando vier do servidor (`isFromCache == false`): existe/não existe = `ready`, `permission-denied` = `oldRules`, alimentando a **mesma** instância de `SharedRulesGate`. A sonda dedicada continua para quem não tem amizades ativas.
+2. Não é preciso citar `lastWatchedAt` à parte na política.
+
+**Checklist de release (Fase 2)**
+- Isenção de índice `favorites.epsAt`: **já publicada** (2026-10-10).
+- Smoke em produção: marcar em massa uma série longa (**≥ 1000 episódios**) e conferir que a marcação e as datas gravam (limites de requisição não verificados no emulador).
+
+### Números da rodada 2
+| Comando | Resultado |
+|---|---|
+| `flutter analyze` | No issues found |
+| `flutter test` (2 rodadas) | **1654/1654** nas duas (+19) |
+| `npm test` | **518 pass, 0 fail, 0 todo** (regras e testes de regra inalterados; `test:mutations` não foi rodado de novo por isso) |
+| `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp) | lista completa: 55 de 56 mortas; a sobrevivente `E14` (`invalidate` sem `_refused`) passava porque o fake limpa a marca do Hive na hora. Teste novo ("invalidate closes the gate at once, even if forgetting the device flag fails") e reexecução de `E13 E14 E15`: todas **KILLED**. Total: **56/56** (16 da Fase 1 + 23 `G` + 17 `E`) |

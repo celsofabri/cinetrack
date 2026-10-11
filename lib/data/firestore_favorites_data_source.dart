@@ -23,7 +23,8 @@ import 'sync_status.dart';
 /// UNVERIFIED against a real project/emulator (no credentials yet): the
 /// offline behaviors below follow the SDK documentation.
 class FirestoreFavoritesDataSource implements FavoritesDataSource {
-  final FirebaseFirestore _db;
+  final FirebaseFirestore? _firestore;
+  FirebaseFirestore get _db => _firestore ?? FirebaseFirestore.instance;
   final String uid;
   final SyncFailureSink _sink;
   final ServerClock clock;
@@ -34,17 +35,23 @@ class FirestoreFavoritesDataSource implements FavoritesDataSource {
   /// WHOLE update (the mark itself would be lost).
   final bool Function() datesEnabled;
 
+  /// The server refused a marking because of its dates: close the gate (see
+  /// [FavoritePayloads.sendWithDatesFallback]).
+  final void Function() onDatesRefused;
+
   FirestoreFavoritesDataSource({
     required this.uid,
     required this._sink,
-    FirebaseFirestore? firestore,
+    this._firestore,
     ServerClock? clock,
     bool Function()? datesEnabled,
-  })  : _db = firestore ?? FirebaseFirestore.instance,
-        clock = clock ?? ServerClock(),
-        datesEnabled = datesEnabled ?? _off;
+    void Function()? onDatesRefused,
+  })  : clock = clock ?? ServerClock(),
+        datesEnabled = datesEnabled ?? _off,
+        onDatesRefused = onDatesRefused ?? _noop;
 
   static bool _off() => false;
+  static void _noop() {}
 
   CollectionReference<Map<String, dynamic>> get _col =>
       _db.collection('users').doc(uid).collection('favorites');
@@ -142,8 +149,17 @@ class FirestoreFavoritesDataSource implements FavoritesDataSource {
       datesEnabled: datesEnabled(),
       instant: clock.now(),
     );
+    final plain = FavoritePayloads.setEpisodes(changes);
     _activity.stamp(key);
-    return _fire(() => _col.doc(key).update(resolve(data)));
+    return _fire(
+      () => FavoritePayloads.sendWithDatesFallback(
+        withDates: data,
+        withoutDates: plain,
+        send: (d) => _col.doc(key).update(resolve(d)),
+        isDenied: (e) => e is FirebaseException && e.code == 'permission-denied',
+        onDatesRefused: onDatesRefused,
+      ),
+    );
   }
 
   /// The exact `update` payload of [setEpisodes] (sentinels unresolved).

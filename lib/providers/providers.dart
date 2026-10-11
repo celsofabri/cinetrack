@@ -82,12 +82,14 @@ typedef FavoritesDataSourceFactory = FavoritesDataSource Function(String uid);
 final favoritesDataSourceFactoryProvider = Provider<FavoritesDataSourceFactory>((ref) {
   final sink = ref.watch(syncFailureSinkProvider);
   final clock = ref.watch(serverClockProvider);
-  final gate = ref.watch(sharedRulesGateProvider);
+  final datesEnabled = ref.watch(favoritesDatesEnabledProvider);
+  final datesRefused = ref.watch(favoritesDatesRefusedProvider);
   return (uid) => FirestoreFavoritesDataSource(
         uid: uid,
         sink: sink,
         clock: clock,
-        datesEnabled: () => gate.open,
+        datesEnabled: datesEnabled,
+        onDatesRefused: datesRefused,
       );
 });
 

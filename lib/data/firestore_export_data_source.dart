@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../social/social_models.dart';
 import 'export_data_source.dart';
 import 'firestore_shared_profile_data_source.dart';
+import 'shared_profile_data_source.dart';
 import 'firestore_social_data_source.dart';
 import 'social_payloads.dart';
 
@@ -16,15 +17,20 @@ import 'social_payloads.dart';
 /// environment): behavior of `Source.server`/`Source.cache` follows the SDK
 /// documentation.
 class FirestoreExportDataSource implements ExportDataSource {
-  final FirebaseFirestore _db;
+  final FirebaseFirestore? _firestore;
+  FirebaseFirestore get _db => _firestore ?? FirebaseFirestore.instance;
   final String uid;
   final Duration timeout;
+
+  /// Test seam: the shared-profile source used by [readSharedProfile].
+  final SharedProfileDataSource Function()? _sharedSource;
 
   FirestoreExportDataSource({
     required this.uid,
     this.timeout = const Duration(seconds: 30),
-    FirebaseFirestore? firestore,
-  }) : _db = firestore ?? FirebaseFirestore.instance;
+    this._firestore,
+    @visibleForTesting this._sharedSource,
+  });
 
   DocumentReference<Map<String, dynamic>> get _profile => _db.collection('users').doc(uid);
   CollectionReference<Map<String, dynamic>> get _favorites => _profile.collection('favorites');
@@ -89,11 +95,9 @@ class FirestoreExportDataSource implements ExportDataSource {
   Future<RawDoc?> readSharedProfile({required bool fromServer}) async {
     final Map<String, dynamic>? data;
     try {
-      data = await FirestoreSharedProfileDataSource(
-        uid: uid,
-        timeout: timeout,
-        firestore: _db,
-      ).readOwn(fromServer: fromServer);
+      final source = _sharedSource?.call() ??
+          FirestoreSharedProfileDataSource(uid: uid, timeout: timeout, firestore: _db);
+      data = await source.readOwn(fromServer: fromServer);
     } on SocialFailure catch (e) {
       // Rules not published yet (denied): no shared profile can exist.
       if (e.kind == SocialFailureKind.denied) return null;
