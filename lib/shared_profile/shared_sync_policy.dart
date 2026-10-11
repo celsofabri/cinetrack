@@ -32,7 +32,11 @@ class SharedSyncPolicy {
   /// ("só grava se mudou"), keeps the server's time figures when this device
   /// would make them less complete ("não regredir") and asks for a pulse
   /// when nothing changed for [kSharedPulseAge].
-  static SharedSyncDecision decide(SharedProfileDoc server, SharedProfileContent next, DateTime now) {
+  static SharedSyncDecision decide(
+    SharedProfileDoc server,
+    SharedProfileContent next,
+    DateTime now,
+  ) {
     final current = server.content;
     final changed = <SharedSection>{
       for (final s in server.sharing)
@@ -52,12 +56,11 @@ class SharedSyncPolicy {
     return SharedSyncDecision(changed: changed, pulse: pulse);
   }
 
-  static bool _same(SharedSection s, SharedProfileContent a, SharedProfileContent b) =>
-      switch (s) {
-        SharedSection.stats => a.stats == b.stats,
-        SharedSection.activity => _listEq(a.activity, b.activity),
-        SharedSection.recs => a.recs == b.recs,
-      };
+  static bool _same(SharedSection s, SharedProfileContent a, SharedProfileContent b) => switch (s) {
+    SharedSection.stats => a.stats == b.stats,
+    SharedSection.activity => _listEq(a.activity, b.activity),
+    SharedSection.recs => a.recs == b.recs,
+  };
 
   static bool _listEq(List<ActivityItem>? a, List<ActivityItem>? b) {
     if (a == null || b == null) return a == b;

@@ -227,11 +227,11 @@ class SharingController extends Notifier<SharingState> {
 
   /// Why a toggle cannot start now (null = it can). Shown as a notice.
   String? blockReason() {
-    if (state.busy != null) return const SharedProfileFailure(SharedProfileFailureKind.busy).message;
-    if (state.phase == SharingPhase.unavailable) return SharedProfileFailure.unavailableMessage;
-    if (state.uncertain.isNotEmpty) {
+    // One toggle at a time; an uncertain one is still "in progress" (RF-P8).
+    if (state.busy != null || state.uncertain.isNotEmpty) {
       return const SharedProfileFailure(SharedProfileFailureKind.busy).message;
     }
+    if (state.phase == SharingPhase.unavailable) return SharedProfileFailure.unavailableMessage;
     if (!state.confirmed || ref.read(syncStatusProvider).offline) {
       return SharedProfileFailure.offlineMessage;
     }

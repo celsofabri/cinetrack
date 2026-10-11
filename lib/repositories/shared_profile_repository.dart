@@ -98,22 +98,21 @@ class SharedProfileRepository {
 
   /// Turns [section] on with the consent given in the dialog; [content] is
   /// the section calculated for the preview. "Atividades" starts empty.
-  Future<void> turnOn(SharedSection section, SharedProfileContent content, DateTime now) =>
-      _guard(
-        () => source.toggle((current) {
-          final doc = SharedProfileDoc.parse(current);
-          if (doc != null && doc.sharing.contains(section)) {
-            return const SocialWrite(SocialWriteMode.transaction, []);
-          }
-          return SharedProfilePayloads.turnOn(
-            uid,
-            section: section,
-            content: content,
-            current: doc?.sharing,
-            now: now,
-          );
-        }),
+  Future<void> turnOn(SharedSection section, SharedProfileContent content, DateTime now) => _guard(
+    () => source.toggle((current) {
+      final doc = SharedProfileDoc.parse(current);
+      if (doc != null && doc.sharing.contains(section)) {
+        return const SocialWrite(SocialWriteMode.transaction, []);
+      }
+      return SharedProfilePayloads.turnOn(
+        uid,
+        section: section,
+        content: content,
+        current: doc?.sharing,
+        now: now,
       );
+    }),
+  );
 
   /// Turns [section] off: consent and section are deleted together; the
   /// last section deletes the document. Already off = nothing written.

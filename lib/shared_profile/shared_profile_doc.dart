@@ -88,13 +88,16 @@ class SharedProfileDoc {
 
   /// The same document after a recalculation of [changed] with [content]
   /// was written at [at] (the owner's local view of their write).
-  SharedProfileDoc afterRecalc(SharedProfileContent content, Set<SharedSection> changed, DateTime at) =>
-      copyWith(
-        updatedAt: at,
-        tz: content.tz,
-        calc: content.calc,
-        stats: changed.contains(SharedSection.stats) ? content.stats : null,
-        activity: changed.contains(SharedSection.activity) ? content.activity : null,
-        recs: changed.contains(SharedSection.recs) ? content.recs : null,
-      );
+  SharedProfileDoc afterRecalc(
+    SharedProfileContent content,
+    Set<SharedSection> changed,
+    DateTime at,
+  ) => copyWith(
+    updatedAt: at,
+    tz: content.tz,
+    calc: content.calc,
+    stats: changed.contains(SharedSection.stats) ? content.stats : null,
+    activity: changed.contains(SharedSection.activity) ? content.activity : null,
+    recs: changed.contains(SharedSection.recs) ? content.recs : null,
+  );
 }

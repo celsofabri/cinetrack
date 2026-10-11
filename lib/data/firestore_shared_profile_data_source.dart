@@ -187,7 +187,9 @@ class FirestoreSharedProfileDataSource implements SharedProfileDataSource {
       // Not timed out: the write may wait in the SDK queue (it is only sent
       // online and is idempotent); its outcome is reported when it comes.
       final custom = updater;
-      await (custom != null ? custom(op.path, op.data!) : _db.doc(op.path).update(_resolved(op.data!)));
+      await (custom != null
+          ? custom(op.path, op.data!)
+          : _db.doc(op.path).update(_resolved(op.data!)));
     } on FirebaseException catch (e) {
       debugPrint('Shared profile write failed: ${e.code}'); // code only, never data
       throw SocialFailure.fromFirestoreCode(e.code);

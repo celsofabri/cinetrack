@@ -36,6 +36,15 @@ class PrivacyPolicyLink extends ConsumerWidget {
   }
 }
 
+/// What friends see and how the owner chooses it (docs/82 §8, Fatia 2).
+const kPrivacySharingSentence =
+    'Por padrão, quem vira seu amigo vê só o seu cartão (apelido e foto). Em "O que seus '
+    'amigos veem", no perfil, você escolhe, por seção, mostrar também a amigos mútuos suas '
+    'estatísticas (números totais, deste mês e deste ano, tempo assistido e desde quando está '
+    'no CineTrack) e suas atividades recentes (títulos que favoritou, assistiu ou concluiu, só a '
+    'partir de quando ligar); para isso guardamos uma cópia só do que você ligou, e desligar '
+    'apaga na hora.';
+
 /// Short, plain-language summary of what is stored (full text in the page).
 class PrivacySummary extends StatelessWidget {
   const PrivacySummary({super.key});
@@ -59,8 +68,8 @@ class PrivacySummary extends StatelessWidget {
           'apelido e seu identificador para o cartão que outras pessoas veem. Se você pedir '
           'amizade a alguém, o pedido guarda seu @identificador, apelido e foto e os da pessoa '
           'até ela responder ou você cancelar (ela vê seu @identificador mesmo se você estiver '
-          'fora da busca); ninguém é avisado de uma recusa. Quem vira seu amigo '
-          'vê só o seu cartão (apelido e foto), e remover um amigo não o avisa. Se você bloquear '
+          'fora da busca); ninguém é avisado de uma recusa. $kPrivacySharingSentence '
+          'Remover um amigo não o avisa. Se você bloquear '
           'alguém, guardamos o apelido e a foto dessa pessoa só para a sua lista de bloqueados '
           '(só você a vê) e ela não é avisada. Se você criar um convite por link, quem tiver o '
           'link vê seu apelido e foto e pode pedir amizade (você aceita ou não), mesmo sem '

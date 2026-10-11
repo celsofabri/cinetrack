@@ -566,7 +566,7 @@ class _FriendsSection extends ConsumerWidget {
             constraints: const BoxConstraints(minHeight: 120),
             child: const Text(
               'Você ainda não tem amigos. Use "Adicionar amigo" para pedir amizade a alguém. '
-              'Quem é seu amigo vê só o seu cartão (apelido e foto).',
+              'Por padrão, quem é seu amigo vê só o seu cartão (apelido e foto).',
             ),
           )
         else

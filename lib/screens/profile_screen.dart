@@ -11,6 +11,7 @@ import '../widgets/delete_account_dialog.dart';
 import '../widgets/export_data_section.dart';
 import '../widgets/nickname_dialog.dart';
 import '../widgets/privacy_summary.dart';
+import '../widgets/sharing_section.dart';
 import '../widgets/social_section.dart';
 import '../widgets/tmdb_attribution.dart';
 import '../widgets/profile_stats_card.dart';
@@ -76,6 +77,8 @@ class ProfileScreen extends ConsumerWidget {
                 const SizedBox(height: 24),
                 const SocialSection(),
                 const SizedBox(height: 24),
+                // Only with active friendships (RF-P1); brings its own spacing.
+                const SharingSection(),
                 const PrivacySummary(),
                 const SizedBox(height: 24),
                 const TmdbAttribution(),
