@@ -47,13 +47,19 @@ Prioridade: P1 (o primeiro dado compartilhado com amigos; a Fatia 3 lê o que es
 | Comando | Resultado |
 |---|---|
 | `flutter analyze` | **No issues found** |
-| `flutter test` (2 rodadas, fuso da máquina) | **1773/1773** nas duas (antes: 1657; +116) |
-| `TZ=UTC flutter test` | **1773/1773** |
+| `flutter test` (2 rodadas, fuso da máquina) | **1775/1775** nas duas (antes: 1657; +118) |
+| `TZ=UTC flutter test` | **1775/1775** |
 | `flutter build web --base-href /cinetrack/` | ✓ Built build/web |
 | `npm test` (regras) | **não rodado**: `firestore.rules`, fixtures e payloads (golden) inalterados (última rodada: 518/0/0, docs/85) |
-| `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp) | NUM_MUT |
+| `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp do commit f7e1835) | **87/87 KILLED** (64 anteriores: 16 Fase 1 + 23 `G` + 17 `E` + 8 `X`; 23 novas `S1–S23`), "All Dart mutations were killed." |
 
 Mutações Dart novas (docs/83 §4 desta fatia), `S1–S23`: coalescência desligada; snapshot no mesmo turno/escrita do favorito; grava com `fromCache`; atividade publicada com interruptor desligado; desligar só esconde; "só grava se mudou" removido; incerta tratada como falha; "não regredir" removido; pulso nunca enviado; virada de mês não acorda o motor; sem o máximo de 30 s; `unavailable` antes de enviar lido como incerto; timeout lido como offline; sonda dedicada mesmo com amizades (Q1); leitura de sessão não alimenta o portão; motor ignora `deleting`; pré-checagem offline do interruptor removida; dois interruptores ao mesmo tempo; sem reconciliação ao reconectar; pista local ignorada; "Compartilhar" habilitado antes dos dados confiáveis; motor não espera operação de amizades; escrita retida nunca retomada.
+Primeira rodada completa: 84 de 87 mortas; 3 sobreviventes corrigidas antes da entrega (reexecutadas isoladas e depois na rodada completa final):
+- `S4` era **equivalente** como escrita (o motor só comparava as seções do servidor, então montar atividades a mais não chegava ao payload). O motor passou a ter **um único ponto de consentimento** (`final sections = doc.sharing`, usado para montar **e** para comparar, `SharedSyncPolicy.decide(..., sections:)`); a mutação agora muda esse ponto e morre (a regra nega a seção sem consentimento; o teste exige a escrita de estatísticas).
+- `S10`: o teste de virada de mês também passava por outro gatilho (fim do catálogo no início da sessão). Reescrito: assenta a sessão em outubro (0 escritas) e só então vira o relógio, sem outro gatilho.
+- `S14`: o teste criava o portão depois da leitura de sessão. Testes novos criam o portão no início da sessão (como a fábrica de favoritos faz): com amizades = só `readOwn`; sem amizades = só `probe`.
+- `E2` (Fatia 1, "portão nunca sonda") foi reapontada para o novo ponto onde a sonda dedicada é chamada (mesma intenção).
+
 Não aplicáveis aqui: "cache servido após `permission-denied`/offline" (perfil de amigo, Fatia 3); "Recomendações sem opt-in" já existe (Fatia 1, G).
 
 ### Decisões tomadas (e por quem)
@@ -64,7 +70,8 @@ Não aplicáveis aqui: "cache servido após `permission-denied`/offline" (perfil
   4. O motor pausa enquanto uma operação de amizades roda (a desativação apaga o documento) e retoma quando ela termina.
   5. Prévia "Como seus amigos veem" só existe com Estatísticas ligado (com só Atividades, a lista de atividades abaixo já é o que os amigos veem); recolhida por padrão.
   6. Os recortes Este mês/Este ano mostram também "Séries assistidas" (está no documento, RF-S1).
-  7. `sharedRulesGateProvider`: não sonda mais por conta própria; decide pela fase das amizades (ver acima). Testes da Fatia 1 que dependiam da sonda automática continuam passando (conta sem amizades = sonda dedicada).
+  7. O motor monta e compara só as seções com consentimento no servidor, a partir de um único conjunto (ver mutação `S4`).
+  8. `sharedRulesGateProvider`: não sonda mais por conta própria; decide pela fase das amizades (ver acima). Testes da Fatia 1 que dependiam da sonda automática continuam passando (conta sem amizades = sonda dedicada).
 
 ### Desvios do docs/82 (com justificativa)
 - §11 "Ligar seção = 1 leitura": aqui são 2 (transação + releitura), decisão 2.
