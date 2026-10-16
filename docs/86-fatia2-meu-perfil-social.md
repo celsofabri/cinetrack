@@ -97,3 +97,42 @@ Não aplicáveis aqui: "cache servido após `permission-denied`/offline" (perfil
 
 ### Critério de aceite deste handoff
 - Code Review e QA aprovados; `flutter analyze` limpo; `flutter test` e a suíte Dart de mutações verdes no ambiente do revisor. Depois, merge e publicação do app **junto com a política**.
+
+## Rodada 2 (gates de b343008: Code Review MUDANÇAS SOLICITADAS, 0 🔴 / 3 🟡; QA REPROVADO, 0 🔴 / 11 🟡)
+Todos os achados fechados nesta rodada, sem ressalvas. `firestore.rules` continua intacto (sha256 `6135322e…`); payloads e golden inalterados.
+
+| Achado | Correção |
+|---|---|
+| A (CR 🟡2 = QA 🟡1) toggle incerto que confirma **depois** da releitura imediata | O timeout local não cancela o `runTransaction`. A fonte agora lança `SharedToggleUncertain(settled)`, onde `settled` é o fim da **transação original** (confirmada ou não; já completo quando o erro veio depois do envio). O controller mantém a seção "Ainda não confirmado…" e **nenhuma leitura resolve a incerteza** enquanto `settled` não termina; quando termina, 1 leitura (só nesse caso raro) mostra o estado real. Limite de 60 s (`kSharingSettleCap`) para uma transação que nunca termina. Fake com modo "commit atrasado" (`lateUncertainToggles`, `commitLate`, `abortLate`). Testes: QA-1 (sem skip), ligar e desligar com commit atrasado, transação que termina sem gravar, limite de 60 s |
+| B (QA 🟡2) RF-P10 dois aparelhos | Decisão do Orquestrador: **toda reconexão real relê** o próprio documento (1 leitura por reconexão). A troca cache → servidor no início da sessão (o servidor nunca tinha respondido) **não** é reconexão: a leitura de sessão já cobre. Teste QA-2 (sem skip), "2 reconexões = 2 leituras", "início de sessão = 1 leitura" |
+| C (CR 🟡1) leitura dupla de sessão | Uma única leitura em andamento (`_loading`): pedidos durante ela se juntam a ela. Depois de uma escrita (ligar, fim da transação incerta, recusa do motor) usa-se `_reload` (espera a leitura em andamento, que pode ser anterior à escrita, e lê de novo). Teste do CR (cache e depois servidor durante a leitura) = 1 leitura |
+| D (CR 🟡3) política contradizia o compartilhamento | `web/privacidade.html`: "Ninguém vê … seu progresso por título nem seu e-mail … (fora o que você ligar em "O que seus amigos veem", abaixo: seus números e, nas atividades recentes, os títulos que você favoritou, assistiu ou concluiu)". `PrivacySummary`: "Suas listas e recomendações são privadas: só você as vê, por enquanto (fora o que você escolher mostrar a amigos, abaixo)." |
+| E consentimento de Atividades (decisão do Orquestrador, D1 "guarda 10, mostra 3") | Texto novo do diálogo, também na tabela de textos literais do docs/81 (com nota de revisão de 2026-10-15): "Seus amigos mútuos vão ver até 10 das suas atividades mais recentes (seu perfil mostra as 3 últimas): títulos que você favoritou, filmes e episódios que marcou como assistidos e séries que concluiu. Só entra o que você fizer a partir de agora. Recomendações nunca aparecem como atividade. Você pode desligar quando quiser: desligar apaga na hora." QA-13 compara com o **próprio docs/81** (lê a tabela), para Atividades e Estatísticas |
+| QA-3…QA-14 | Incorporados como estão em `test/fatia2_qa_round2_test.dart` e `test/fatia2_qa_round2_widget_test.dart` (QA-13 reescrito para ler o docs/81) |
+| 🟢 cota | teste de 10 gatilhos com cota agora exige **exatamente** 10 tentativas |
+| 🟢 a11y | rótulo do interruptor de Atividades testado ("Compartilhar atividades recentes com amigos", desligado) |
+| 🟢 nada compartilhado | "amizades ativas, nada ligado, marcar + 1 min = 0 tentativas de escrita" |
+| 🟢 320 px 3× | o teste rola o diálogo até "Compartilhar", toca e confirma a transação |
+| 🟢 portão | dica local "inativo" fresca (amizades nunca carregadas) = sonda dedicada; dica "ativo" velha = leitura de sessão; conta não Google = sonda dedicada (testes do CR) + mutação R7 |
+| 🟢 motor na raiz do app | `CineTrackApp` lê `sharedProfileSyncProvider` (o `AppShell` continua lendo, sem efeito): marcar a partir de um link direto `/tv/:id` publica na mesma sessão. Efeito colateral aceito: o sync de catálogo (dependência do motor) também começa num link direto, como já acontecia ao abrir qualquer tela do shell |
+| 🟢 incerto preso com conexão | se a leitura de reconciliação falha sem que venha um evento de reconexão, **1** nova leitura depois de 30 s (`kSharingUncertainRetry`), uma vez por incerteza |
+| 🟢 prévia de Estatísticas | o diálogo usa o mesmo `SharedStatsView` da prévia do perfil: total, este mês, este ano (fuso do dono), tempo assistido e "No CineTrack desde", tudo o que o texto do consentimento promete |
+| Q7/Q8/Q16/Q17 (guardas quase equivalentes) | **Simplificado**: as três "descartas" (`deleting` / exclusão rodando / nada compartilhado) foram removidas; o único guarda é `_ready()`, que segura **toda** escrita enquanto `deleting == true`, a exclusão roda ou nada está compartilhado (0 escritas depois de `markDeleting`, como antes). Ganho: uma exclusão **abandonada** (reautenticação cancelada, offline) não perde mais a mudança pendente; ela sai quando a exclusão termina sem efeito (`_resume`). Testes: exclusão rodando (antes do `markDeleting`) segura a escrita e, abandonada, ela sai (mata Q7 e R8); desativação com recálculo retido = 0 tentativas (teste do CR); o que o motor gravou relê "igual" na sessão seguinte (teste do CR) |
+
+**Cota (atualiza docs/82 §11 para esta fatia)**: amizades ativas = 1 leitura por sessão **+ 1 por reconexão real** (decisão B); toggle incerto = +1 leitura quando a transação original termina (raro); falha de leitura durante um incerto = no máximo +1 leitura (30 s). Ligar continua 2 leituras (transação + releitura).
+
+**Mutações novas** (`tool/dart_mutations.py`): Q1–Q7, Q9–Q15, Q18 (as do QA, com os textos ajustados ao código final: a prévia agora está em `shared_profile_widgets.dart`) e R1–R8 (A: incerteza resolvida por leitura anterior ao fim da transação; fim da transação não aguardado; B: reconexão só relê se não confirmado; início de sessão contado como reconexão; C: segunda leitura em paralelo; sem nova tentativa em 30 s; dica "inativo" sem sonda; motor não retoma depois de exclusão abandonada). S13 e S19 reapontadas para o código novo (mesma intenção).
+
+**Checklist de release (Fase 2, Fatia 2)**
+- Publicar `web/privacidade.html` **junto** com o app desta fatia; a data "Última atualização" deve ser a do commit de release (hoje 11/10/2026, ajustar se o release for em outro dia).
+- Rollback: o app anterior **não sabe desligar** o compartilhamento (o documento fica e continua legível pelos amigos na Fatia 3). Remédio: voltar para esta versão e desligar, desativar as amizades ou excluir a conta. Não fazer rollback de app depois de usuários ligarem seções sem avisar o Manager.
+
+### Números da rodada 2
+| Comando | Resultado |
+|---|---|
+| `flutter analyze` | No issues found |
+| `flutter test` (2 rodadas) | **1802/1802** nas duas (+27) |
+| `TZ=UTC flutter test` | **1802/1802** |
+| `flutter build web --base-href /cinetrack/` | ✓ Built build/web |
+| `npm test` | não rodado: regras, fixtures e payloads inalterados |
+| `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp) | MUT_R2 |
