@@ -135,4 +135,4 @@ Todos os achados fechados nesta rodada, sem ressalvas. `firestore.rules` continu
 | `TZ=UTC flutter test` | **1802/1802** |
 | `flutter build web --base-href /cinetrack/` | ✓ Built build/web |
 | `npm test` | não rodado: regras, fixtures e payloads inalterados |
-| `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp) | MUT_R2 |
+| `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp) | **110/110 KILLED** (87 da rodada 1 + 23 novas: Q1–Q7, Q9–Q15, Q18, R1–R8), "All Dart mutations were killed." |
