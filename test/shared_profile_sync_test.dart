@@ -237,8 +237,7 @@ void main() {
           async.elapse(const Duration(seconds: 6));
         }
         async.elapse(const Duration(minutes: 5));
-        expect(rig.shared.writeAttempts, lessThanOrEqualTo(10));
-        expect(rig.shared.writeAttempts, greaterThan(0));
+        expect(rig.shared.writeAttempts, equals(10), reason: 'exactly one per trigger');
         expect(rig.writes, 0);
         c.dispose();
       });

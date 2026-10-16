@@ -120,6 +120,16 @@ void main() {
         hasTapAction: true,
       ),
     );
+    expect(
+      tester.getSemantics(_switch('Atividades recentes')),
+      isSemantics(
+        label: 'Compartilhar atividades recentes com amigos',
+        hasToggledState: true,
+        isToggled: false,
+        isEnabled: true,
+        hasTapAction: true,
+      ),
+    );
     handle.dispose();
   });
 
@@ -352,6 +362,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     expect(find.byType(AlertDialog), findsOneWidget);
+    // "Compartilhar" is reachable by scrolling the dialog, and works.
+    await tester.scrollUntilVisible(
+      find.text('Compartilhar'),
+      200,
+      scrollable: find
+          .descendant(of: find.byType(AlertDialog), matching: find.byType(Scrollable))
+          .first,
+    );
+    await tester.tap(find.text('Compartilhar'));
+    await tester.pumpAndSettle();
+    expect(rig.shared.toggles, hasLength(1));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('PrivacySummary tells what friends see and that turning off deletes', (tester) async {
