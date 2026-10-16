@@ -16,12 +16,16 @@ class SharedStatsView extends StatelessWidget {
   final DateTime now;
   final DateTime? updatedAt;
 
+  /// Key of the "No total" grid (tests of the consent preview).
+  final Key? totalGridKey;
+
   const SharedStatsView({
     super.key,
     required this.stats,
     required this.tz,
     required this.now,
     this.updatedAt,
+    this.totalGridKey,
   });
 
   @override
@@ -70,6 +74,7 @@ class SharedStatsView extends StatelessWidget {
       children: [
         heading('No total'),
         ProfileStatsGrid(
+          key: totalGridKey,
           items: [
             ('Favoritos', t.favorites),
             ('Filmes favoritos', t.movies),

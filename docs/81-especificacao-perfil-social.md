@@ -153,11 +153,11 @@ Lacunas de dados que pesam nesta fase:
 - RF-P11. O dono vê **"Atualizado há X"** (faixas: "agora" < 1 min; "há N min" < 60 min; "há N h" < 24 h; "há N dias") e a prévia **"Como seus amigos veem"**, alimentada pelo documento gravado (mesmos componentes do perfil de amigo).
 - RF-P12. Desativar amizades (Fase 1) **apaga o documento compartilhado** e os interruptores voltam a desligado; reativar começa com tudo desligado (D11).
 
-**Textos literais dos diálogos** (os testes de widget comparam o texto exato):
+**Textos literais dos diálogos** (os testes de widget comparam o texto exato). Revisão de 2026-10-15 (decisão do Orquestrador, coerente com D1 "guarda 10, mostra 3" e com a política "até 10"): o corpo de Atividades diz que até 10 atividades são compartilhadas e que o perfil mostra as 3 últimas (docs/86, rodada 2).
 | Seção | Título | Corpo | Botões |
 |---|---|---|---|
 | Estatísticas | "Compartilhar estatísticas com amigos?" | "Seus amigos mútuos vão ver seus números (favoritos, filmes e episódios assistidos, séries assistidas e concluídas e tempo assistido), os totais deste mês e deste ano e desde quando você está no CineTrack, no seu perfil e nas comparações entre amigos. Você pode desligar quando quiser: desligar apaga na hora." | "Cancelar" · "Compartilhar" |
-| Atividades | "Compartilhar atividades recentes com amigos?" | "Seus amigos mútuos vão ver suas 3 atividades mais recentes: títulos que você favoritou, filmes e episódios que marcou como assistidos e séries que concluiu. Só entra o que você fizer a partir de agora. Recomendações nunca aparecem como atividade. Você pode desligar quando quiser: desligar apaga na hora." | "Cancelar" · "Compartilhar" |
+| Atividades | "Compartilhar atividades recentes com amigos?" | "Seus amigos mútuos vão ver até 10 das suas atividades mais recentes (seu perfil mostra as 3 últimas): títulos que você favoritou, filmes e episódios que marcou como assistidos e séries que concluiu. Só entra o que você fizer a partir de agora. Recomendações nunca aparecem como atividade. Você pode desligar quando quiser: desligar apaga na hora." | "Cancelar" · "Compartilhar" |
 | Recomendados | "Compartilhar seus recomendados com amigos?" | "Seus amigos mútuos vão ver os títulos que você marcou com Recomendo (até 50, na ordem da sua aba) e quantos são. Para você, nada muda nas suas recomendações. Você pode desligar quando quiser: desligar apaga na hora." | "Cancelar" · "Compartilhar" |
 | Seção, tudo desligado | — | "Seus amigos veem só seu cartão (apelido e foto)." | — |
 

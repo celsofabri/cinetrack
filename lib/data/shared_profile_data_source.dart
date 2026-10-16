@@ -14,6 +14,16 @@ enum RulesProbe {
   unreachable,
 }
 
+/// A toggle whose outcome is unknown (B5). [settled] completes (never with
+/// an error) when the ORIGINAL transaction ends, committed or not: only a
+/// server read made after it is the real state. Already complete when the
+/// transaction ended with an error after sending the write.
+class SharedToggleUncertain extends SocialFailure {
+  final Future<void> settled;
+
+  SharedToggleUncertain(this.settled, {super.code}) : super(SocialFailureKind.uncertain);
+}
+
 /// Storage seam for `shared_profiles/{uid}` (docs/82 §9). Implementations:
 /// Firestore, signed-out (inert) and an in-memory fake (tests). Every method
 /// throws [SocialFailure] (never Firebase types), like the social source.

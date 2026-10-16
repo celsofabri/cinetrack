@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/providers.dart';
 import 'auth/firebase_auth_repository.dart';
 import 'router.dart';
+import 'providers/sharing_providers.dart';
 import 'services/firebase_bootstrap.dart';
 import 'services/local_store.dart';
 import 'widgets/app_shell.dart';
@@ -58,6 +59,10 @@ class CineTrackApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // Splash stays until the first auth event (session restored or none).
     final sessionKnown = !ref.watch(authStateProvider).isLoading;
+    // The shared-profile engine runs for the whole app, not only inside the
+    // shell: a mark made from a deep link (/tv/:id) is published in the same
+    // session. Idle (no read, no write) for anyone who shares nothing.
+    ref.read(sharedProfileSyncProvider);
     return MaterialApp.router(
       title: 'CineTrack',
       debugShowCheckedModeBanner: false,

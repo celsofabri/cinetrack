@@ -117,6 +117,13 @@ String sharingOffMessage(SharedSection s) => switch (s) {
 };
 
 const kSharingOnConfirmed = 'Compartilhamento ligado.';
+
+/// How long an uncertain toggle waits for its original transaction to end
+/// before the server is read anyway (A).
+const kSharingSettleCap = Duration(seconds: 60);
+
+/// The single delayed re-read when reconciling failed while online.
+const kSharingUncertainRetry = Duration(seconds: 30);
 const kSharingOffFailed = 'Não foi possível desligar. Tente de novo.';
 
 /// State of "O que seus amigos veem" (docs/82 §7.1, B5): ONE server read per
@@ -128,19 +135,40 @@ class SharingController extends Notifier<SharingState> {
   int _generation = 0;
   int _noticeId = 0;
 
+  /// The read in flight (C): a second request while it runs joins it.
+  Future<void>? _loading;
+
+  /// Uncertain toggles whose ORIGINAL transaction has not ended yet (A): a
+  /// read now could predate a late commit, so they are not resolved by it.
+  final Set<SharedSection> _settling = {};
+
+  /// One delayed re-read per uncertainty when reading failed while online.
+  Timer? _retry;
+  bool _retryUsed = false;
+
   @override
   SharingState build() {
     final generation = ++_generation;
+    _loading = null;
+    _settling.clear();
+    _retry?.cancel();
+    _retry = null;
+    _retryUsed = false;
     final uid = ref.watch(currentUidProvider);
     if (uid == null) return const SharingState();
     if (!ref.watch(socialActiveProvider)) return const SharingState();
     ref.onDispose(() {
       if (generation == _generation) _generation++;
+      _retry?.cancel();
     });
-    // Back online: confirm what is not confirmed yet (and reconcile an
-    // uncertain toggle), without any queue (RF-P7).
-    ref.listen(syncStatusProvider.select((s) => s.fromCache), (prev, next) {
-      if (prev == true && next == false && generation == _generation) _onReconnect(generation);
+    // Back online: read the server again (RF-P10: a section changed on
+    // another device shows up; RF-P7: an uncertain toggle is reconciled),
+    // without any queue. 1 read per reconnection.
+    ref.listen(syncStatusProvider.select((s) => (s.fromCache, s.serverConfirmed)), (prev, next) {
+      if (prev == null || generation != _generation) return;
+      // Cache -> server. At session start (the server never answered
+      // before) it is NOT a reconnection: the session read covers it.
+      if (prev.$1 && !next.$1) _onReconnect(generation, wasOnline: prev.$2);
     });
     Future.microtask(() {
       if (generation == _generation) _load(generation);
@@ -174,7 +202,30 @@ class SharingController extends Notifier<SharingState> {
   void _notice(String text) => state = state.copyWith(notice: SharingNotice(++_noticeId, text));
 
   /// The server state (this session's read; also the rules probe, Q1).
-  Future<void> _load(int generation) async {
+  /// One read at a time: a call while a read is in flight joins it.
+  Future<void> _load(int generation) {
+    final running = _loading;
+    if (running != null) return running;
+    final read = _read(generation);
+    _loading = read;
+    unawaited(
+      read.whenComplete(() {
+        if (identical(_loading, read)) _loading = null;
+      }),
+    );
+    return read;
+  }
+
+  /// A read that STARTS now (after a write): waits for the one in flight,
+  /// which may predate the write, then reads again.
+  Future<void> _reload(int generation) async {
+    final running = _loading;
+    if (running != null) await running;
+    if (generation != _generation) return;
+    await _load(generation);
+  }
+
+  Future<void> _read(int generation) async {
     final repo = ref.read(sharedProfileRepositoryProvider);
     try {
       final doc = await repo.readOwn();
@@ -188,14 +239,27 @@ class SharingController extends Notifier<SharingState> {
       if (f.kind == SharedProfileFailureKind.denied) {
         unawaited(ref.read(sharedRulesGateProvider).feed(RulesProbe.oldRules));
         state = state.copyWith(phase: SharingPhase.unavailable);
-      } else if (!state.confirmed) {
-        state = state.copyWith(phase: SharingPhase.offline);
+      } else {
+        if (!state.confirmed) state = state.copyWith(phase: SharingPhase.offline);
+        _retryLater(generation);
       }
     } catch (_) {
-      if (generation == _generation && !state.confirmed) {
-        state = state.copyWith(phase: SharingPhase.offline);
-      }
+      if (generation != _generation) return;
+      if (!state.confirmed) state = state.copyWith(phase: SharingPhase.offline);
+      _retryLater(generation);
     }
+  }
+
+  /// A read failed while a toggle is uncertain: try once more later, so the
+  /// toggle does not stay "Ainda não confirmado…" for the whole session when
+  /// no reconnection event comes.
+  void _retryLater(int generation) {
+    if (state.uncertain.isEmpty || _retryUsed || _retry != null) return;
+    _retryUsed = true;
+    _retry = Timer(kSharingUncertainRetry, () {
+      _retry = null;
+      if (generation == _generation) _load(generation);
+    });
   }
 
   void _setDoc(SharedProfileDoc? doc) {
@@ -205,16 +269,30 @@ class SharingController extends Notifier<SharingState> {
     _saveHint(doc);
   }
 
-  void _onReconnect(int generation) {
+  void _onReconnect(int generation, {required bool wasOnline}) {
     if (state.phase == SharingPhase.unavailable) return;
-    if (!state.confirmed || state.uncertain.isNotEmpty) _load(generation);
+    if (wasOnline || !state.confirmed || state.uncertain.isNotEmpty) _load(generation);
   }
 
   /// Shows the REAL state after an uncertain toggle (RF-P7).
   void _resolveUncertain(SharedProfileDoc? doc) {
     if (state.uncertain.isEmpty) return;
-    final pending = state.uncertain;
-    state = state.copyWith(uncertain: const {});
+    final pending = {
+      for (final e in state.uncertain.entries)
+        if (!_settling.contains(e.key)) e.key: e.value,
+    };
+    if (pending.isEmpty) return;
+    state = state.copyWith(
+      uncertain: {
+        for (final e in state.uncertain.entries)
+          if (_settling.contains(e.key)) e.key: e.value,
+      },
+    );
+    if (state.uncertain.isEmpty) {
+      _retryUsed = false;
+      _retry?.cancel();
+      _retry = null;
+    }
     for (final MapEntry(key: section, value: turningOn) in pending.entries) {
       final shared = doc?.sharing.contains(section) ?? false;
       if (turningOn) {
@@ -255,7 +333,7 @@ class SharingController extends Notifier<SharingState> {
       state = state.copyWith(clearBusy: true);
       // The server's own times (`actSince`, `updatedAt`) come with a read.
       final before = state.doc;
-      await _load(generation);
+      await _reload(generation);
       if (generation != _generation) return;
       if (identical(state.doc, before) || !(state.doc?.sharing.contains(section) ?? false)) {
         // The read failed: the local view of the committed transaction.
@@ -317,10 +395,18 @@ class SharingController extends Notifier<SharingState> {
     state = state.copyWith(clearBusy: true);
     switch (f.kind) {
       case SharedProfileFailureKind.uncertain:
-        // It may have happened: never "failed" (B5). Read the server now and
-        // at every reconnection until it answers.
+        // It may have happened: never "failed" (B5). Only a read made AFTER
+        // the original transaction ended is the truth (A); then also at
+        // every reconnection until it answers.
         state = state.copyWith(uncertain: {...state.uncertain, section: turningOn});
-        await _load(generation);
+        _retryUsed = false;
+        final settled = f.settled;
+        if (settled == null) {
+          await _reload(generation);
+        } else {
+          _settling.add(section);
+          await _afterSettle(generation, section, settled);
+        }
       case SharedProfileFailureKind.denied:
         // Friendships turned off elsewhere (this section disappears when the
         // friendships state says so) or the rules are old.
@@ -330,6 +416,16 @@ class SharingController extends Notifier<SharingState> {
       default:
         _notice(f.message);
     }
+  }
+
+  Future<void> _afterSettle(int generation, SharedSection section, Future<void> settled) async {
+    try {
+      // Bounded: a transaction that never ends must not freeze the toggle.
+      await settled.timeout(kSharingSettleCap);
+    } catch (_) {}
+    if (generation != _generation) return;
+    _settling.remove(section);
+    await _reload(generation);
   }
 
   /// The confirmed server document, for the engine (null = nothing to do).
@@ -348,7 +444,7 @@ class SharingController extends Notifier<SharingState> {
 
   /// The server refused a recalculation (`permission-denied` / `not-found`):
   /// consent changed elsewhere or the rules; read again (docs/82 §6).
-  Future<void> reloadAfterRefusal() => _load(_generation);
+  Future<void> reloadAfterRefusal() => _reload(_generation);
 }
 
 final sharingControllerProvider = NotifierProvider<SharingController, SharingState>(
@@ -458,7 +554,6 @@ class SharedProfileSync extends Notifier<SharedSyncState> {
       final after = next.confirmed ? next.doc?.sharing : null;
       // Session start (state confirmed) and a section turned on elsewhere.
       if (after != null && (before == null || !_sameSet(before, after))) _trigger(generation);
-      if (after == null) _discard();
     }, fireImmediately: true);
     ref.listen<AsyncValue<List<FavoriteDoc>>>(favoriteDocsProvider, (_, next) {
       if (next.hasValue) _trigger(generation);
@@ -482,11 +577,14 @@ class SharedProfileSync extends Notifier<SharedSyncState> {
     ref.listen(socialControllerProvider.select((s) => s.busy), (_, busy) {
       if (!busy) _resume(generation);
     });
+    // Account deletion: [_ready] holds every write while it runs (0 writes
+    // after markDeleting); a deletion that is abandoned (re-authentication
+    // cancelled, offline) lets the pending change go, nothing is lost.
     ref.listen(profileProvider.select((p) => p.valueOrNull?.deleting ?? false), (_, deleting) {
-      if (deleting) _discard();
+      if (!deleting) _resume(generation);
     });
     ref.listen(accountControllerProvider.select((s) => s.running), (_, running) {
-      if (running) _discard();
+      if (!running) _resume(generation);
     });
     final dispose = ref.read(sharedLifecycleHookProvider)(() => _flush(generation));
     ref.onDispose(dispose);
@@ -509,15 +607,6 @@ class SharedProfileSync extends Notifier<SharedSyncState> {
   /// usual window applies (1 write).
   void _resume(int generation) {
     if (_dirty && _debounce == null && _ready()) _trigger(generation);
-  }
-
-  /// Exclusion / deactivation / nothing shared: pending work is dropped.
-  void _discard() {
-    _dirty = false;
-    _debounce?.cancel();
-    _maxWait?.cancel();
-    _wake?.cancel();
-    _debounce = _maxWait = _wake = null;
   }
 
   bool _sharing() {

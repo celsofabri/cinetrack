@@ -47,6 +47,26 @@ class FakeSharedProfileCloud {
   /// A toggle failing with [SocialFailureKind.uncertain] still committed.
   bool deliverUncertainToggles = false;
 
+  /// "Late commit" mode (docs/86 rodada 2, A): an uncertain toggle has NOT
+  /// ended when the caller gives up (timeout); the SDK keeps it running.
+  /// [commitLate] applies its write later; [abortLate] ends it unapplied.
+  bool lateUncertainToggles = false;
+  void Function()? _late;
+  Completer<void>? _lateDone;
+  bool get hasLateToggle => _late != null;
+
+  void commitLate() {
+    final apply = _late!;
+    _late = null;
+    apply();
+    _lateDone!.complete();
+  }
+
+  void abortLate() {
+    _late = null;
+    _lateDone!.complete();
+  }
+
   /// A recalculation failing with [SocialFailureKind.uncertain] still landed.
   bool deliverUncertainWrites = false;
 
@@ -204,11 +224,25 @@ class InMemorySharedProfileDataSource implements SharedProfileDataSource {
     cloud.reads++;
     final current = cloud.docs[uid];
     final write = plan(current == null ? null : FakeSharedProfileCloud._deepCopy(current));
-    if (failure != null && !cloud.deliverUncertainToggles) throw failure;
-    cloud.apply(uid, write, consent: true);
-    cloud.toggles.add(write);
-    cloud.log.add('toggle');
-    if (failure != null) throw failure;
+    void commit() {
+      cloud.apply(uid, write, consent: true);
+      cloud.toggles.add(write);
+      cloud.log.add('toggle');
+    }
+
+    if (failure != null) {
+      // Like FirestoreSharedProfileDataSource: an uncertain toggle carries
+      // the end of its ORIGINAL transaction.
+      if (cloud.lateUncertainToggles) {
+        final done = Completer<void>();
+        cloud._late = commit;
+        cloud._lateDone = done;
+        throw SharedToggleUncertain(done.future, code: failure.code ?? 'timeout');
+      }
+      if (cloud.deliverUncertainToggles) commit();
+      throw SharedToggleUncertain(Future<void>.value(), code: failure.code);
+    }
+    commit();
   }
 
   @override

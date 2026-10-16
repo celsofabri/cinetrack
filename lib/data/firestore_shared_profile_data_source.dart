@@ -134,17 +134,22 @@ class FirestoreSharedProfileDataSource implements SharedProfileDataSource {
       sent = true;
     }
 
+    // The ORIGINAL transaction: the local timeout does not cancel it, so it
+    // may still commit after we gave up waiting (docs/86 rodada 2, A).
+    final tx = _runTx(body);
     try {
-      await _runTx(body).timeout(toggleTimeout);
+      await tx.timeout(toggleTimeout);
     } on SocialFailure {
       rethrow;
     } on TimeoutException {
-      // The SDK may still commit it: never "failed" (B5).
-      throw const SocialFailure(SocialFailureKind.uncertain, code: 'timeout');
+      // The SDK may still commit it: never "failed" (B5). The caller waits
+      // for [settled] before trusting a read of the server.
+      throw SharedToggleUncertain(tx.then((_) {}, onError: (Object _) {}), code: 'timeout');
     } on FirebaseException catch (e) {
       debugPrint('Shared profile toggle failed: ${e.code}'); // code only, never data
       if (sent && _uncertainCodes.contains(e.code)) {
-        throw SocialFailure(SocialFailureKind.uncertain, code: e.code);
+        // The transaction already ended: a read now tells the truth.
+        throw SharedToggleUncertain(Future<void>.value(), code: e.code);
       }
       throw SocialFailure.fromFirestoreCode(e.code);
     }

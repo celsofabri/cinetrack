@@ -35,7 +35,11 @@ class SharedProfileFailure implements Exception {
   /// Provider code (never data).
   final String? code;
 
-  const SharedProfileFailure(this.kind, {this.code});
+  /// [SharedProfileFailureKind.uncertain] only: completes when the original
+  /// transaction ends (see `SharedToggleUncertain`); null = already ended.
+  final Future<void>? settled;
+
+  const SharedProfileFailure(this.kind, {this.code, this.settled});
 
   factory SharedProfileFailure.fromSocial(SocialFailure f) => SharedProfileFailure(switch (f.kind) {
     SocialFailureKind.offline => SharedProfileFailureKind.offline,
@@ -46,7 +50,7 @@ class SharedProfileFailure implements Exception {
     SocialFailureKind.busy => SharedProfileFailureKind.busy,
     _ when f.code == 'not-found' => SharedProfileFailureKind.notFound,
     _ => SharedProfileFailureKind.unknown,
-  }, code: f.code);
+  }, code: f.code, settled: f is SharedToggleUncertain ? f.settled : null);
 
   static const offlineMessage = 'Sem conexão. Tente de novo quando estiver online.';
   static const unavailableMessage = 'O perfil compartilhado ainda não está disponível.';

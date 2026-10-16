@@ -6,7 +6,6 @@ import '../providers/sharing_providers.dart';
 import '../repositories/shared_profile_repository.dart';
 import '../shared_profile/shared_profile_models.dart';
 import '../shared_profile/shared_profile_texts.dart';
-import 'profile_stats_card.dart';
 import 'shared_profile_widgets.dart';
 
 /// Literal texts of the consent dialogs (docs/81, "Textos literais").
@@ -22,10 +21,10 @@ const kSharingDialogs = {
   SharedSection.activity: (
     title: 'Compartilhar atividades recentes com amigos?',
     body:
-        'Seus amigos mútuos vão ver suas 3 atividades mais recentes: títulos que você favoritou, '
-        'filmes e episódios que marcou como assistidos e séries que concluiu. Só entra o que você '
-        'fizer a partir de agora. Recomendações nunca aparecem como atividade. Você pode desligar '
-        'quando quiser: desligar apaga na hora.',
+        'Seus amigos mútuos vão ver até 10 das suas atividades mais recentes (seu perfil mostra '
+        'as 3 últimas): títulos que você favoritou, filmes e episódios que marcou como assistidos '
+        'e séries que concluiu. Só entra o que você fizer a partir de agora. Recomendações nunca '
+        'aparecem como atividade. Você pode desligar quando quiser: desligar apaga na hora.',
   ),
   SharedSection.recs: (
     title: 'Compartilhar seus recomendados com amigos?',
@@ -246,16 +245,13 @@ Future<SharedProfileContent?> showSharingConsentDialog(
                     child: Text('Prévia', style: Theme.of(context).textTheme.titleSmall),
                   ),
                   const SizedBox(height: 8),
-                  ProfileStatsGrid(
-                    key: const Key('sharing-preview-grid'),
-                    items: [
-                      ('Favoritos', stats.total.favorites),
-                      ('Filmes favoritos', stats.total.movies),
-                      ('Séries favoritas', stats.total.series),
-                      ('Filmes assistidos', stats.total.watchedMovies),
-                      ('Episódios assistidos', stats.total.watchedEpisodes),
-                      ('Séries concluídas', stats.total.completedSeries),
-                    ],
+                  // Everything the dialog promises: totals, this month and
+                  // year (owner's zone), time watched, "No CineTrack desde".
+                  SharedStatsView(
+                    stats: stats,
+                    tz: preview!.tz,
+                    now: ref.read(serverClockProvider).now(),
+                    totalGridKey: const Key('sharing-preview-grid'),
                   ),
                 ],
               ],
