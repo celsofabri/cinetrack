@@ -5,6 +5,7 @@ import 'package:cinetrack/providers/friend_profile_providers.dart';
 import 'package:cinetrack/providers/shared_profile_providers.dart';
 import 'package:cinetrack/providers/social_lists_providers.dart';
 import 'package:cinetrack/providers/social_providers.dart';
+import 'package:cinetrack/providers/sync_providers.dart';
 import 'package:cinetrack/screens/friend_profile_screen.dart';
 import 'package:cinetrack/social/social_models.dart';
 import 'package:flutter/material.dart';
@@ -423,6 +424,52 @@ void main() {
       app.cloud.offline = false;
       await tester.pumpAndSettle();
       expect(find.text('Assistiu Filme 0'), findsOneWidget);
+    });
+
+    testWidgets('connection drops with the profile open: content hidden at once (D10)', (
+      tester,
+    ) async {
+      final rig = Rig();
+      final app = await rig.pump(tester, doc: brunoDoc());
+      await rig.openFromList(tester);
+      expect(find.text('Assistiu Filme 0'), findsOneWidget);
+      app.cloud.offline = true;
+      await tester.pumpAndSettle();
+      expect(find.text('Assistiu Filme 0'), findsNothing);
+      expect(find.text('No total'), findsNothing);
+      expect(find.text('Sem conexão. Conecte-se para ver o perfil de Bruno.'), findsOneWidget);
+      expect(find.text('Bruno'), findsOneWidget);
+      app.cloud.offline = false;
+      await tester.pumpAndSettle();
+      expect(find.text('Assistiu Filme 0'), findsOneWidget);
+      expect(app.friendReads.length, 1);
+    });
+
+    testWidgets('connection state not settled yet (fromCache): memory NOT served, server asked', (
+      tester,
+    ) async {
+      final rig = Rig();
+      final app = await rig.pump(tester, doc: brunoDoc());
+      await rig.openFromList(tester);
+      await rig.back(tester);
+      final sync = app.container.read(syncStatusProvider.notifier);
+      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+      sync.state = sync.state.copyWith(fromCache: true, serverConfirmed: false, graceOver: false);
+      expect(app.container.read(syncStatusProvider).offline, isFalse);
+      await rig.openFromList(tester);
+      expect(app.friendReads.length, 2);
+    });
+
+    testWidgets('the own uid never reads, even if the controller is built before the redirect', (
+      tester,
+    ) async {
+      final rig = Rig();
+      final app = await rig.pump(tester, doc: brunoDoc());
+      final sub = app.container.listen(friendProfileControllerProvider('uid-ana'), (_, _) {});
+      await tester.pumpAndSettle();
+      expect(app.pairReads, isEmpty);
+      expect(app.friendReads, isEmpty);
+      sub.close();
     });
 
     testWidgets('going offline with the profile on screen hides it after "Atualizar"', (

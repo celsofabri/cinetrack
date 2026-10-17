@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../repositories/social_repository.dart';
 import '../social/social_models.dart';
 import '../social/social_validation.dart';
+import 'friend_profile_providers.dart';
 import 'providers.dart';
 import 'social_providers.dart';
 
@@ -503,9 +504,15 @@ class FriendsController extends PagedListController<Friend> {
   }
 
   /// Removes the friendship (both sides lose it; nobody is told).
-  Future<SocialFailure?> remove(Friend friend) {
+  /// Whatever the outcome (except "busy": nothing was tried), the friend's
+  /// profile kept in memory is forgotten: a removal that happened, or may
+  /// have, is never followed by the old content (docs/87, list AND profile).
+  Future<SocialFailure?> remove(Friend friend) async {
+    if (state.busy.contains(friend.uid)) return kBusyFailure;
     final repository = ref.read(socialRepositoryProvider);
-    return runFor(friend.uid, () => repository.removeFriend(friend.uid));
+    final failure = await runFor(friend.uid, () => repository.removeFriend(friend.uid));
+    ref.read(friendProfileCacheProvider).remove(friend.uid);
+    return failure;
   }
 }
 
@@ -603,6 +610,9 @@ SocialFailure? afterBlock(
   bool mayHavePendingRequest = true,
   String? ownList,
 }) {
+  // Every block attempt (list, request, search or profile) forgets the
+  // person's profile kept in memory, whatever the outcome (docs/87).
+  ref.read(friendProfileCacheProvider).remove(uid);
   if (failure == null) {
     // Same cleaning as the "Bloqueados" list, so nothing changes at the next read.
     name = SocialNickname.normalize(name) ?? 'Usuário';

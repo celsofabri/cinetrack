@@ -130,9 +130,15 @@ class FriendProfileController extends AutoDisposeFamilyNotifier<FriendProfileSta
     if (!isValidFriendUid(uid)) {
       return const FriendProfileState(phase: FriendProfilePhase.unavailable);
     }
-    // Back online after "Sem conexão": read (served from memory if fresh).
     ref.listen(syncStatusProvider.select((s) => s.offline), (previous, offline) {
-      if (previous == true && !offline && state.phase == FriendProfilePhase.offline) {
+      if (offline) {
+        // D10 on the open screen too: the connection dropped, nothing of
+        // the friend stays on screen (the header and actions do).
+        if (state.phase != FriendProfilePhase.unavailable) {
+          state = FriendProfileState(phase: FriendProfilePhase.offline, friend: state.friend);
+        }
+      } else if (previous == true && state.phase == FriendProfilePhase.offline) {
+        // Back online after "Sem conexão": read (served from memory if fresh).
         _load(force: false);
       }
     });
@@ -176,15 +182,23 @@ class FriendProfileController extends AutoDisposeFamilyNotifier<FriendProfileSta
       state = const FriendProfileState(phase: FriendProfilePhase.unavailable);
       return;
     }
+    // The own uid (the router sends it to /profile once the session is
+    // known) or no session yet: never a read.
+    final me = ref.read(currentUidProvider);
+    if (me == null || me == uid) return;
     final cache = ref.read(friendProfileCacheProvider);
     var friend = state.friend ?? cache.header(uid) ?? _fromList(uid);
     // D10: offline shows NOTHING, not even the memory cache.
-    if (ref.read(syncStatusProvider).offline) {
+    final status = ref.read(syncStatusProvider);
+    if (status.offline) {
       state = FriendProfileState(phase: FriendProfilePhase.offline, friend: friend);
       return;
     }
     final now = ref.read(sharedProfileClockProvider);
-    if (!force) {
+    // Memory only while the device is KNOWN to talk to the server: a
+    // connection that just dropped (`fromCache` before `offline` settles,
+    // the same signal the owner's toggles use) asks the server instead.
+    if (!force && !status.fromCache) {
       final entry = cache.fresh(uid, now(), ref.read(friendProfileTtlProvider));
       if (entry != null) {
         state = _shown(friend ?? entry.friend, entry.view);
@@ -213,7 +227,10 @@ class FriendProfileController extends AutoDisposeFamilyNotifier<FriendProfileSta
       final view = await ref.read(sharedProfileRepositoryProvider).readFriend(uid);
       if (_gone(generation)) return;
       cache.put(uid, FriendProfileEntry(friend: friend, view: view, at: now()));
-      state = _shown(friend, view);
+      // The connection dropped while the answer travelled: shown only online.
+      state = ref.read(syncStatusProvider).offline
+          ? FriendProfileState(phase: FriendProfilePhase.offline, friend: friend)
+          : _shown(friend, view);
     } on SharedProfileFailure catch (f) {
       if (_gone(generation)) return;
       state = _failed(f.kind, friend);
@@ -252,25 +269,20 @@ class FriendProfileController extends AutoDisposeFamilyNotifier<FriendProfileSta
     ref.read(friendsControllerProvider.notifier).dropLocal(uid);
   }
 
-  /// "Remover amizade" from the profile: the Phase 1 flow. Whatever the
-  /// outcome, the memory copy of this profile is forgotten (a removal that
-  /// happened, or may have, must never be followed by the old content).
+  /// "Remover amizade" from the profile: the Phase 1 flow, which also
+  /// forgets the memory copy of this profile (same place as from the list).
   Future<SocialFailure?> remove() async {
     final friend = state.friend;
     if (friend == null) return const SocialFailure(SocialFailureKind.unknown);
-    final failure = await ref.read(friendsControllerProvider.notifier).remove(friend);
-    if (failure != kBusyFailure) ref.read(friendProfileCacheProvider).remove(friend.uid);
-    return failure;
+    return ref.read(friendsControllerProvider.notifier).remove(friend);
   }
 
   /// "Bloquear" from the profile: the Phase 1 flow (block + friendship and
-  /// requests deleted in one batch); the memory copy is forgotten too.
+  /// requests deleted in one batch; `afterBlock` forgets the memory copy).
   Future<SocialFailure?> block() async {
     final friend = state.friend;
     if (friend == null) return const SocialFailure(SocialFailureKind.unknown);
-    final failure = await ref.read(friendsControllerProvider.notifier).block(friend);
-    if (failure != kBusyFailure) ref.read(friendProfileCacheProvider).remove(friend.uid);
-    return failure;
+    return ref.read(friendsControllerProvider.notifier).block(friend);
   }
 }
 
