@@ -423,7 +423,7 @@ M=[
   "friend: extra is Friend && extra.uid == uid ? extra : null,","friend: null,",
   ['test/friend_profile_test.dart']),
  ('V25 back online does not read again','lib/providers/friend_profile_providers.dart',
-  'if (previous == true && !offline && state.phase == FriendProfilePhase.offline) {','if (false) {',
+  '} else if (previous == true && state.phase == FriendProfilePhase.offline) {','} else if (false) {',
   ['test/friend_profile_test.dart']),
  ('V26 concurrent loads do not join (2 reads)','lib/providers/friend_profile_providers.dart',
   '    if (running != null) return running;\n','',
