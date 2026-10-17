@@ -46,11 +46,16 @@ class FirestoreSharedProfileDataSource implements SharedProfileDataSource {
   /// A toggle without an answer within this time is "uncertain" (RF-P7).
   final Duration toggleTimeout;
 
+  /// A friend's profile without an answer within this time is "Não foi
+  /// possível carregar o perfil." (docs/82 §7.2: 8 s).
+  final Duration friendTimeout;
+
   FirestoreSharedProfileDataSource({
     required this.uid,
     this.firestore,
     this.timeout = const Duration(seconds: 30),
     this.toggleTimeout = const Duration(seconds: 10),
+    this.friendTimeout = const Duration(seconds: 8),
     @visibleForTesting this.getter,
     @visibleForTesting this.deleter,
     @visibleForTesting this.txRunner,
@@ -215,8 +220,10 @@ class FirestoreSharedProfileDataSource implements SharedProfileDataSource {
 
   @override
   Future<Map<String, dynamic>?> readFriend(String friendUid) => FirestoreSocialDataSource.guard(
+    // Source.server ONLY (D10): an answer from the device cache is refused
+    // by `_get` (`unavailable`), never shown.
     () => _get(SharedProfilePayloads.path(friendUid), server: true),
-    timeout,
+    friendTimeout,
     write: false,
   );
 }

@@ -75,3 +75,33 @@ Future<bool> confirmUnblock(BuildContext context, String name) async {
   );
   return confirmed == true;
 }
+
+/// Confirmation before "Remover amizade" (Phase 1 text; the friends list and
+/// the friend's profile use the same one). Initial focus on "Cancelar", Esc
+/// closes.
+Future<bool> confirmRemoveFriend(BuildContext context, String name) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text('Remover $name?'),
+      content: const SingleChildScrollView(
+        child: Text(
+          'A pessoa não será avisada. Vocês deixam de ser amigos nos dois lados. '
+          'Para voltar a ser amigos, é preciso enviar e aceitar um novo pedido.',
+        ),
+      ),
+      actions: [
+        TextButton(
+          autofocus: true,
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: const Text('Remover amizade'),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
+}

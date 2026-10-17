@@ -246,6 +246,14 @@ class FirestoreSocialDataSource implements SocialDataSource {
     return _guard(() => _execute(SocialPayloads.refreshHalves(updates)), write: true);
   }
 
+  @override
+  Future<Map<String, dynamic>?> readFriendship(String otherUid) => _guard(() async {
+    final snap = await _serverGet(SocialPayloads.friendshipPath(uid, otherUid));
+    final data = snap.data;
+    if (!snap.exists || data == null) return null;
+    return convert(data);
+  }, write: false);
+
   Future<SocialSnapshot> _serverGet(String path) {
     final custom = docReader;
     if (custom != null) return custom(path);

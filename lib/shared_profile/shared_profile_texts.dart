@@ -58,9 +58,16 @@ class SharedProfileTexts {
   }
 
   /// The note on dates (B2, RF-S4): null when every mark has a date.
-  static String? datesNote(SharedStats stats, int tz) {
-    if (stats.undatedMovies + stats.undatedEpisodes <= 0) return null;
-    final from = stats.datedFrom;
+  static String? datesNote(SharedStats stats, int tz) => datesNoteFor(
+    undated: stats.undatedMovies + stats.undatedEpisodes,
+    datedFrom: stats.datedFrom,
+    tz: tz,
+  );
+
+  /// [datesNote] from the plain values (the friend's lenient reading too).
+  static String? datesNoteFor({required int undated, DateTime? datedFrom, required int tz}) {
+    if (undated <= 0) return null;
+    final from = datedFrom;
     return from == null
         ? 'Marcações anteriores a esta versão contam só no total.'
         : 'Marcações feitas antes de ${date(from, tz)} contam só no total.';
@@ -74,10 +81,50 @@ class SharedProfileTexts {
     required DateTime? updatedAt,
     required int tz,
     required DateTime now,
+  }) => notePlacementFor(
+    undated: stats.undatedMovies + stats.undatedEpisodes,
+    datedFrom: stats.datedFrom,
+    updatedAt: updatedAt,
+    tz: tz,
+    now: now,
+  );
+
+  /// [notePlacement] from the plain values.
+  static ({bool month, bool year}) notePlacementFor({
+    required int undated,
+    required DateTime? datedFrom,
+    required DateTime? updatedAt,
+    required int tz,
+    required DateTime now,
   }) {
-    final cut = stats.datedFrom ?? updatedAt;
-    if (cut == null || datesNote(stats, tz) == null) return (month: false, year: false);
+    final cut = datedFrom ?? updatedAt;
+    if (cut == null || undated <= 0) return (month: false, year: false);
     final c = periodKey(cut, tz), n = periodKey(now, tz);
     return (month: c.month == n.month, year: c.year == n.year);
   }
+
+  // ---- Friend's profile (docs/81 RF-F5, docs/82 §7.2) ----
+
+  /// Every "unavailable" case (not a friend, ex-friend, block in either
+  /// direction, deleted account, malformed uid) shows THIS text (RNF8).
+  static const unavailable = 'Este perfil não está disponível.';
+  static const backToFriends = 'Voltar para Amigos';
+  static const loadFailed = 'Não foi possível carregar o perfil.';
+  static const retry = 'Tentar novamente';
+
+  static String sharesNothing(String name) => '$name ainda não compartilha nada além do cartão.';
+
+  static String noStats(String name) => '$name não compartilha estatísticas com amigos.';
+
+  static String noActivity(String name) => '$name não compartilha atividades com amigos.';
+
+  static String noActivityYet(String name) => '$name ainda não tem atividades recentes.';
+
+  /// Without a name (opened by address, header not known yet).
+  static String offline(String? name) => name == null
+      ? 'Sem conexão. Conecte-se para ver este perfil.'
+      : 'Sem conexão. Conecte-se para ver o perfil de $name.';
+
+  /// Marker of a number the document does not have (RF-F9): never 0.
+  static const unknownValue = '—';
 }

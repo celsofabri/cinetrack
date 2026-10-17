@@ -42,6 +42,9 @@ class FakeSocialCloud {
   /// While set, the list pages (sent / received / friends) wait for it.
   Completer<void>? pageGate;
 
+  /// While set, `readFriendship` waits for it.
+  Completer<void>? pairGate;
+
   /// While [offline], the list reads still answer from "the device" when true
   /// (persistence on); false = nothing cached.
   bool cacheAvailable = true;
@@ -709,6 +712,18 @@ class InMemorySocialDataSource implements SocialDataSource {
     await cloud.pageGate?.future;
     final all = _friends().toList()..sort((a, b) => a.key.compareTo(b.key));
     return _pageOf(all, cursor, limit);
+  }
+
+  /// `get` of the pair (the rules allow it to either member; a missing pair
+  /// reads as null). Logged as `friendship:<other>`; failure name 'friendship'.
+  @override
+  Future<Map<String, dynamic>?> readFriendship(String otherUid) async {
+    _gate(server: true);
+    cloud.readLog.add('friendship:$otherUid');
+    cloud.checkFailure('friendship');
+    await cloud.pairGate?.future;
+    final doc = cloud.friendships[FakeSocialCloud.pairId(uid, otherUid)];
+    return doc == null ? null : {...doc};
   }
 
   @override

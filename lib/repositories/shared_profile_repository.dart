@@ -3,6 +3,7 @@ import '../data/social_payloads.dart';
 import '../shared_profile/shared_profile_doc.dart';
 import '../shared_profile/shared_profile_models.dart';
 import '../shared_profile/shared_profile_payloads.dart';
+import '../shared_profile/shared_stats_reading.dart';
 import '../social/social_models.dart';
 
 /// Why an operation on the owner's shared profile did not happen (docs/82
@@ -74,7 +75,7 @@ class SharedProfileFailure implements Exception {
 /// The owner's side of `shared_profiles/{uid}` (docs/82 §7.1, §6, §9): reads
 /// the own document, runs the consent toggles (one transaction each) and
 /// sends the engine's recalculations. Maps every failure to
-/// [SharedProfileFailure]. The friend's view (TTL cache) is Fatia 3.
+/// [SharedProfileFailure]. Fatia 3: a friend's profile ([readFriend]).
 class SharedProfileRepository {
   final SharedProfileDataSource source;
 
@@ -150,4 +151,14 @@ class SharedProfileRepository {
 
   /// "Atualizado há" pulse (same content, only `updatedAt`).
   Future<void> pulse() => _guard(() => source.writeSections(SharedProfilePayloads.pulse(uid)));
+
+  /// A friend's shared profile (docs/82 §7.2), from the SERVER only: null =
+  /// it does not exist (the reader IS a friend: "não compartilha nada além
+  /// do cartão"). Not a friend (or blocked, or the rules not published):
+  /// [SharedProfileFailureKind.denied]. Never cached here: the memory cache
+  /// with its TTL lives in `FriendProfileCache` (one per account).
+  Future<FriendSharedView?> readFriend(String friendUid) => _guard(() async {
+    final raw = await source.readFriend(friendUid);
+    return raw == null ? null : FriendSharedView.parse(raw);
+  });
 }

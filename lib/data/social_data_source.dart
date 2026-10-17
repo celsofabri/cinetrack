@@ -130,6 +130,11 @@ abstract class SocialDataSource {
   /// A page of friendships (document-id order; server, else the device).
   Future<RawSocialPage> readFriendsPage({Object? cursor, required int limit});
 
+  /// ONE server `get` of `friendships/{pair of this user and otherUid}`
+  /// (the friend's profile opened by address, docs/82 §7.2). Null = it does
+  /// not exist. Denied by the rules: [SocialFailureKind.denied].
+  Future<Map<String, dynamic>?> readFriendship(String otherUid);
+
   /// Deletes the request this user sent to [toUid] (idempotent).
   Future<void> cancelRequest(String toUid);
 
@@ -232,6 +237,10 @@ class SignedOutSocialDataSource implements SocialDataSource {
   @override
   Future<RawSocialPage> readFriendsPage({Object? cursor, required int limit}) async =>
       const RawSocialPage(docs: []);
+
+  @override
+  Future<Map<String, dynamic>?> readFriendship(String otherUid) =>
+      Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
 
   @override
   Future<void> cancelRequest(String toUid) =>

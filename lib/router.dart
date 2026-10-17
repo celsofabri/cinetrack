@@ -5,10 +5,12 @@ import 'package:go_router/go_router.dart';
 import 'models/media_type.dart';
 import 'providers/providers.dart';
 import 'providers/social_lists_providers.dart';
+import 'social/social_models.dart';
 import 'screens/add_friend_screen.dart';
 import 'screens/cast_screen.dart';
 import 'screens/catalog_screen.dart';
 import 'screens/favorites_screen.dart';
+import 'screens/friend_profile_screen.dart';
 import 'screens/friends_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/invite_screen.dart';
@@ -67,6 +69,25 @@ final routerProvider = Provider<GoRouter>((ref) {
           // A sibling, not a child: a nested route keeps the parent page alive under it, and the
           // list behind the search would be read although the search must read nothing.
           GoRoute(path: '/friends/add', builder: (context, state) => const AddFriendScreen()),
+          // A friend's profile (docs/82 §9, D14): also a sibling. The uid is
+          // validated by the screen (malformed = "não disponível", no read);
+          // the own uid goes to the own profile, without a read.
+          GoRoute(
+            path: '/friends/u/:uid',
+            redirect: (context, state) {
+              final me = ref.read(currentUidProvider);
+              return me != null && state.pathParameters['uid'] == me ? '/profile' : null;
+            },
+            builder: (context, state) {
+              final uid = state.pathParameters['uid'] ?? '';
+              final extra = state.extra;
+              return FriendProfileScreen(
+                key: ValueKey('friend-profile-$uid'),
+                uid: uid,
+                friend: extra is Friend && extra.uid == uid ? extra : null,
+              );
+            },
+          ),
           // Public on purpose (no redirect): somebody signed out opens a link and the code stays
           // in the address while they sign in / turn friendships on (docs/68).
           GoRoute(

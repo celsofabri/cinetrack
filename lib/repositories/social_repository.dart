@@ -535,31 +535,44 @@ class SocialRepository {
   /// A page of friends (their half of the pair document).
   Future<FriendsPage> friends({Object? cursor, int pageSize = kFriendsPageSize}) async {
     final raw = await _data.readFriendsPage(cursor: cursor, limit: pageSize);
-    final items = <Friend>[];
-    for (final doc in raw.docs) {
-      final members = doc.data['members'];
-      if (members is! List || members.length != 2 || !members.contains(_data.uid)) continue;
-      final other = members[0] == _data.uid ? members[1] : members[0];
-      if (other is! String || other.isEmpty) continue;
-      final otherIsA = members[0] == other;
-      final name = SocialNickname.clean('${doc.data[otherIsA ? 'aName' : 'bName'] ?? ''}');
-      final photo = doc.data[otherIsA ? 'aPhoto' : 'bPhoto'];
-      final at = doc.data['createdAt'];
-      items.add(
-        Friend(
-          uid: other,
-          name: name.isEmpty ? 'Usuário' : name,
-          photoUrl: photo is String ? SocialPhoto.sanitize(photo) : null,
-          since: at is DateTime ? at : null,
-        ),
-      );
-    }
+    final items = [for (final doc in raw.docs) ?_friendOf(doc.data)];
     return FriendsPage(
       items: items,
       cursor: raw.cursor,
       hasMore: raw.hasMore,
       fromCache: raw.fromCache,
     );
+  }
+
+  /// The other member's half of a friendship document, or null when it is
+  /// not one of this user's (malformed: never shown).
+  Friend? _friendOf(Map<String, dynamic> data) {
+    final members = data['members'];
+    if (members is! List || members.length != 2 || !members.contains(_data.uid)) return null;
+    final other = members[0] == _data.uid ? members[1] : members[0];
+    if (other is! String || other.isEmpty) return null;
+    final otherIsA = members[0] == other;
+    final name = SocialNickname.clean('${data[otherIsA ? 'aName' : 'bName'] ?? ''}');
+    final photo = data[otherIsA ? 'aPhoto' : 'bPhoto'];
+    final at = data['createdAt'];
+    return Friend(
+      uid: other,
+      name: name.isEmpty ? 'Usuário' : name,
+      photoUrl: photo is String ? SocialPhoto.sanitize(photo) : null,
+      since: at is DateTime ? at : null,
+    );
+  }
+
+  /// The friendship with [otherUid] (ONE server `get` of the pair, docs/82
+  /// §7.2: the friend's profile opened by address with no list in memory).
+  /// Null = not friends (the pair does not exist, or it is not between
+  /// these two). A denial of the read is the same "not available"
+  /// ([SocialFailureKind.denied]).
+  Future<Friend?> friendship(String otherUid) async {
+    final raw = await _data.readFriendship(otherUid);
+    if (raw == null) return null;
+    final friend = _friendOf(raw);
+    return friend?.uid == otherUid ? friend : null;
   }
 
   /// Cancels a request this user sent (one delete; idempotent).

@@ -10,6 +10,7 @@ import 'package:cinetrack/router.dart';
 
 import 'cloud_overrides.dart';
 import 'fake_auth_repository.dart';
+import 'fake_shared_profile_cloud.dart';
 import 'fake_social_cloud.dart';
 import 'favorites_harness.dart';
 import 'in_memory_favorites_data_source.dart';
@@ -29,7 +30,23 @@ class FriendsApp {
   final FakeCloud cloud;
   final FakeAuthRepository auth;
 
-  FriendsApp(this.container, this.social, this.cloud, this.auth);
+  /// `shared_profiles` (the friend's profile, docs/82 §7.2).
+  final FakeSharedProfileCloud shared;
+
+  FriendsApp(this.container, this.social, this.cloud, this.auth, this.shared);
+
+  /// Friends' shared profiles read from the "server" (`readFriend:<uid>`),
+  /// in order; the owner's own session read is not one of them.
+  List<String> get friendReads => [
+    for (final op in shared.log)
+      if (op.startsWith('readFriend:')) op,
+  ];
+
+  /// Pair documents read for the profile header (`friendship:<uid>`).
+  List<String> get pairReads => [
+    for (final r in social.readLog)
+      if (r.startsWith('friendship:')) r,
+  ];
 
   GoRouter get router => container.read(routerProvider);
   String get location => router.routeInformationProvider.value.uri.path;
@@ -61,6 +78,7 @@ Future<FriendsApp> pumpFriends(
   FakeAuthRepository? authOverride,
   FakeLocalStore? store,
   void Function(FakeSocialCloud social)? seed,
+  FakeSharedProfileCloud? shared,
   List<Override> extraOverrides = const [],
 }) async {
   tester.view.physicalSize = size;
@@ -87,10 +105,17 @@ Future<FriendsApp> pumpFriends(
   social.rulesLive = rulesLive;
 
   final cloud = FakeCloud();
+  final sharedCloud = shared ?? FakeSharedProfileCloud(log: cloud.deletionLog);
   final auth = authOverride ?? FakeAuthRepository(initialUser: user);
   final container = ProviderContainer(
     overrides: [
-      ...cloudOverrides(auth: auth, cloud: cloud, socialCloud: social, store: store),
+      ...cloudOverrides(
+        auth: auth,
+        cloud: cloud,
+        socialCloud: social,
+        sharedCloud: sharedCloud,
+        store: store,
+      ),
       sentRequestsTtlProvider.overrideWithValue(ttl),
       ...extraOverrides,
     ],
@@ -100,7 +125,7 @@ Future<FriendsApp> pumpFriends(
     UncontrolledProviderScope(container: container, child: const CineTrackApp()),
   );
   await tester.pumpAndSettle(const Duration(seconds: 1));
-  final app = FriendsApp(container, social, cloud, auth);
+  final app = FriendsApp(container, social, cloud, auth, sharedCloud);
   if (start != null) {
     app.router.go(start);
     await tester.pumpAndSettle(const Duration(seconds: 1));

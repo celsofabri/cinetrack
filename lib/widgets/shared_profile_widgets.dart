@@ -2,53 +2,87 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../services/watch_time.dart';
+import '../shared_profile/period_key.dart';
 import '../shared_profile/shared_profile_models.dart';
 import '../shared_profile/shared_profile_texts.dart';
+import '../shared_profile/shared_stats_reading.dart';
 import 'profile_stats_card.dart';
 
 /// The shared statistics as friends see them (docs/82 §9: the same
-/// component in the owner's preview and, in Fatia 3, the friend's profile).
+/// component in the owner's preview and in the friend's profile).
 /// "Este mês"/"este ano" follow the OWNER's zone [tz] (B1); the note on
-/// dates (B2) sits under the period where the cut falls.
+/// dates (B2) sits under the period where the cut falls. A number the
+/// document does not have shows "—" (RF-F9).
 class SharedStatsView extends StatelessWidget {
-  final SharedStats stats;
+  final SharedStatsReading reading;
   final int tz;
   final DateTime now;
   final DateTime? updatedAt;
 
+  /// "No CineTrack desde" at the end. The friend's profile shows it in the
+  /// header instead (D8).
+  final bool showMemberSince;
+
   /// Key of the "No total" grid (tests of the consent preview).
   final Key? totalGridKey;
 
-  const SharedStatsView({
+  /// The owner's own numbers (every value known).
+  SharedStatsView({
     super.key,
-    required this.stats,
+    required SharedStats stats,
     required this.tz,
     required this.now,
     this.updatedAt,
+    this.showMemberSince = true,
+    this.totalGridKey,
+  }) : reading = SharedStatsReading.of(stats);
+
+  /// A friend's document, read leniently.
+  const SharedStatsView.reading({
+    super.key,
+    required this.reading,
+    required this.tz,
+    required this.now,
+    this.updatedAt,
+    this.showMemberSince = true,
     this.totalGridKey,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final t = stats.total;
-    final month = SharedProfileTexts.current(stats.month, month: true, tz: tz, now: now);
-    final year = SharedProfileTexts.current(stats.year, month: false, tz: tz, now: now);
-    final note = SharedProfileTexts.datesNote(stats, tz);
-    final place = SharedProfileTexts.notePlacement(stats, updatedAt: updatedAt, tz: tz, now: now);
+    final r = reading;
+    final keys = periodKey(now, tz);
+    final month = r.month.current(keys.month);
+    final year = r.year.current(keys.year);
+    final undated = r.undatedMovies + r.undatedEpisodes;
+    final note = SharedProfileTexts.datesNoteFor(undated: undated, datedFrom: r.datedFrom, tz: tz);
+    final place = SharedProfileTexts.notePlacementFor(
+      undated: undated,
+      datedFrom: r.datedFrom,
+      updatedAt: updatedAt,
+      tz: tz,
+      now: now,
+    );
     Widget heading(String text) => Padding(
       padding: const EdgeInsets.only(top: 12, bottom: 8),
       child: Semantics(header: true, child: Text(text, style: theme.textTheme.titleSmall)),
     );
-    Widget time(int minutes) {
-      final text = 'Tempo assistido: ${WatchTimeFormatter.format(minutes)}';
+    Widget time(int? minutes) {
+      final value = minutes == null
+          ? SharedProfileTexts.unknownValue
+          : WatchTimeFormatter.format(minutes);
       return Padding(
         padding: const EdgeInsets.only(top: 8),
-        child: Text(text, style: theme.textTheme.bodyMedium),
+        child: Semantics(
+          label: minutes == null ? 'Tempo assistido: sem informação' : null,
+          excludeSemantics: minutes == null,
+          child: Text('Tempo assistido: $value', style: theme.textTheme.bodyMedium),
+        ),
       );
     }
 
-    Widget period(String title, PeriodStats p, bool withNote) => Column(
+    Widget period(String title, PeriodReading p, bool withNote) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         heading(title),
@@ -76,22 +110,22 @@ class SharedStatsView extends StatelessWidget {
         ProfileStatsGrid(
           key: totalGridKey,
           items: [
-            ('Favoritos', t.favorites),
-            ('Filmes favoritos', t.movies),
-            ('Séries favoritas', t.series),
-            ('Filmes assistidos', t.watchedMovies),
-            ('Episódios assistidos', t.watchedEpisodes),
-            ('Séries concluídas', t.completedSeries),
+            ('Favoritos', r.favorites),
+            ('Filmes favoritos', r.movies),
+            ('Séries favoritas', r.series),
+            ('Filmes assistidos', r.total.watchedMovies),
+            ('Episódios assistidos', r.total.watchedEpisodes),
+            ('Séries concluídas', r.total.completedSeries),
           ],
         ),
-        time(t.minutes),
+        time(r.total.minutes),
         period('Este mês', month, place.month),
         period('Este ano', year, place.year),
-        if (stats.memberSince != null)
+        if (showMemberSince && r.memberSince != null)
           Padding(
             padding: const EdgeInsets.only(top: 12),
             child: Text(
-              'No CineTrack desde ${SharedProfileTexts.date(stats.memberSince!, tz)}',
+              'No CineTrack desde ${SharedProfileTexts.date(r.memberSince!, tz)}',
               style: theme.textTheme.bodySmall,
             ),
           ),

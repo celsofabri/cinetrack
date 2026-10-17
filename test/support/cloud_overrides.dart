@@ -28,6 +28,7 @@ List<Override> cloudOverrides({
 }) {
   final social = socialCloud ?? FakeSocialCloud();
   final shared = sharedCloud ?? FakeSharedProfileCloud(log: cloud.deletionLog);
+  shared.friendsLink ??= (a, b) => social.friendships.containsKey(FakeSocialCloud.pairId(a, b));
   return [
     authRepositoryProvider.overrideWithValue(auth),
     // No trailing timers in widget tests; the debounce has its own test.

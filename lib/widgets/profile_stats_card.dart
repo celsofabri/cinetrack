@@ -44,9 +44,11 @@ const kProfileWatchTimeCardKey = Key('profile-watch-time-card');
 /// Two equal columns that fill the whole width (same as the "Tempo assistido"
 /// card below). Tiles of a row share the height of the tallest one, so large
 /// fonts or long labels never leave a crooked row; an odd last tile spans the
-/// full width instead of sitting alone in half of the row.
+/// full width instead of sitting alone in half of the row. A null value is
+/// a number the source does not have (a friend's older / newer document,
+/// docs/81 RF-F9): it shows "—", never 0.
 class ProfileStatsGrid extends StatelessWidget {
-  final List<(String, int)> items;
+  final List<(String, int?)> items;
 
   const ProfileStatsGrid({super.key, required this.items});
 
@@ -79,7 +81,7 @@ class ProfileStatsGrid extends StatelessWidget {
 
 class _StatTile extends StatelessWidget {
   final String label;
-  final int value;
+  final int? value;
 
   const _StatTile({required this.label, required this.value});
 
@@ -88,7 +90,7 @@ class _StatTile extends StatelessWidget {
     final theme = Theme.of(context);
     return Semantics(
       container: true,
-      label: '$label: $value',
+      label: value == null ? '$label: sem informação' : '$label: $value',
       child: ExcludeSemantics(
         child: Card(
           margin: EdgeInsets.zero,
@@ -97,7 +99,7 @@ class _StatTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('$value', style: theme.textTheme.headlineSmall),
+                Text(value == null ? '—' : '$value', style: theme.textTheme.headlineSmall),
                 Text(label, style: theme.textTheme.bodySmall),
               ],
             ),

@@ -26,6 +26,14 @@ class FakeSharedProfileCloud {
   /// Pairs of mutual friends (`a|b`, any order): who may read whom.
   final Set<String> friends = {};
 
+  /// Also friends when this says so (wired to the social fake's
+  /// `friendships` by `cloudOverrides`, so removing / blocking a friend
+  /// there denies the next read here, like the rules' `isFriend`).
+  bool Function(String a, String b)? friendsLink;
+
+  /// While set, `readFriend` waits for it (a read in flight).
+  Completer<void>? friendGate;
+
   /// Next failures per operation (`readOwn`, `probe`, `deleteOwn`,
   /// `readFriend`), consumed in order.
   final Map<String, List<SocialFailure>> failures = {};
@@ -159,7 +167,9 @@ class FakeSharedProfileCloud {
 
   void befriend(String a, String b) => friends.add(a.compareTo(b) < 0 ? '$a|$b' : '$b|$a');
 
-  bool areFriends(String a, String b) => friends.contains(a.compareTo(b) < 0 ? '$a|$b' : '$b|$a');
+  bool areFriends(String a, String b) =>
+      friends.contains(a.compareTo(b) < 0 ? '$a|$b' : '$b|$a') ||
+      (friendsLink?.call(a, b) ?? false);
 }
 
 class InMemorySharedProfileDataSource implements SharedProfileDataSource {
@@ -267,6 +277,8 @@ class InMemorySharedProfileDataSource implements SharedProfileDataSource {
   @override
   Future<Map<String, dynamic>?> readFriend(String friendUid) async {
     cloud.log.add('readFriend:$friendUid');
+    final gate = cloud.friendGate;
+    if (gate != null) await gate.future;
     final failure = cloud._take('readFriend');
     if (failure != null) throw failure;
     if (cloud.oldRules || !cloud.areFriends(uid, friendUid)) throw _denied;

@@ -606,18 +606,48 @@ class _FriendTile extends ConsumerWidget {
     final since = friend.since;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          PersonAvatar(photoUrl: friend.photoUrl, nickname: friend.name),
-          const SizedBox(width: 16),
-          Expanded(
+          // Name and photo open the friend's profile (RF-F1): tap or Enter.
+          // The card is handed over, so the header needs no read (RF-F3).
+          Semantics(
+            button: true,
+            label: 'Abrir o perfil de ${friend.name}',
+            excludeSemantics: true,
+            child: InkWell(
+              onTap: () => context.push('/friends/u/${friend.uid}', extra: friend),
+              borderRadius: BorderRadius.circular(8),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Row(
+                  children: [
+                    PersonAvatar(photoUrl: friend.photoUrl, nickname: friend.name),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(friend.name, style: theme.textTheme.titleMedium),
+                          if (since != null)
+                            Text(
+                              'Amigos desde ${formatSocialDate(since)}',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 64),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(friend.name, style: theme.textTheme.titleMedium),
-                if (since != null)
-                  Text('Amigos desde ${formatSocialDate(since)}', style: theme.textTheme.bodySmall),
                 const SizedBox(height: 4),
                 Wrap(
                   spacing: 8,
@@ -663,30 +693,9 @@ class _FriendTile extends ConsumerWidget {
 
   Future<void> _confirmRemove(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Remover ${friend.name}?'),
-        content: const Text(
-          'A pessoa não será avisada. Vocês deixam de ser amigos nos dois lados. '
-          'Para voltar a ser amigos, é preciso enviar e aceitar um novo pedido.',
-        ),
-        actions: [
-          TextButton(
-            autofocus: true,
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Remover amizade'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    if (!await confirmRemoveFriend(context, friend.name)) return;
     final failure = await ref.read(friendsControllerProvider.notifier).remove(friend);
-    messenger?.showSnackBar(SnackBar(content: Text(failure?.message ?? 'Amizade removida.')));
+    messenger?.showSnackBar(SnackBar(content: Text(failure?.message ?? kFriendRemovedMessage)));
   }
 
   Future<void> _confirmBlock(BuildContext context, WidgetRef ref) async {
@@ -699,6 +708,9 @@ class _FriendTile extends ConsumerWidget {
 
 /// SnackBar after a block: honest about what did and did not happen.
 const kBlockedMessage = 'Pessoa bloqueada. Ela não foi avisada.';
+
+/// SnackBar after "Remover amizade".
+const kFriendRemovedMessage = 'Amizade removida.';
 
 // ---------------------------------------------------------------------------
 // Pedidos recebidos
