@@ -140,3 +140,13 @@ Todos os achados fechados, sem ressalvas. `firestore.rules` intacto (sha256 `613
 | `TZ=UTC flutter test` | **1916/1916** |
 | `npm test` | não rodado: regras, fixtures e payloads inalterados |
 | `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp do HEAD 52ccfd9) | **147/147 KILLED** (143 da rodada 1 + `W5`, `W7`, `W8`, `W9`), "All Dart mutations were killed." |
+
+## Rodada 3 (gates de 3176638: Code Review APROVADO; QA 1 🟡, só teste)
+- QA 🟡: a guarda "resposta que chega já offline não é exibida" (rodada 2, CR1) não tinha teste. Entrou `QA-F3-5` ("offline arrives during the read: the late answer is not shown"), com o texto validado pelo QA, em `test/fatia3_qa_round2_test.dart`, e a mutação `Y5` (`state = ref.read(syncStatusProvider).offline` → `state = false`). Código de produção inalterado nesta rodada.
+
+### Números da rodada 3 (HEAD 828ab38)
+| Comando | Resultado |
+|---|---|
+| `flutter analyze` | No issues found |
+| `flutter test` | **1917/1917** (+1) |
+| `python3 tool/dart_mutations.py` (cópia em /tmp): `V1–V32`, `W5`, `W7–W9`, `Y5` | **37/37 KILLED**, "All Dart mutations were killed." (a lista completa da rodada 2, 147/147, não mudou fora do `Y5`) |
