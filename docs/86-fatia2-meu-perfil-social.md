@@ -141,3 +141,8 @@ Todos os achados fechados nesta rodada, sem ressalvas. `firestore.rules` continu
 - QA 🟡: o `settled` da fonte **real** (`FirestoreSharedProfileDataSource`) não tinha teste (a mutação X1 do QA sobrevivia). Entraram `QA-R2-1` (timeout: `settled` só completa quando a transação original termina, e nunca com erro) e `QA-R2-2` (exclusão de conta concluída com mudança pendente = 0 tentativas de escrita, documento compartilhado apagado) em `test/fatia2_qa_round2b_test.dart`, como validados pelo QA.
 - Mutação nova `T1` (= X1 do QA; renomeada porque o id `X1` já existe na lista, da Fatia 1) em `tool/dart_mutations.py`.
 - Números: `flutter analyze` No issues found; `flutter test` **1804/1804**; mutações da área (T1, R1–R8, S12, S13, S19): **12/12 KILLED**. Código de produção inalterado nesta rodada.
+
+### Fechamento da Fatia 2 (Orquestrador)
+
+- Code Review (45e43ac): APROVADO, 0 🔴/🟡. QA (45e43ac): APROVADO, 0 🔴/🟡; 1804/1804 testes; 111/111 mutações Dart mortas.
+- Texto de consentimento de Atividades ("até 10… seu perfil mostra as 3 últimas"): mudança comunicada ao Manager em 2026-10-17, sem objeção.
