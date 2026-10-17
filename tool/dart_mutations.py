@@ -346,6 +346,9 @@ M=[
  ('R8 the engine does not resume after an abandoned account deletion','lib/providers/sharing_providers.dart',
   "      if (!running) _resume(generation);","      if (false) _resume(generation);",
   ['test/fatia2_round2_test.dart']),
+ ('T1 (QA X1) real toggle timeout: settled does not wait for the original transaction','lib/data/firestore_shared_profile_data_source.dart',
+  "SharedToggleUncertain(tx.then((_) {}, onError: (Object _) {}), code: 'timeout')","SharedToggleUncertain(Future<void>.value(), code: 'timeout')",
+  ['test/fatia2_qa_round2b_test.dart']),
 ]
 only=sys.argv[2:]
 bad=0

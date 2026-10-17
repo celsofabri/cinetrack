@@ -136,3 +136,8 @@ Todos os achados fechados nesta rodada, sem ressalvas. `firestore.rules` continu
 | `flutter build web --base-href /cinetrack/` | ✓ Built build/web |
 | `npm test` | não rodado: regras, fixtures e payloads inalterados |
 | `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp) | **110/110 KILLED** (87 da rodada 1 + 23 novas: Q1–Q7, Q9–Q15, Q18, R1–R8), "All Dart mutations were killed." |
+
+## Rodada 2b (QA de fc6df81: 1 🟡, só testes)
+- QA 🟡: o `settled` da fonte **real** (`FirestoreSharedProfileDataSource`) não tinha teste (a mutação X1 do QA sobrevivia). Entraram `QA-R2-1` (timeout: `settled` só completa quando a transação original termina, e nunca com erro) e `QA-R2-2` (exclusão de conta concluída com mudança pendente = 0 tentativas de escrita, documento compartilhado apagado) em `test/fatia2_qa_round2b_test.dart`, como validados pelo QA.
+- Mutação nova `T1` (= X1 do QA; renomeada porque o id `X1` já existe na lista, da Fatia 1) em `tool/dart_mutations.py`.
+- Números: `flutter analyze` No issues found; `flutter test` **1804/1804**; mutações da área (T1, R1–R8, S12, S13, S19): **12/12 KILLED**. Código de produção inalterado nesta rodada.
