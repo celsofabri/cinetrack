@@ -234,4 +234,25 @@ void main() {
     expect(find.text('Assistiu Filme 0'), findsNothing);
     expect(find.text('No total'), findsNothing);
   });
+
+  testWidgets('QA-F3-5 offline arrives during the read: the late answer is not shown', (
+    tester,
+  ) async {
+    final rig = Rig();
+    final app = await rig.pump(tester, doc: brunoDoc());
+    rig.shared.friendGate = Completer<void>();
+    app.router.go('/friends');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Bruno'));
+    await tester.pump();
+    await tester.pump();
+    app.cloud.offline = true;
+    await tester.pump();
+    await tester.pump();
+    rig.shared.friendGate!.complete();
+    rig.shared.friendGate = null;
+    await tester.pumpAndSettle();
+    expect(find.text('Assistiu Filme 0'), findsNothing);
+    expect(find.text('Sem conexão. Conecte-se para ver o perfil de Bruno.'), findsOneWidget);
+  });
 }

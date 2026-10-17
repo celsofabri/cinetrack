@@ -459,6 +459,9 @@ M=[
  ('W9 the own uid is read when the controller exists','lib/providers/friend_profile_providers.dart',
   'if (me == null || me == uid) return;','if (me == null) return;',
   ['test/friend_profile_test.dart', 'test/fatia3_qa_round2_test.dart']),
+ ('Y5 a late answer is shown although offline arrived during the read','lib/providers/friend_profile_providers.dart',
+  '      state = ref.read(syncStatusProvider).offline\n','      state = false\n',
+  ['test/fatia3_qa_round2_test.dart']),
 ]
 only=sys.argv[2:]
 bad=0
