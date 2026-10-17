@@ -505,6 +505,7 @@ class _Skeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = Theme.of(context).colorScheme.surfaceContainerHighest;
     return Semantics(
+      container: true,
       liveRegion: true,
       label: 'Carregando o perfil',
       child: ExcludeSemantics(
