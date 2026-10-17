@@ -176,9 +176,6 @@ class FriendProfileController extends AutoDisposeFamilyNotifier<FriendProfileSta
       state = const FriendProfileState(phase: FriendProfilePhase.unavailable);
       return;
     }
-    // Friendships off (or not confirmed yet): nothing is read; the screen
-    // shows the friends' gate.
-    if (ref.read(socialControllerProvider).phase != SocialPhase.active) return;
     final cache = ref.read(friendProfileCacheProvider);
     var friend = state.friend ?? cache.header(uid) ?? _fromList(uid);
     // D10: offline shows NOTHING, not even the memory cache.

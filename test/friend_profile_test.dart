@@ -304,6 +304,22 @@ void main() {
       expect(app.friendReads.length, 3);
     });
 
+    testWidgets('two refreshes at the same time: ONE read (they join)', (tester) async {
+      final rig = Rig();
+      final app = await rig.pump(tester, doc: brunoDoc());
+      await rig.openFromList(tester);
+      final controller = app.container.read(friendProfileControllerProvider(kBruno).notifier);
+      rig.shared.friendGate = Completer<void>();
+      final first = controller.refresh();
+      final second = controller.refresh();
+      await tester.pump();
+      rig.shared.friendGate!.complete();
+      await Future.wait([first, second]);
+      await tester.pumpAndSettle();
+      expect(app.friendReads.length, 2);
+      expect(find.text('Assistiu Filme 0'), findsOneWidget);
+    });
+
     testWidgets('reopening by address within the TTL: 0 reads (pair and profile in memory)', (
       tester,
     ) async {
