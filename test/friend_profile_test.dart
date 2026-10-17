@@ -204,6 +204,28 @@ void main() {
       expect(here(app), '/friends/u/uid-bruno');
     });
 
+    testWidgets('a card handed over (extra) is the header: no pair read even without the list', (
+      tester,
+    ) async {
+      final rig = Rig();
+      final app = await rig.pump(tester, doc: brunoDoc());
+      app.router.push(
+        '/friends/u/uid-bruno',
+        extra: const Friend(uid: kBruno, name: 'Bruno'),
+      );
+      await tester.pumpAndSettle();
+      expect(app.pairReads, isEmpty);
+      expect(app.friendReads, ['readFriend:uid-bruno']);
+      expect(find.text('Bruno'), findsOneWidget);
+      // A card of somebody else is never used for this uid.
+      app.router.push(
+        '/friends/u/uid-x',
+        extra: const Friend(uid: kBruno, name: 'Bruno'),
+      );
+      await tester.pumpAndSettle();
+      expect(app.pairReads, ['friendship:uid-x']);
+    });
+
     testWidgets('by address with no list in memory: the pair, then the profile (2 reads)', (
       tester,
     ) async {
