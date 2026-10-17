@@ -116,3 +116,27 @@ Primeira rodada (só V1–V32 + Q9/Q10/Q18): 34 de 35 mortas; sobreviveu a prime
 
 ### Critério de aceite deste handoff
 - Code Review e QA aprovados; `flutter analyze` limpo; `flutter test` e a suíte Dart de mutações verdes no ambiente do revisor. Depois, merge e publicação do app (sem regras novas).
+
+## Rodada 2 (gates de baab151: Code Review MUDANÇAS SOLICITADAS, 0 🔴 / 1 🟡; QA REPROVADO, 0 🔴 / 2 🟡)
+Todos os achados fechados, sem ressalvas. `firestore.rules` intacto (sha256 `6135322e…`); payloads e golden inalterados.
+
+| Achado | Correção |
+|---|---|
+| 🟡1 (CR + QA) Remover/Bloquear **pela lista** não apagava o cache do perfil: reabrir no TTL mostrava o conteúdo antigo | A limpeza saiu do `FriendProfileController` e foi para **um lugar só**: `FriendsController.remove` (toda tentativa, exceto "ocupado"; ganhou a guarda de "ocupado" igual à de `block`) e `afterBlock` (todo bloqueio: lista, pedido recebido, busca e perfil). O controller do perfil só delega. Testes QA-F3-1 (as duas ações, como validados pelo QA, em `test/fatia3_qa_round2_test.dart`); mutações `V11`/`V12` reapontadas para os pontos novos |
+| 🟡2 (QA) regiões vivas das mensagens de estado sem teste (W5 sobrevivia) | QA-F3-3 + mutação `W5` |
+| 🟢 QA-F3-2 | incorporado (indisponível sem nome, foto e "Amigos desde"); QA-F3-4 (troca de conta com leitura em andamento) também |
+| 🟢 CR1 conexão cai com o perfil aberto | `offline` false → true troca para o estado offline na hora (cabeçalho e ações ficam; conteúdo some); uma resposta que chega já offline também não é exibida (vai para o cache e aparece ao reconectar). Teste + mutação `W7` |
+| 🟢 CR2 sinal `offline` atrasado | O sinal é o mesmo da Fatia 2 (`syncStatus.offline`, usado nos interruptores) para mostrar "Sem conexão"; além disso o cache de memória **só é servido com `fromCache == false`** (aparelho sabidamente falando com o servidor): com a conexão em transição (`fromCache` sem `offline` ainda), o app pergunta ao servidor. Teste + mutação `W8` |
+| 🟢 CR3 próprio uid antes do redirect | o controller não lê nada sem sessão conhecida nem para o próprio uid (o router manda para `/profile`). Teste + mutação `W9` |
+| W1–W4 (QA) | defensivas/equivalentes, mantidas (decisão do Orquestrador) |
+
+`V1` e `V25` foram reapontadas para o código novo (mesma intenção).
+
+### Números da rodada 2 (HEAD 52ccfd9)
+| Comando | Resultado |
+|---|---|
+| `flutter analyze` | No issues found |
+| `flutter test` (2 rodadas) | **1916/1916** nas duas (+8) |
+| `TZ=UTC flutter test` | **1916/1916** |
+| `npm test` | não rodado: regras, fixtures e payloads inalterados |
+| `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp do HEAD 52ccfd9) | **147/147 KILLED** (143 da rodada 1 + `W5`, `W7`, `W8`, `W9`), "All Dart mutations were killed." |
