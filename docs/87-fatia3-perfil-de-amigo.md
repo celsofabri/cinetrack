@@ -71,12 +71,12 @@ Nenhuma escrita nova. Os "2 a frio" do pedido são o `get` + a leitura da regra 
 ### Números
 | Comando | Resultado |
 |---|---|
-| `flutter analyze` | PENDENTE |
-| `flutter test` (2 rodadas) | PENDENTE |
-| `TZ=UTC flutter test` | PENDENTE |
-| `flutter build web --base-href /cinetrack/` | PENDENTE |
+| `flutter analyze` | **No issues found** |
+| `flutter test` (2 rodadas, fuso da máquina) | **1908/1908** nas duas (antes: 1804; +104) |
+| `TZ=UTC flutter test` | **1908/1908** |
+| `flutter build web --base-href /cinetrack/` | ✓ Built build/web |
 | `npm test` (regras) | **não rodado**: `firestore.rules`, fixtures e payloads (golden) inalterados |
-| `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp) | PENDENTE |
+| `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp do HEAD final) | **143/143 KILLED** (111 anteriores + 32 novas `V1–V32`), "All Dart mutations were killed." |
 
 ### Decisões tomadas (e por quem)
 - Dev (sujeitas a review):
@@ -95,7 +95,8 @@ Nenhuma escrita nova. Os "2 a frio" do pedido são o `get` + a leitura da regra 
 - §7.2 "`permission-denied` remove o amigo da lista em cache" vale também para **par inexistente** (abrir por endereço quem deixou de ser amigo).
 
 ### Mutações Dart novas (`V1–V32`, docs/83 §4 desta fatia)
-V1 offline serve o cache de memória; V2 `permission-denied` mantém o cache; V3 … mantém o amigo na lista; V4 fronteira do TTL (5:00 ainda servido); V5 TTL nunca expira; V6 "Atualizar" respeita o TTL; V7 leitura do amigo do cache do aparelho (`Source.server` trocado); V8 timeout de 30 s em vez de 8 s; V9 cache mantido na troca de conta/período; V10 … num novo período de amizades; V11 Remover pelo perfil mantém o cache; V12 Bloquear idem; V13 rota aceita uid malformado; V14 uid com `_`; V15 uid > 128; V16 próprio uid sem redirecionar; V17 cartão entregue pela lista ignorado (lê o par); V18 `not-found` não vai para o cache; V19 erro online mostrado como offline; V20 `permission-denied` como erro com "Tentar novamente"; V21 mostra as 10 atividades; V22 número ausente vira 0 (grade); V23 … (leitor); V24 a lista não entrega o cartão (`extra`); V25 reconexão não recarrega; V26 cargas simultâneas não se juntam; V27 Esc não volta; V28 sem foco inicial em "Voltar"; V29 Remover habilitado offline; V30 "Atualizar" habilitado offline; V31 `tz` fora da faixa aceito; V32 "No CineTrack desde" sem Estatísticas (D8).
+V1 offline serve o cache de memória; V2 `permission-denied` mantém o cache; V3 … mantém o amigo na lista; V4 fronteira do TTL (5:00 ainda servido); V5 TTL nunca expira; V6 "Atualizar" respeita o TTL; V7 leitura do amigo do cache do aparelho (`Source.server` trocado); V8 timeout de 30 s em vez de 8 s; V9 cache mantido na troca de conta/período; V10 … num novo período de amizades; V11 Remover pelo perfil mantém o cache; V12 Bloquear idem; V13 rota aceita uid malformado; V14 uid com `_`; V15 uid > 128; V16 próprio uid sem redirecionar; V17 cartão entregue pela lista ignorado (lê o par); V18 `not-found` não vai para o cache; V19 erro online mostrado como offline; V20 `permission-denied` como erro com "Tentar novamente"; V21 mostra as 10 atividades; V22 número ausente vira 0 (grade); V23 … (leitor); V24 a rota ignora o cartão entregue (`extra`); V25 reconexão não recarrega; V26 cargas simultâneas não se juntam; V27 Esc não volta; V28 sem foco inicial em "Voltar"; V29 Remover habilitado offline; V30 "Atualizar" habilitado offline; V31 `tz` fora da faixa aceito; V32 "No CineTrack desde" sem Estatísticas (D8).
+Primeira rodada (só V1–V32 + Q9/Q10/Q18): 34 de 35 mortas; sobreviveu a primeira versão de `V24` ("o cartão da lista não passa o `extra`"), **equivalente**: o cartão tocado está sempre na lista em memória, a segunda fonte do cabeçalho. A `V24` foi reapontada para a rota (`extra` ignorado) com um teste novo (push com `extra` sem lista carregada = 0 leituras do par; `extra` de outro uid nunca é usado) e morre.
 `Q9`, `Q10`, `Q18` (Fatia 2, prévia do dono) foram reapontadas para a grade nova (`r.total.watchedEpisodes`, `r.total.completedSeries`, `r.series`; mesma intenção).
 
 ### Suposições (não verificadas)
