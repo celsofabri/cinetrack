@@ -82,3 +82,26 @@ K1 `recs` gravado sem consentimento (motor monta `recs` para todos); K2 `recs` f
 
 ### Critério de aceite deste handoff
 - Code Review e QA aprovados; `flutter analyze` limpo; `flutter test` e a suíte Dart de mutações verdes no ambiente do revisor. Depois, merge e publicação do app **junto com a política**.
+
+## Rodada 2 (gates de 32c7f13: Code Review APROVADO, 3 🟢; QA REPROVADO, 1 🟡 só de teste)
+Todos os achados fechados nesta rodada. `firestore.rules` continua intacto (sha256 `6135322e…`); payloads e golden inalterados (`npm test` não precisou rodar).
+
+| Achado | Correção |
+|---|---|
+| 🟡 QA: o leitor descartar título em branco (decisão 6) e id < 1 não tinha teste (Z4/Z5 sobreviviam) | `QA-F4-1` em `test/fatia4_recs_test.dart`, como validado pelo QA (título em branco/vazio e id 0/−4 ignorados; `count` negativo = desconhecido, sem "e mais"); mutações `Z4` e `Z5` |
+| 🟢 CR2: limite de título também no leitor do amigo | `SharedRecsReading` corta o título em 300 com o **mesmo** corte do validador do dono (`_cut` virou `SharedProfileValidator.cutTitle`, sem mudar comportamento; não parte um par substituto). `QA-F4-1` estendido com título de 301 caracteres → 300; mutação `Z6` |
+| 🟢 CR1 (decisão do Orquestrador): transparência sobre a ordem | `web/privacidade.html`, parágrafo "Minhas recomendações": a ordem da aba segue a sua atividade recente (o que você assistiu ou favoritou por último vem primeiro), então um amigo pode perceber, pela ordem, o que você assistiu há pouco, mesmo com "Atividades recentes" desligado. `PrivacySummary`: "…na ordem da sua aba, que segue o que você assistiu ou favoritou por último, e quantos são…" (teste literal em `test/sharing_section_test.dart` atualizado) |
+| 🟢 CR3: risco de rollback no checklist | Seção "Checklist de release" abaixo |
+
+### Checklist de release (Fase 2, Fatia 4)
+- Publicar `web/privacidade.html` **junto** com o app desta fatia (a versão anterior da política dizia que as recomendações não eram compartilhadas). "Última atualização" = 18/10/2026; ajustar para a data do commit de release se for outro dia.
+- **Rollback**: o app anterior **não sabe desligar "Recomendados"** (não tem o interruptor). O `recs` já gravado continua no documento e legível pelos amigos mútuos que estiverem nesta versão (a da Fatia 3 ignora `recs`). Remédio: voltar para esta versão e desligar, desativar as amizades ou excluir a conta. Não fazer rollback do app depois de usuários ligarem "Recomendados" sem avisar o Manager.
+- Regras: nenhuma publicação (inalteradas).
+
+### Números da rodada 2 (HEAD 99c9c1c)
+| Comando | Resultado |
+|---|---|
+| `flutter analyze` | No issues found |
+| `flutter test` | **1981/1981** (+1, QA-F4-1) |
+| Mutações (cópia em /tmp): K1–K22, Z4, Z5, Z6 | **25/25 KILLED**, "All Dart mutations were killed." |
+| Conferência da lista | as **173** mutações aplicam (trecho único) e compilam |
