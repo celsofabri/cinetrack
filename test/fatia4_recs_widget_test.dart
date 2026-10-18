@@ -279,10 +279,36 @@ void main() {
       expect(tester.widget<SwitchListTile>(_switch('Recomendados')).value, isFalse);
     });
 
+    for (final width in [320.0, 1440.0]) {
+      for (final scale in [1.0, 3.0]) {
+        testWidgets('$width px ${scale}x: preview with 51 long titles fits', (tester) async {
+          final rig = SharingRig();
+          for (var i = 1; i <= 51; i++) {
+            rig.seed(_rec(i, title: 'Um título de filme muito comprido $i ' * 8));
+          }
+          rig.seedShared({SharedSection.stats, SharedSection.recs});
+          tester.view.physicalSize = Size(width, 30000);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          await _open(tester, _ownerApp(rig, width: width, textScale: scale));
+          await tester.tap(find.text('Como seus amigos veem'));
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          expect(find.byType(SharedRecTile), findsNWidgets(50));
+          expect(find.text('e mais 1'), findsOneWidget);
+        });
+      }
+    }
+
     for (final scale in [1.0, 3.0]) {
       testWidgets('320 px ${scale}x: the 51-title dialog fits, scrolls and shares', (tester) async {
         final rig = _owner(51);
+        tester.view.physicalSize = const Size(320, 700);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
         await _open(tester, _ownerApp(rig, width: 320, textScale: scale));
+        await tester.ensureVisible(_switch('Recomendados'));
+        await tester.pumpAndSettle();
         await tester.tap(_switch('Recomendados'));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
