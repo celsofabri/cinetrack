@@ -1,6 +1,7 @@
 import '../models/favorite_doc.dart';
 import '../models/media_type.dart';
 import '../models/season_cache.dart';
+import '../shared_profile/safe_int.dart';
 import 'favorite_mapper.dart';
 
 /// Conversion conventions of the "Tempo assistido" statistic (docs/18):
@@ -9,6 +10,12 @@ const int kMinutesPerHour = 60;
 const int kMinutesPerDay = 24 * kMinutesPerHour;
 const int kMinutesPerMonth = 30 * kMinutesPerDay;
 const int kMinutesPerYear = 365 * kMinutesPerDay;
+
+/// Largest duration [WatchTimeFormatter] computes with: the largest integer
+/// a JS number holds exactly. Far above any real total (the shared one is
+/// capped at 100 years by its readers, docs/82 §4.4), so the owner's own
+/// numbers are untouched; it only keeps the arithmetic safe.
+const int kMaxFormattedMinutes = kMaxSafeInt;
 
 /// Total watched time and how trustworthy it is.
 class WatchTime {
@@ -74,11 +81,14 @@ class WatchTimeCalculator {
 /// `< 1 h` minutes; `< 24 h` hours (+ minutes); `>= 24 h` days and hours;
 /// `>= 30 days` months, days, hours; `>= 365 days` years, months, days, hours.
 /// Zero units are omitted; from one day up minutes are dropped.
+///
+/// Input above [kMaxFormattedMinutes] (2^53 - 1; on the web also Infinity,
+/// which "is int" there) shows as that ceiling; never throws.
 class WatchTimeFormatter {
   const WatchTimeFormatter._();
 
   static String format(int totalMinutes) {
-    final minutes = totalMinutes < 0 ? 0 : totalMinutes;
+    final minutes = _bounded(totalMinutes);
     if (minutes < kMinutesPerHour) return _unit(minutes, 'min', 'min');
     if (minutes < kMinutesPerDay) {
       final h = minutes ~/ kMinutesPerHour;
@@ -103,8 +113,16 @@ class WatchTimeFormatter {
 
   /// "1.234 h no total" (whole hours, thousands separated with a dot).
   static String accumulatedHours(int totalMinutes) {
-    final hours = (totalMinutes < 0 ? 0 : totalMinutes) ~/ kMinutesPerHour;
+    final hours = _bounded(totalMinutes) ~/ kMinutesPerHour;
     return '${_thousands(hours)} h no total';
+  }
+
+  /// 0..[kMaxFormattedMinutes] (hotfix A2, docs/92): on the web an
+  /// `Infinity` "is int" and `~/` on it throws, so the formatter clamps
+  /// instead of trusting its caller. Never throws.
+  static int _bounded(int totalMinutes) {
+    if (totalMinutes < 0) return 0;
+    return totalMinutes > kMaxFormattedMinutes ? kMaxFormattedMinutes : totalMinutes;
   }
 
   static String _thousands(int n) {

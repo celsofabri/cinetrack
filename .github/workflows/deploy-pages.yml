@@ -54,6 +54,15 @@ jobs:
           TZ: America/Sao_Paulo
         run: flutter test
 
+      # Production is dart2js, where every integral JS number "is int"
+      # (Infinity and 1e300 too): the friend-side readers are also tested
+      # with web semantics (hotfix A2, docs/92). Scoped to the files that
+      # need it; Chrome is preinstalled on the GitHub-hosted ubuntu images.
+      - name: Test (web semantics, Chrome)
+        env:
+          TZ: America/Sao_Paulo
+        run: flutter test --platform chrome test/shared_reading_web_safe_test.dart
+
       # GitHub Pages drops dotfiles, so the key is compiled in with
       # --dart-define instead of shipped as the .env asset. Never echoed.
       - name: Build web

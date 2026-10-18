@@ -2,6 +2,10 @@
 /// no Firebase types, dates are UTC `DateTime`.
 library;
 
+import 'safe_int.dart';
+import 'shared_profile_validator.dart'
+    show kMaxActivityCount, kMaxEpisodeNumber, kMaxSeasonNumber, kMaxSharedId;
+
 /// Version of the document schema (`v`) and of the calculation (`calc`).
 const kSharedSchemaVersion = 1;
 const kSharedCalcVersion = 1;
@@ -332,16 +336,18 @@ class ActivityItem {
 
   /// Defensive reader (docs/82 §4.4, transition #20): an item of an unknown
   /// type, or missing / mistyped fields, is IGNORED (null), never thrown.
+  /// Numbers go through [readSafeInt] with the §4.4 ceilings (hotfix A2,
+  /// docs/92): an id outside 1..[kMaxSharedId] drops the item; an
+  /// out-of-range count/season/episode is unknown (null).
   static ActivityItem? tryParse(Object? raw) {
     if (raw is! Map) return null;
     final type = ActivityType.fromJson(raw['type']);
-    final id = raw['id'];
     final mediaType = raw['mediaType'];
     final title = raw['title'];
     final at = raw['at'];
-    if (type == null || id is! int || title is! String || at is! DateTime) return null;
+    final id = readSafeInt(raw['id'], min: 1, max: kMaxSharedId);
+    if (type == null || id == null || title is! String || at is! DateTime) return null;
     if (mediaType != 'movie' && mediaType != 'tv') return null;
-    int? optInt(Object? v) => v is int ? v : null;
     final poster = raw['poster'];
     return ActivityItem(
       type: type,
@@ -350,9 +356,10 @@ class ActivityItem {
       title: title,
       poster: poster is String ? poster : null,
       at: at.toUtc(),
-      count: optInt(raw['count']),
-      season: optInt(raw['season']),
-      episode: optInt(raw['episode']),
+      // Out of range (docs/82 §4.4) = unknown, as a mistyped value.
+      count: readSafeInt(raw['count'], min: 1, max: kMaxActivityCount),
+      season: readSafeInt(raw['season'], max: kMaxSeasonNumber),
+      episode: readSafeInt(raw['episode'], max: kMaxEpisodeNumber),
     );
   }
 
@@ -491,7 +498,9 @@ bool _listEq<T>(List<T> a, List<T> b) {
 bool _dateEq(DateTime? a, DateTime? b) =>
     a == null ? b == null : b != null && a.millisecondsSinceEpoch == b.millisecondsSinceEpoch;
 
-int? _nonNegInt(Object? v) => v is int && v >= 0 ? v : null;
+/// The owner's own document: same safe reader, no ceilings (only the owner
+/// writes there; the app clamps before writing).
+int? _nonNegInt(Object? v) => readSafeInt(v);
 
 /// Defensive readers of the stored sections (docs/82 §4.4, RF-F9): anything
 /// malformed is null (the section is treated as absent), never thrown.

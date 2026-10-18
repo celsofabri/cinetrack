@@ -1,3 +1,5 @@
+import 'period_key.dart';
+import 'safe_int.dart';
 import 'shared_profile_models.dart';
 import 'shared_profile_validator.dart';
 
@@ -47,11 +49,11 @@ class PeriodReading {
     final key = raw['key'];
     return PeriodReading(
       key: key is String ? key : null,
-      watchedMovies: readCount(raw['watchedMovies']),
-      watchedEpisodes: readCount(raw['watchedEpisodes']),
-      watchedSeries: readCount(raw['watchedSeries']),
-      completedSeries: readCount(raw['completedSeries']),
-      minutes: readCount(raw['minutes']),
+      watchedMovies: readCount(raw['watchedMovies'], max: kMaxSharedFavorites),
+      watchedEpisodes: readCount(raw['watchedEpisodes'], max: kMaxSharedWatchedEpisodes),
+      watchedSeries: readCount(raw['watchedSeries'], max: kMaxSharedFavorites),
+      completedSeries: readCount(raw['completedSeries'], max: kMaxSharedFavorites),
+      minutes: readCount(raw['minutes'], max: kMaxSharedMinutes),
     );
   }
 
@@ -65,8 +67,10 @@ class PeriodReading {
   }
 }
 
-/// A non-negative int, else null (unknown).
-int? readCount(Object? v) => v is int && v >= 0 ? v : null;
+/// A whole number in 0..[max], else null (unknown, "—"). The ceilings are
+/// those of docs/82 §4.4: the official app never writes more (it clamps),
+/// so anything above was written by a modified client (hotfix A2, docs/92).
+int? readCount(Object? v, {int max = kMaxSafeInt}) => readSafeInt(v, max: max);
 
 class SharedStatsReading {
   final int? favorites;
@@ -124,14 +128,14 @@ class SharedStatsReading {
     final t = total is Map ? total : const {};
     DateTime? date(Object? v) => v is DateTime ? v.toUtc() : null;
     return SharedStatsReading(
-      favorites: readCount(t['favorites']),
-      movies: readCount(t['movies']),
-      series: readCount(t['series']),
+      favorites: readCount(t['favorites'], max: kMaxSharedFavorites),
+      movies: readCount(t['movies'], max: kMaxSharedFavorites),
+      series: readCount(t['series'], max: kMaxSharedFavorites),
       total: PeriodReading.read(t),
       month: PeriodReading.read(raw['month']),
       year: PeriodReading.read(raw['year']),
-      undatedMovies: readCount(raw['undatedMovies']) ?? 0,
-      undatedEpisodes: readCount(raw['undatedEpisodes']) ?? 0,
+      undatedMovies: readCount(raw['undatedMovies'], max: kMaxSharedFavorites) ?? 0,
+      undatedEpisodes: readCount(raw['undatedEpisodes'], max: kMaxSharedWatchedEpisodes) ?? 0,
       datedFrom: date(raw['datedFrom']),
       memberSince: date(raw['memberSince']),
     );
@@ -162,7 +166,7 @@ class SharedRecsReading {
     if (raw is! Map) return null;
     final items = raw['items'];
     return SharedRecsReading(
-      count: readCount(raw['count']),
+      count: readCount(raw['count'], max: kMaxSharedRecCount),
       items: [
         if (items is List)
           for (final i in items.take(kMaxSharedRecItems)) ?_item(i),
@@ -172,10 +176,10 @@ class SharedRecsReading {
 
   static RecItem? _item(Object? raw) {
     if (raw is! Map) return null;
-    final id = raw['id'];
+    final id = readSafeInt(raw['id'], min: 1, max: kMaxSharedId);
     final mediaType = raw['mediaType'];
     final title = raw['title'];
-    if (id is! int || id < 1 || title is! String || title.trim().isEmpty) return null;
+    if (id == null || title is! String || title.trim().isEmpty) return null;
     if (mediaType != 'movie' && mediaType != 'tv') return null;
     final poster = raw['poster'];
     return RecItem(
@@ -219,11 +223,10 @@ class FriendSharedView {
 
   static FriendSharedView parse(Map<String, dynamic> raw) {
     final updated = raw['updatedAt'];
-    final tz = raw['tz'];
     final activity = raw['activity'];
     return FriendSharedView(
       updatedAt: updated is DateTime ? updated.toUtc() : null,
-      tz: tz is int && tz >= -840 && tz <= 840 ? tz : 0,
+      tz: readSafeInt(raw['tz'], min: kMinTzMinutes, max: kMaxTzMinutes) ?? 0,
       stats: SharedStatsReading.read(raw['stats']),
       activity: activity is List ? ActivityItem.parseList(activity) : null,
       recs: SharedRecsReading.read(raw['recs']),
