@@ -192,6 +192,7 @@ class SharedRecsView extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Semantics(
+          container: true,
           label: 'Recomendações: ${count ?? 'sem informação'}',
           excludeSemantics: true,
           child: Text(

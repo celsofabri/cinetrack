@@ -413,7 +413,7 @@ void main() {
         tester,
       ) async {
         final rig = _Rig();
-        tester.view.physicalSize = Size(width, 3600); // privacy summary grew (Fatia 2)
+        tester.view.physicalSize = Size(width, 4000); // privacy summary grew (Fatias 2 and 4)
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);
         await tester.pumpWidget(
