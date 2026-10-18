@@ -105,3 +105,18 @@ Todos os achados fechados nesta rodada. `firestore.rules` continua intacto (sha2
 | `flutter test` | **1981/1981** (+1, QA-F4-1) |
 | Mutações (cópia em /tmp): K1–K22, Z4, Z5, Z6 | **25/25 KILLED**, "All Dart mutations were killed." |
 | Conferência da lista | as **173** mutações aplicam (trecho único) e compilam |
+
+## Rodada 3 (review integrado da Fase 2 em aac57b5: APROVADO, 3 🟢)
+| Achado | Correção |
+|---|---|
+| 🟢1 "por enquanto" no `PrivacySummary` | Agora: "Suas listas e recomendações são privadas: só você as vê (fora o que você escolher mostrar a amigos, abaixo)." Mesmo resto encontrado e corrigido na aba Minhas recomendações (`kRecommendationsPrivacyNote`): "Só você vê esta lista, a menos que você ligue "Recomendados" em "O que seus amigos veem", no perfil.". `web/privacidade.html`: nenhum "por enquanto" (conferido). Teste em `test/recommendations_ui_test.dart` (frase nova + nenhum "por enquanto"); mutação `Z9` |
+| 🟢2 pista local `sharedHint:<uid>` | Apagada na exclusão de conta (junto de `socialHint`, `AccountController`) e na desativação das amizades (`SocialController.deactivate`, quando as amizades ficam desligadas: o documento compartilhado já foi apagado, D11). Testes em `test/fatia4_recs_test.dart` (exclusão apaga só a do uid excluído; desativação apaga); mutações `Z7`, `Z8` |
+| 🟢3 cota consolidada | docs/82 §11.1: tabela única com leitura de sessão, +1 por reconexão real, +1 releitura ao ligar, leituras do incerto, perfil de amigo 2 a frio / 3 por endereço / 0 no TTL, etc. |
+
+### Números da rodada 3 (código em 10688df)
+| Comando | Resultado |
+|---|---|
+| `flutter analyze` | No issues found |
+| `flutter test` | **1983/1983** (+2) |
+| `TZ=UTC flutter test` | **1983/1983** |
+| Mutações das áreas tocadas (cópia em /tmp): D10, D12, D13, D14, os dois E2, K1–K22, Z4–Z9 | **34/34 KILLED**, "All Dart mutations were killed." |

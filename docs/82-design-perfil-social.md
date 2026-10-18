@@ -468,6 +468,29 @@ Por usuário/dia (hipótese do PA: 100 usuários sociais ativos, 30% compartilha
 - **F3**: ranking com N amigos lê N documentos (2N leituras a frio; 0 se já no TTL compartilhado com o perfil de amigo). Com 20 amigos, 40 leituras por abertura; a F3 precisa de TTL próprio e, se quiser consultas, `documentId in [≤ 10]` (medido na Fase 1).
 - Bytes: documento típico ≈ 3–8 KB; pior ≈ 30 KB (50 recomendados com títulos longos).
 
+### 11.1 Tabela consolidada, como implementado (Fatias 2–4; docs/86, docs/87, docs/88)
+Revisão de 2026-10-18 (review integrado da Fase 2): números conferidos por contadores nos fakes dos testes; "Regra" como acima; ainda **não medidos em produção**. Onde difere da tabela anterior, vale esta.
+
+| Ação | Leituras do app | Regra | Escritas | Deletes | Fonte |
+|---|---|---|---|---|---|
+| Início de sessão com amizades ativas (estado do dono; serve de sonda) | 1 por sessão | 0 | 0 | 0 | docs/86 |
+| Reconexão real (cache → servidor depois de o servidor já ter respondido) | +1 por reconexão | 0 | 0 | 0 | docs/86 rodada 2 (B) |
+| Início de sessão sem amizades ativas | 0 (sonda: 1 por aparelho, uma vez) | 0 | 0 | 0 | docs/85, docs/86 |
+| Ligar uma seção (Estatísticas, Atividades ou Recomendados) | 1 (transação) **+ 1 releitura** (`actSince`/`updatedAt` do servidor) | 1 (`social`) | 1 | 0 | docs/86 decisão 2, docs/88 |
+| Desligar uma seção | 1 (transação) | 1 | 1 (ou 0) | 0 (ou 1, se era a última) | docs/86 |
+| Ligar/desligar com resultado incerto | +1 leitura quando a transação original termina (limite 60 s); se essa leitura falha online sem reconexão, no máximo +1 após 30 s | 0 | 0 | 0 | docs/86 rodada 2 (A) |
+| Mudança dos favoritos de quem compartilha (marcar, "Recomendo", remover) | 0 | 0 | ≤ 1 por janela de 5 s (máx. 30 s) e só se a seção mudou; pulso ≤ 1/dia | 0 | docs/86, docs/88 |
+| Mudança dos favoritos de quem não compartilha | 0 | 0 | **0** | 0 | docs/86, docs/88 |
+| Perfil de amigo pela lista, a frio | 1 (`Source.server`) | 1 (`isFriend`) | 0 | 0 | docs/87 |
+| Perfil de amigo por endereço, sem lista em memória | 2 (par + perfil) | 1 | 0 | 0 | docs/87 |
+| Reabrir perfil de amigo no TTL (5 min) / offline / uid inválido / próprio uid | 0 | 0 | 0 | 0 | docs/87 |
+| "Atualizar" / "Tentar novamente" no perfil de amigo | 1 | 1 | 0 | 0 | docs/87 |
+| Não amigo por endereço | 1 (par: não existe) | 0 | 0 | 0 | docs/87 |
+| Exportar | +1 | 0 | 0 | 0 | docs/85 |
+| Excluir conta / desativar amizades | 0 | 0 | 0 | 2 (idempotentes) | docs/85 |
+
+Em resumo: o dono com amizades ativas custa 1 leitura por sessão, mais 1 por reconexão real e mais 2 por seção ligada (transação + releitura). Abrir um amigo custa 2 cobradas pela lista, 3 por endereço e 0 dentro do TTL. Quem não compartilha nada tem 0 escritas novas.
+
 ## 12. Rollout e rollback
 Ordem obrigatória (o Orquestrador publica regras e índices pela CLI; o resto como na Fase 1):
 1. Manager exporta a própria conta e anota os números do Perfil.
