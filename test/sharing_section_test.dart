@@ -97,7 +97,7 @@ void main() {
     expect(rig.log, isNot(contains('readOwn')));
   });
 
-  testWidgets('everything off by default: 2 toggles, the card text, 1 read, 0 writes', (
+  testWidgets('everything off by default: 3 toggles, the card text, 1 read, 0 writes', (
     tester,
   ) async {
     final rig = _rigWith({});
@@ -106,7 +106,7 @@ void main() {
     expect(find.text('O que seus amigos veem'), findsOneWidget);
     expect(_on(tester, 'Estatísticas'), isFalse);
     expect(_on(tester, 'Atividades recentes'), isFalse);
-    expect(find.text('Recomendados'), findsNothing, reason: 'Fatia 4');
+    expect(_on(tester, 'Recomendados'), isFalse, reason: 'D2: off by default');
     expect(find.text(kSharingAllOff), findsOneWidget);
     expect(rig.log, ['readOwn']);
     expect(rig.shared.toggles, isEmpty);
@@ -124,6 +124,16 @@ void main() {
       tester.getSemantics(_switch('Atividades recentes')),
       isSemantics(
         label: 'Compartilhar atividades recentes com amigos',
+        hasToggledState: true,
+        isToggled: false,
+        isEnabled: true,
+        hasTapAction: true,
+      ),
+    );
+    expect(
+      tester.getSemantics(_switch('Recomendados')),
+      isSemantics(
+        label: 'Compartilhar recomendados com amigos',
         hasToggledState: true,
         isToggled: false,
         isEnabled: true,
@@ -293,7 +303,9 @@ void main() {
     expect(find.text(kSharingNoActivity), findsOneWidget);
   });
 
-  testWidgets('focus order: Estatísticas, Atividades, Como seus amigos veem, each activity', (
+  testWidgets(
+    'focus order: Estatísticas, Atividades, Recomendados, Como seus amigos veem, each activity',
+    (
     tester,
   ) async {
     final rig = _rigWith(
@@ -302,7 +314,7 @@ void main() {
     );
     await _open(tester, _app(rig));
     final order = <String>[];
-    for (var i = 0; i < 6; i++) {
+    for (var i = 0; i < 7; i++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
       final focus = FocusManager.instance.primaryFocus?.context;
@@ -314,9 +326,10 @@ void main() {
       final words = [for (final t in tester.widgetList<Text>(texts)) t.data ?? ''];
       order.add(words.isEmpty ? '?' : words.first);
     }
-    expect(order.take(6).toList(), [
+    expect(order.take(7).toList(), [
       'Estatísticas',
       'Atividades recentes',
+      'Recomendados',
       'Como seus amigos veem',
       'Assistiu Filme 1',
       'Assistiu Filme 2',
@@ -390,9 +403,10 @@ void main() {
         'Por padrão, quem vira seu amigo vê só o seu cartão (apelido e foto). Em "O que seus '
         'amigos veem", no perfil, você escolhe, por seção, mostrar também a amigos mútuos suas '
         'estatísticas (números totais, deste mês e deste ano, tempo assistido e desde quando está '
-        'no CineTrack) e suas atividades recentes (títulos que favoritou, assistiu ou concluiu, só a '
-        'partir de quando ligar); para isso guardamos uma cópia só do que você ligou, e desligar '
-        'apaga na hora.',
+        'no CineTrack), suas atividades recentes (títulos que favoritou, assistiu ou concluiu, só a '
+        'partir de quando ligar) e seus recomendados (até 50 títulos que marcou com Recomendo, na '
+        'ordem da sua aba, e quantos são); para isso guardamos uma cópia só do que você ligou, e '
+        'desligar apaga na hora.',
       ),
       findsOneWidget,
     );

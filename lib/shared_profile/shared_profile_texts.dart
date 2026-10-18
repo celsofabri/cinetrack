@@ -120,6 +120,17 @@ class SharedProfileTexts {
 
   static String noActivityYet(String name) => '$name ainda não tem atividades recentes.';
 
+  static String noRecs(String name) => '$name não compartilha recomendados com amigos.';
+
+  /// The friend shares "Recomendados" but has none listed.
+  static String noRecsYet(String name) => '$name ainda não tem recomendados.';
+
+  /// The owner's preview with nothing recommended yet.
+  static const ownNoRecs = 'Você ainda não marcou nenhum título com Recomendo.';
+
+  /// Footer when `recs.count` is larger than the list (RF-R1: 51 = "e mais 1").
+  static String andMore(int n) => 'e mais $n';
+
   /// Without a name (opened by address, header not known yet).
   static String offline(String? name) => name == null
       ? 'Sem conexão. Conecte-se para ver este perfil.'

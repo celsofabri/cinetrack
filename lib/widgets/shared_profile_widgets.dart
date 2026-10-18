@@ -6,6 +6,7 @@ import '../shared_profile/period_key.dart';
 import '../shared_profile/shared_profile_models.dart';
 import '../shared_profile/shared_profile_texts.dart';
 import '../shared_profile/shared_stats_reading.dart';
+import 'poster_image.dart';
 import 'profile_stats_card.dart';
 
 /// The shared statistics as friends see them (docs/82 §9: the same
@@ -164,6 +165,88 @@ class SharedActivityTile extends StatelessWidget {
         subtitle: ExcludeSemantics(child: Text(ago)),
         onTap: () =>
             context.push(item.mediaType == 'movie' ? '/movie/${item.id}' : '/tv/${item.id}'),
+      ),
+    );
+  }
+}
+
+/// "Recomendados" as friends see them (docs/81 RF-R1, docs/82 §5.4): the
+/// number "Recomendações" (`recs.count`, "—" when unknown), the listed
+/// titles in the owner's order (at most 50) and "e mais N" when the number
+/// is larger than the list. The same component in the owner's preview and
+/// in the friend's profile.
+class SharedRecsView extends StatelessWidget {
+  final SharedRecsReading reading;
+
+  /// Shown instead of the list when nothing is listed.
+  final String emptyText;
+
+  const SharedRecsView({super.key, required this.reading, required this.emptyText});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final count = reading.count;
+    final more = reading.more;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          label: 'Recomendações: ${count ?? 'sem informação'}',
+          excludeSemantics: true,
+          child: Text(
+            'Recomendações: ${count ?? SharedProfileTexts.unknownValue}',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+        if (reading.items.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(emptyText, style: theme.textTheme.bodyMedium),
+          )
+        else
+          for (final item in reading.items) SharedRecTile(item: item),
+        if (more > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(SharedProfileTexts.andMore(more), style: theme.textTheme.bodySmall),
+          ),
+      ],
+    );
+  }
+}
+
+/// One recommended title: poster (or the media type's icon when there is
+/// none), title and kind; opens the title's details. Long titles are cut
+/// with an ellipsis, the screen reader gets the whole title.
+class SharedRecTile extends StatelessWidget {
+  final RecItem item;
+
+  const SharedRecTile({super.key, required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final movie = item.mediaType == 'movie';
+    final kind = movie ? 'Filme' : 'Série';
+    return MergeSemantics(
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: ExcludeSemantics(
+          child: PosterImage(
+            posterPath: item.poster,
+            width: 40,
+            height: 60,
+            fit: BoxFit.contain,
+            placeholderIcon: movie ? Icons.movie_outlined : Icons.live_tv_outlined,
+          ),
+        ),
+        title: Semantics(
+          label: '${item.title}, ${kind.toLowerCase()}',
+          excludeSemantics: true,
+          child: Text(item.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+        ),
+        subtitle: ExcludeSemantics(child: Text(kind)),
+        onTap: () => context.push(movie ? '/movie/${item.id}' : '/tv/${item.id}'),
       ),
     );
   }

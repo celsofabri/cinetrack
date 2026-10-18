@@ -28,8 +28,8 @@ final sharedProfileRepositoryProvider = Provider<SharedProfileRepository>(
 /// default; overridden in tests (America/Sao_Paulo = -180).
 final sharedTzProvider = Provider<int Function(DateTime now)>((ref) => deviceTzMinutes);
 
-/// The sections this slice lets the owner turn on (Recomendados: Fatia 4).
-const kSharingSections = [SharedSection.stats, SharedSection.activity];
+/// The toggles of "O que seus amigos veem", in this order (docs/81 RF-P2).
+const kSharingSections = [SharedSection.stats, SharedSection.activity, SharedSection.recs];
 
 enum SharingPhase {
   /// No active friendships (RF-P1): the section does not exist.
@@ -347,6 +347,7 @@ class SharingController extends Notifier<SharingState> {
             actSince: section == SharedSection.activity ? now : null,
             stats: section == SharedSection.stats ? content.stats : null,
             activity: section == SharedSection.activity ? const [] : null,
+            recs: section == SharedSection.recs ? content.recs : null,
           ),
         );
       }

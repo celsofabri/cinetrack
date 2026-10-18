@@ -6,6 +6,7 @@ import '../providers/sharing_providers.dart';
 import '../repositories/shared_profile_repository.dart';
 import '../shared_profile/shared_profile_models.dart';
 import '../shared_profile/shared_profile_texts.dart';
+import '../shared_profile/shared_stats_reading.dart';
 import 'shared_profile_widgets.dart';
 
 /// Literal texts of the consent dialogs (docs/81, "Textos literais").
@@ -54,7 +55,8 @@ String _semantic(SharedSection s) => switch (s) {
 
 /// "O que seus amigos veem" (docs/81 RF-P, docs/82 §7.1, §10): only with
 /// active friendships. Opt-in per section (D2), consent dialog with preview,
-/// turning off without confirmation, "Atualizado há", "Atividades recentes".
+/// turning off without confirmation, "Atualizado há", the preview "Como seus
+/// amigos veem" (statistics and recommended titles), "Atividades recentes".
 class SharingSection extends ConsumerStatefulWidget {
   const SharingSection({super.key});
 
@@ -79,6 +81,10 @@ class _SharingSectionState extends ConsumerState<SharingSection> {
     final now = ref.read(serverClockProvider).now();
     final doc = state.confirmed ? state.doc : null;
     final sections = state.sections;
+    // What the preview "Como seus amigos veem" shows: the sections in the
+    // written document (the same components as the friend's profile).
+    final sharedStats = doc != null && doc.sharing.contains(SharedSection.stats) ? doc.stats : null;
+    final sharedRecs = doc != null && doc.sharing.contains(SharedSection.recs) ? doc.recs : null;
     final skeleton = !state.confirmed && state.hint == null && state.phase == SharingPhase.loading;
     final inline = switch (state.phase) {
       SharingPhase.offline => SharedProfileFailure.offlineMessage,
@@ -127,7 +133,7 @@ class _SharingSectionState extends ConsumerState<SharingSection> {
                 style: theme.textTheme.bodySmall,
               ),
             ),
-          if (doc != null && doc.sharing.contains(SharedSection.stats) && doc.stats != null) ...[
+          if (doc != null && (sharedStats != null || sharedRecs != null)) ...[
             Align(
               alignment: Alignment.centerLeft,
               child: Semantics(
@@ -139,8 +145,21 @@ class _SharingSectionState extends ConsumerState<SharingSection> {
                 ),
               ),
             ),
-            if (_previewOpen)
-              SharedStatsView(stats: doc.stats!, tz: doc.tz, now: now, updatedAt: doc.updatedAt),
+            if (_previewOpen && sharedStats != null)
+              SharedStatsView(stats: sharedStats, tz: doc.tz, now: now, updatedAt: doc.updatedAt),
+            if (_previewOpen && sharedRecs != null) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 12, bottom: 4),
+                child: Semantics(
+                  header: true,
+                  child: Text('Recomendados', style: theme.textTheme.titleSmall),
+                ),
+              ),
+              SharedRecsView(
+                reading: SharedRecsReading.of(sharedRecs),
+                emptyText: SharedProfileTexts.ownNoRecs,
+              ),
+            ],
           ],
           if (doc != null && doc.sharing.contains(SharedSection.activity)) ...[
             Padding(
@@ -228,6 +247,7 @@ Future<SharedProfileContent?> showSharingConsentDialog(
       builder: (context, ref, _) {
         final preview = ref.watch(sharedPreviewProvider(section));
         final stats = preview?.stats;
+        final recs = preview?.recs;
         return AlertDialog(
           // The whole dialog scrolls: 320 px at 3x font still fits (RNF7).
           scrollable: true,
@@ -252,6 +272,21 @@ Future<SharedProfileContent?> showSharingConsentDialog(
                     tz: preview!.tz,
                     now: ref.read(serverClockProvider).now(),
                     totalGridKey: const Key('sharing-preview-grid'),
+                  ),
+                ],
+                if (section == SharedSection.recs && recs != null) ...[
+                  const SizedBox(height: 16),
+                  Semantics(
+                    header: true,
+                    child: Text('Prévia', style: Theme.of(context).textTheme.titleSmall),
+                  ),
+                  const SizedBox(height: 8),
+                  // Exactly what friends will see: the number, up to 50
+                  // titles in the order of the tab and "e mais N".
+                  SharedRecsView(
+                    key: const Key('sharing-preview-recs'),
+                    reading: SharedRecsReading.of(recs),
+                    emptyText: SharedProfileTexts.ownNoRecs,
                   ),
                 ],
               ],

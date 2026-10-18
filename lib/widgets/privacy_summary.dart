@@ -41,9 +41,10 @@ const kPrivacySharingSentence =
     'Por padrão, quem vira seu amigo vê só o seu cartão (apelido e foto). Em "O que seus '
     'amigos veem", no perfil, você escolhe, por seção, mostrar também a amigos mútuos suas '
     'estatísticas (números totais, deste mês e deste ano, tempo assistido e desde quando está '
-    'no CineTrack) e suas atividades recentes (títulos que favoritou, assistiu ou concluiu, só a '
-    'partir de quando ligar); para isso guardamos uma cópia só do que você ligou, e desligar '
-    'apaga na hora.';
+    'no CineTrack), suas atividades recentes (títulos que favoritou, assistiu ou concluiu, só a '
+    'partir de quando ligar) e seus recomendados (até 50 títulos que marcou com Recomendo, na '
+    'ordem da sua aba, e quantos são); para isso guardamos uma cópia só do que você ligou, e '
+    'desligar apaga na hora.';
 
 /// Short, plain-language summary of what is stored (full text in the page).
 class PrivacySummary extends StatelessWidget {

@@ -1,4 +1,5 @@
 import 'shared_profile_models.dart';
+import 'shared_profile_validator.dart';
 
 /// The shared statistics as a READER shows them (docs/81 RF-F9): every
 /// number is nullable. A field the document lacks (older schema), or whose
@@ -137,6 +138,63 @@ class SharedStatsReading {
   }
 }
 
+/// The recommended titles as a READER shows them (docs/81 RF-R1, RF-F9):
+/// the number "Recomendações" (`recs.count`; null = unknown, "—") and the
+/// listed titles in the owner's order. The owner's preview builds one from
+/// [SharedRecs], so both screens use the same view.
+class SharedRecsReading {
+  /// `recs.count`: how many titles the owner recommends (null = unknown).
+  final int? count;
+
+  /// At most [kMaxSharedRecItems], well-formed only, posters sanitized.
+  final List<RecItem> items;
+
+  const SharedRecsReading({this.count, this.items = const []});
+
+  factory SharedRecsReading.of(SharedRecs r) => SharedRecsReading(count: r.count, items: r.items);
+
+  /// Lenient reader of a friend's `recs`: null only when it is not a map
+  /// (the section is then treated as not shared). A malformed item (wrong
+  /// type, unknown media type, no title) is left out; a poster outside the
+  /// TMDB path format is dropped (the title shows without it).
+  static SharedRecsReading? read(Object? raw) {
+    if (raw is! Map) return null;
+    final items = raw['items'];
+    return SharedRecsReading(
+      count: readCount(raw['count']),
+      items: [
+        if (items is List)
+          for (final i in items.take(kMaxSharedRecItems)) ?_item(i),
+      ],
+    );
+  }
+
+  static RecItem? _item(Object? raw) {
+    if (raw is! Map) return null;
+    final id = raw['id'];
+    final mediaType = raw['mediaType'];
+    final title = raw['title'];
+    if (id is! int || id < 1 || title is! String || title.trim().isEmpty) return null;
+    if (mediaType != 'movie' && mediaType != 'tv') return null;
+    final poster = raw['poster'];
+    return RecItem(
+      id: id,
+      mediaType: mediaType as String,
+      title: title,
+      poster: SharedProfileValidator.sanitizePoster(poster is String ? poster : null),
+    );
+  }
+
+  /// Titles counted in "Recomendações" but not listed: the "e mais N"
+  /// footer (0 = no footer; also when the number is unknown).
+  int get more {
+    final c = count;
+    if (c == null) return 0;
+    final n = c - items.length;
+    return n > 0 ? n : 0;
+  }
+}
+
 /// What a friend shares, as their profile shows it (docs/82 §7.2). A
 /// section is shown when its FIELD is in the document (the rules keep a
 /// section and its consent together); an absent one is "não compartilha".
@@ -152,7 +210,10 @@ class FriendSharedView {
   /// Null = not shared. Malformed / unknown items are already left out.
   final List<ActivityItem>? activity;
 
-  const FriendSharedView({this.updatedAt, this.tz = 0, this.stats, this.activity});
+  /// Null = not shared.
+  final SharedRecsReading? recs;
+
+  const FriendSharedView({this.updatedAt, this.tz = 0, this.stats, this.activity, this.recs});
 
   static FriendSharedView parse(Map<String, dynamic> raw) {
     final updated = raw['updatedAt'];
@@ -163,6 +224,7 @@ class FriendSharedView {
       tz: tz is int && tz >= -840 && tz <= 840 ? tz : 0,
       stats: SharedStatsReading.read(raw['stats']),
       activity: activity is List ? ActivityItem.parseList(activity) : null,
+      recs: SharedRecsReading.read(raw['recs']),
     );
   }
 }

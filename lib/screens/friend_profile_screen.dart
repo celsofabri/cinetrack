@@ -21,7 +21,7 @@ import 'friends_screen.dart' show kBlockedMessage, kFriendRemovedMessage;
 
 /// A friend's profile (`/friends/u/:uid`, docs/82 §7.2, docs/81 RF-F):
 /// header of the pair, what the friend shares (statistics, the 3 latest
-/// activities) and the Phase 1 actions. Recommendations are Fatia 4.
+/// activities, the recommended titles) and the Phase 1 actions.
 class FriendProfileScreen extends StatelessWidget {
   final String uid;
 
@@ -343,6 +343,7 @@ class _Shared extends StatelessWidget {
     final theme = Theme.of(context);
     final stats = view.stats;
     final activity = view.activity;
+    final recs = view.recs;
     Widget heading(String text) => Padding(
       padding: const EdgeInsets.only(top: 16, bottom: 4),
       child: Semantics(header: true, child: Text(text, style: theme.textTheme.titleMedium)),
@@ -369,6 +370,11 @@ class _Shared extends StatelessWidget {
         else
           // Up to 10 are stored; the profile shows the 3 latest (D1).
           for (final a in activity.take(3)) SharedActivityTile(item: a, now: now),
+        heading('Recomendados'),
+        if (recs == null)
+          _Line(SharedProfileTexts.noRecs(name))
+        else
+          SharedRecsView(reading: recs, emptyText: SharedProfileTexts.noRecsYet(name)),
       ],
     );
   }
