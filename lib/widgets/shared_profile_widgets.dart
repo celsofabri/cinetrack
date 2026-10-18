@@ -247,7 +247,7 @@ class SharedRecTile extends StatelessWidget {
           child: Text(item.title, maxLines: 2, overflow: TextOverflow.ellipsis),
         ),
         subtitle: ExcludeSemantics(child: Text(kind)),
-        onTap: () => context.push(movie ? '/movie/${item.id}' : '/tv/${item.id}'),
+        onTap: () => context.push('/${movie ? 'movie' : 'tv'}/${item.id}'),
       ),
     );
   }
