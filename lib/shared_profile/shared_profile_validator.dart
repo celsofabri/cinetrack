@@ -169,7 +169,7 @@ class SharedProfileValidator {
                     type: a.type,
                     id: a.id,
                     mediaType: a.mediaType,
-                    title: _cut(a.title),
+                    title: cutTitle(a.title),
                     poster: sanitizePoster(a.poster),
                     at: capDate(a.at)!,
                     count: a.isEpisodes ? (a.count ?? 1).clamp(1, kMaxActivityCount) : null,
@@ -220,7 +220,7 @@ class SharedProfileValidator {
           RecItem(
             id: i.id,
             mediaType: i.mediaType,
-            title: _cut(i.title),
+            title: cutTitle(i.title),
             poster: sanitizePoster(i.poster),
           ),
     ].take(kMaxSharedRecItems).toList();
@@ -231,7 +231,7 @@ class SharedProfileValidator {
       id >= 1 && id <= kMaxSharedId && (mediaType == 'movie' || mediaType == 'tv');
 
   /// At most [kMaxSharedTitle] UTF-16 units, never splitting a surrogate pair.
-  static String _cut(String title) {
+  static String cutTitle(String title) {
     if (title.length <= kMaxSharedTitle) return title;
     var end = kMaxSharedTitle;
     final unit = title.codeUnitAt(end - 1);

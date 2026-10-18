@@ -155,7 +155,8 @@ class SharedRecsReading {
 
   /// Lenient reader of a friend's `recs`: null only when it is not a map
   /// (the section is then treated as not shared). A malformed item (wrong
-  /// type, unknown media type, no title) is left out; a poster outside the
+  /// type, id < 1, unknown media type, blank title) is left out; titles are
+  /// cut at [kMaxSharedTitle]; a poster outside the
   /// TMDB path format is dropped (the title shows without it).
   static SharedRecsReading? read(Object? raw) {
     if (raw is! Map) return null;
@@ -180,7 +181,8 @@ class SharedRecsReading {
     return RecItem(
       id: id,
       mediaType: mediaType as String,
-      title: title,
+      // Same cap as the owner's validator (a modified client could store more).
+      title: SharedProfileValidator.cutTitle(title),
       poster: SharedProfileValidator.sanitizePoster(poster is String ? poster : null),
     );
   }

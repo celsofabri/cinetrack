@@ -445,6 +445,38 @@ void main() {
       expect(of(49).more, 0, reason: 'a count smaller than the list never goes negative');
     });
 
+    test('QA-F4-1 reader: blank title (decision 6), id < 1 ignored; negative count = unknown', () {
+      final r = SharedRecsReading.read({
+        'count': 5,
+        'items': [
+          {'id': 1, 'mediaType': 'movie', 'title': 'Ok'},
+          {'id': 2, 'mediaType': 'movie', 'title': '   '},
+          {'id': 3, 'mediaType': 'tv', 'title': ''},
+          {'id': 0, 'mediaType': 'movie', 'title': 'zero'},
+          {'id': -4, 'mediaType': 'tv', 'title': 'neg'},
+        ],
+      })!;
+      expect([for (final i in r.items) i.id], [1]);
+      expect(r.more, 4);
+      final neg = SharedRecsReading.read({
+        'count': -3,
+        'items': [
+          {'id': 1, 'mediaType': 'movie', 'title': 'Ok'},
+        ],
+      })!;
+      expect(neg.count, isNull);
+      expect(neg.more, 0);
+      // CR2: the friend-side reader caps titles like the owner's validator.
+      final long = SharedRecsReading.read({
+        'count': 1,
+        'items': [
+          {'id': 1, 'mediaType': 'movie', 'title': 'x' * 301},
+        ],
+      })!;
+      expect(long.items.single.title.length, kMaxSharedTitle);
+      expect(long.items.single.title, 'x' * 300);
+    });
+
     test('the friend view: recs present = shared, absent = null', () {
       final shared = FriendSharedView.parse({
         'recs': {

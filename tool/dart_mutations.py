@@ -529,6 +529,16 @@ M=[
  ('K22 local view after turning on (read failed) without recs','lib/providers/sharing_providers.dart',
   '            recs: section == SharedSection.recs ? content.recs : null,\n','',
   ['test/fatia4_recs_test.dart']),
+ # --- Fatia 4, rodada 2 (QA docs/88) ---
+ ('Z4 reader accepts id < 1','lib/shared_profile/shared_stats_reading.dart',
+  "if (id is! int || id < 1 || title is! String","if (id is! int || title is! String",
+  ['test/fatia4_recs_test.dart']),
+ ('Z5 reader accepts a blank title','lib/shared_profile/shared_stats_reading.dart',
+  " || title.trim().isEmpty) return null;",") return null;",
+  ['test/fatia4_recs_test.dart']),
+ ('Z6 reader does not cap titles at 300 (CR2)','lib/shared_profile/shared_stats_reading.dart',
+  "      title: SharedProfileValidator.cutTitle(title),","      title: title,",
+  ['test/fatia4_recs_test.dart']),
 ]
 only=sys.argv[2:]
 bad=0

@@ -405,8 +405,8 @@ void main() {
         'estatísticas (números totais, deste mês e deste ano, tempo assistido e desde quando está '
         'no CineTrack), suas atividades recentes (títulos que favoritou, assistiu ou concluiu, só a '
         'partir de quando ligar) e seus recomendados (até 50 títulos que marcou com Recomendo, na '
-        'ordem da sua aba, e quantos são); para isso guardamos uma cópia só do que você ligou, e '
-        'desligar apaga na hora.',
+        'ordem da sua aba, que segue o que você assistiu ou favoritou por último, e quantos são); '
+        'para isso guardamos uma cópia só do que você ligou, e desligar apaga na hora.',
       ),
       findsOneWidget,
     );
