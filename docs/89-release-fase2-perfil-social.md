@@ -249,6 +249,54 @@ O app da Fase 1 (`9c57327`) **não sabe desligar** Estatísticas, Atividades rec
 
 ## 8. Smoke manual (Manager)
 
-> **Seção reservada.** O roteiro definitivo é o do QA (base: [docs/83 §5](./83-testabilidade-perfil-social.md), ampliado pelos riscos das Fatias 1 a 4) e será **inserido aqui pelo Orquestrador** antes do go/no-go. Até lá, este documento não está completo para o release.
->
-> O roteiro inserido precisa cobrir, no mínimo, o que o §7 (coluna "Coberto no smoke por") e o §5.3 pedem: linha de base de A intacta; sonda `epsAt` (`epsAt` no console e "Este mês" na prévia); ligar/desligar cada seção com os textos literais, inclusive incerto/offline; perfil de amigo pela lista e por endereço, TTL com 0 leituras no console, offline real, remover/bloquear pelo perfil; Recomendados (prévia, 50/"e mais N", desligar não desmarca nada); marcação em massa de série com ≥ 1000 episódios na conta B; fechar a aba em menos de 5 s; política no ar com a data do release; leitor de tela real; exclusão de conta de B sem resíduo em `shared_profiles`. Marcar cada passo ✅/❌ e só divulgar com 100% ✅.
+Roteiro definitivo do QA (parecer integrado da Fase 2, candidato bd2301f). **Contas:** A (a do Manager, com favoritos e séries) e B (conta Google de teste). Chrome com DevTools; aba anônima quando pedido. Marque ✅/❌ em cada passo; **qualquer ❌ = reportar ao Orquestrador antes de divulgar.** Regras e índices **nunca voltam** (§6). "Console" = Firebase Console > Firestore Database.
+
+> Nota do Orquestrador: o release saiu sob a autorização permanente do Manager (gates limpos → publicar e avisar), então a linha de base do passo 0 não foi tirada com o app antigo. O passo 0 vira "exportar logo ao abrir o app novo, antes de qualquer ação". O deploy do app não altera dados no Firestore; o app só grava em ações do usuário.
+
+### Parte 0: linha de base e regressão da Fase 1
+0. Com A, **Exportar meus dados** antes de qualquer outra ação. Guarde o JSON e anote no Perfil: favoritos, filmes, séries, episódios, assistidos, séries concluídas, tempo assistido e recomendados.
+1. Os números do Perfil de A batem com o que você conhece da sua conta; favoritos, progresso de uma série, Recomendo e apelido iguais. Nenhuma faixa "alteração recusada pelo servidor".
+2. Regressão da Fase 1 (resumo do docs/79 §3): A e B amigos (busca por `@handle` e pedido aceito); pedido cruzado vira amizade sem sobrar pedido; convite por link gera pedido e, revogado, mostra "Este convite não está disponível."; bloquear e desbloquear não devolve a amizade (refaça depois); "Aparecer na busca" desligado esconde A. Ao final, A e B amigos mútuos.
+
+### Parte 1: sonda `epsAt` e "O que seus amigos veem" (A)
+3. **Sonda:** marque 1 episódio novo. Console: `users/<uidA>/favorites/<id>` tem `epsAt.<s>_<e>` com a hora de agora. Desmarque (a entrada some) e marque de novo.
+4. **Seção:** Perfil > "O que seus amigos veem" aparece depois de Amizades, com 3 interruptores desligados (Estatísticas, Atividades recentes, Recomendados) e o cartão "Seus amigos veem só seu cartão (apelido e foto).". Console: não existe `shared_profiles/<uidA>`. Leitor de tela anuncia cada interruptor ("Compartilhar estatísticas com amigos", desligado).
+5. **Ligar Estatísticas:** diálogo com o texto literal do docs/81; prévia com os mesmos números do Perfil; Esc fecha sem gravar (console: nada); abrir de novo e **Compartilhar** → "Atualizado agora". Console: `shared_profiles/<uidA>` com `sharing.stats = true`, `stats`, `tz = -180`, `updatedAt`, sem `recs`/`activity`. "Como seus amigos veem" mostra No total, Este mês (com o episódio do passo 3), Este ano e "No CineTrack desde".
+6. **Ligar Atividades:** texto literal ("…até 10 das suas atividades mais recentes (seu perfil mostra as 3 últimas)…"). Compartilhar → "Suas próximas atividades aparecem aqui.". Marque um episódio: em ~5 s aparece "Assistiu T…E… de …"; console tem `activity[0]` e `actSince`.
+7. **Ligar Recomendados:** texto literal ("…até 50, na ordem da sua aba…"). Prévia com "Recomendações: N" e títulos na mesma ordem da aba Minhas recomendações. Compartilhar. Console: `recs.count = N`, `recs.items` só com `id`/`mediaType`/`title`/`poster`.
+8. **Recomendar não é atividade:** marque e desmarque "Recomendo" num título: `recs` muda em ~5 s e a lista de atividades não ganha item.
+9. **50/51** (se A tiver ≥ 51 recomendados; senão use B no passo 15): com 51, prévia com 50 títulos e "e mais 1"; com 50, sem "e mais".
+10. **Fechar a aba em < 5 s:** marque um episódio e feche a aba em menos de 5 s. Reabra o app; em B (passo 13), "Atualizar" no perfil de A mostra o número novo.
+11. **Rede ruim (B5):** DevTools > Network > Offline, toque num interruptor: não muda e aparece "Sem conexão. Tente de novo quando estiver online."; nada vai para a fila. Depois Slow 3G, desligue e ligue Atividades: se aparecer "Ainda não confirmado…", o interruptor fica desabilitado e termina no estado real do console.
+12. **Dois aparelhos (opcional, segunda janela de A):** ligar/desligar numa janela aparece na outra depois de Offline → Online ou ao recarregar.
+
+### Parte 2: perfil de amigo (B vê A)
+13. **Pela lista:** em B, Amigos > toque no cartão de A (ou Tab + Enter). Cabeçalho (apelido, foto, "Amigos desde", "No CineTrack desde") antes do conteúdo; estatísticas iguais à prévia de A; 3 atividades; Recomendados na ordem com "Recomendações: N". Console > Uso: ~2 leituras.
+14. **TTL e Atualizar:** reabrir em < 5 min = 0 leituras novas; "Atualizar" = 1; depois de 5 min = 1; por endereço (`…/#/friends/u/<uidA>` recarregado) = 2.
+15. **Recomendados do amigo:** 51 → 50 + "e mais 1"; 50 → sem "e mais". Tocar abre o detalhe (`/movie` ou `/tv`).
+16. **Seção desligada:** em A, desligue Recomendados → "Seus amigos não veem mais seus recomendados."; console sem `recs`/`sharing.recs`; Minhas recomendações de A não muda; em B, "Atualizar" → "A não compartilha recomendados com amigos.".
+17. **Offline real (D10):** em B, Offline e reabrir o perfil de A dentro do TTL: só cabeçalho e "Sem conexão. Conecte-se para ver o perfil de A."; nenhum número/atividade/recomendado; Atualizar/Remover/Bloquear desabilitados; ficar offline com o perfil aberto também esconde o conteúdo; online de novo, carrega sozinho.
+18. **Remover pela lista + reabrir:** em B, remova A pelo cartão e logo abra `…/#/friends/u/<uidA>` → "Este perfil não está disponível.", nunca o conteúdo antigo. Refaça a amizade.
+19. **Bloquear pelo perfil:** "Bloqueando..." → `/friends` e "Pessoa bloqueada. Ela não foi avisada."; reabrir por endereço → indisponível; em A, abrir B por endereço → indisponível. Desbloqueie e refaça a amizade.
+20. **Remover pelo perfil:** igual ao 19 com "Remover amizade" ("Amizade removida."). Refaça a amizade.
+21. **Teclado e 320 px (B):** foco inicial em "Voltar"; Tab: Atualizar → atividades → recomendados → Remover → Bloquear; Esc volta para Amigos. Em 320 px e fonte 200–300%, perfil, seção e diálogos rolam até "Compartilhar" sem texto cortado.
+22. **Leitor de tela real** (VoiceOver: Cmd+F5): números como "Rótulo: valor"; atividades com a frase inteira; recomendados como "Título, filme/série"; mensagens de estado anunciadas.
+
+### Parte 3: série longa (conta B)
+23. Em B, favorite uma série com ≥ 1000 episódios e use "marcar a série inteira": sem faixa de erro; console com `eps` e `epsAt` completos, mesma hora; recarregar mantém 100%; com Estatísticas ligado em B, a prévia mostra os episódios e "Este mês"; Desfazer volta tudo, inclusive no console. Se der erro, registre a mensagem e não insista (risco "não verificado" do §7).
+
+### Parte 4: exportação, desativação, exclusão, política
+24. **Exportar (A):** `schemaVersion: 3`; `sharedProfile` com `id`, `timestampFields` e `data` iguais ao console; favoritos com `epsAt`; `social` como na Fase 1; favoritos batem com o JSON do passo 0 (fora as marcações novas).
+25. **Desativar amizades (B, com uma seção ligada):** `shared_profiles/<uidB>` some e a seção some do Perfil; reativar começa com tudo desligado; se aparecer "Concluir limpeza", toque e confira o console.
+26. **Excluir a conta B** (com uma seção ligada antes): console sem `shared_profiles/<uidB>`, sem par ou pedido com B, `users/<uidB>` inexistente. Em A, B some de Amigos e `…/#/friends/u/<uidB>` → "Este perfil não está disponível.".
+27. **Política no ar:** https://celsofabri.github.io/cinetrack/privacidade.html com a data do release; "O que seus amigos veem" com Estatísticas, Atividades e Recomendados; nota de que a ordem dos recomendados segue a atividade recente; "desligar apaga na hora". No app, o Resumo de privacidade tem a frase de compartilhamento e não tem "por enquanto"; a nota de Minhas recomendações diz "…a menos que você ligue "Recomendados"…".
+28. **Dados intactos (A):** números do Perfil coerentes com o passo 0 mais as marcações do roteiro; um filme assistido e uma série com progresso conferidos.
+29. **Console > Uso, D0 a D+6:** leituras e escritas dentro do docs/82 §11.1.
+
+**Só divulgar com 100% ✅. Rollback: só do app (§6), nunca das regras.**
+
+## 9. Registro da execução (Orquestrador, 2026-10-18)
+
+- Gates: Code Review integrado APROVADO (aac57b5; 🟢 corrigidos em 10688df). QA integrado APROVADO (aac57b5 + delta bd2301f): flutter test 1981/1981 ×2 + UTC; delta 1983/1983 + UTC; 173/173 mutações Dart; rules npm test 518/518; 144/144 mutações de regras; build web ok.
+- Pré-deploy (§3), conferido pela API/CLI em modo leitura: regras de produção sha256 `6135322e…e612` = `firestore.rules` (release de 2026-10-10T18:24Z); índices de produção = `firestore.indexes.json`; `origin/main` = `9c57327`, ancestral do candidato (fast-forward); `PLACEHOLDER` = 0; build web local ok; política com 18/10/2026 (= data do release).
+- GO sob a autorização permanente do Manager (publicar após gates limpos e avisar).
