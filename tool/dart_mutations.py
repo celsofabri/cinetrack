@@ -539,6 +539,16 @@ M=[
  ('Z6 reader does not cap titles at 300 (CR2)','lib/shared_profile/shared_stats_reading.dart',
   "      title: SharedProfileValidator.cutTitle(title),","      title: title,",
   ['test/fatia4_recs_test.dart']),
+ # --- Fase 2, review integrado (docs/88 rodada 3) ---
+ ('Z7 account deletion keeps the sharedHint of the deleted uid','lib/providers/account_providers.dart',
+  '        await ref.read(localStoreProvider).setSharedHint(uid, null);\n','',
+  ['test/fatia4_recs_test.dart']),
+ ('Z8 deactivation keeps the sharedHint','lib/providers/social_providers.dart',
+  '      if (uid != null) await _forgetSharedHint(uid);\n','',
+  ['test/fatia4_recs_test.dart']),
+ ('Z9 PrivacySummary says "por enquanto" again','lib/widgets/privacy_summary.dart',
+  "só você as vê (fora o que você escolher '","só você as vê, por enquanto (fora o que você escolher '",
+  ['test/recommendations_ui_test.dart']),
 ]
 only=sys.argv[2:]
 bad=0

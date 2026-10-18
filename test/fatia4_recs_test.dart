@@ -6,8 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cinetrack/models/favorite_doc.dart';
 import 'package:cinetrack/models/media_type.dart';
+import 'package:cinetrack/providers/account_providers.dart';
 import 'package:cinetrack/providers/providers.dart';
 import 'package:cinetrack/providers/sharing_providers.dart';
+import 'package:cinetrack/providers/social_providers.dart';
 import 'package:cinetrack/shared_profile/shared_profile_builder.dart';
 import 'package:cinetrack/shared_profile/shared_profile_models.dart';
 import 'package:cinetrack/shared_profile/shared_profile_validator.dart';
@@ -258,6 +260,32 @@ void main() {
       await first;
       expect(rig.shared.toggles, hasLength(1));
     });
+  });
+
+  group('local hint of the toggles (sharedHint:<uid>)', () {
+    test('account deletion forgets the hint of the deleted uid only', () async {
+      final rig = _mixed()..seedShared({SharedSection.recs});
+      rig.store.sharedHints['uid-other'] = {'stats'};
+      final c = await _start(rig);
+      expect(rig.store.sharedHints['uid-ana'], {'recs'});
+      expect(await c.read(accountControllerProvider.notifier).deleteAccount(), isTrue);
+      await _settle();
+      expect(rig.store.sharedHints.containsKey('uid-ana'), isFalse);
+      expect(rig.store.sharedHints['uid-other'], {'stats'});
+    });
+
+    test(
+      'deactivating friendships forgets the hint (reactivating never shows old sections)',
+      () async {
+        final rig = _mixed()..seedShared({SharedSection.stats, SharedSection.recs});
+        final c = await _start(rig);
+        expect(rig.store.sharedHints['uid-ana'], {'stats', 'recs'});
+        await c.read(socialControllerProvider.notifier).deactivate();
+        await _settle();
+        expect(rig.doc, isNull);
+        expect(rig.store.sharedHints.containsKey('uid-ana'), isFalse);
+      },
+    );
   });
 
   group('engine (RF-R2, RF-S5–S8)', () {

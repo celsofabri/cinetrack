@@ -175,6 +175,12 @@ class SocialController extends Notifier<SocialState> {
     } catch (_) {}
   }
 
+  Future<void> _forgetSharedHint(String uid) async {
+    try {
+      await ref.read(localStoreProvider).setSharedHint(uid, null);
+    } catch (_) {}
+  }
+
   /// Reads the state again (server first, then the device).
   Future<void> refresh() async {
     if (state.phase == SocialPhase.signedOut || state.phase == SocialPhase.notGoogle) return;
@@ -346,6 +352,9 @@ class SocialController extends Notifier<SocialState> {
       // Friendships are off: nothing left to refresh, forget the flag (only now).
       await ref.read(socialRefreshProvider.notifier).cancelAndClear();
       if (uid != null) await _rememberHint(uid, generation, false);
+      // The shared profile was deleted with friendships (D11): forget its
+      // toggles hint, so reactivating never shows the old sections.
+      if (uid != null) await _forgetSharedHint(uid);
       if (generation == _generation) ref.read(socialEpochProvider.notifier).state++;
     }
     // A deactivation that failed before closing leaves friendships on: the refresh goes on.

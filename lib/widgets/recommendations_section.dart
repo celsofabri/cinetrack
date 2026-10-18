@@ -17,7 +17,9 @@ import 'sync_widgets.dart';
 
 enum _Filter { all, movies, tv }
 
-const String kRecommendationsPrivacyNote = 'Só você vê esta lista, por enquanto.';
+const String kRecommendationsPrivacyNote =
+    'Só você vê esta lista, a menos que você ligue "Recomendados" em "O que seus amigos veem", '
+    'no perfil.';
 
 const double _posterWidth = 88;
 const double _posterHeight = _posterWidth / kPosterAspectRatio;

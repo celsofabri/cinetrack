@@ -803,7 +803,7 @@ void main() {
   });
 
   group('texts', () {
-    testWidgets('delete dialog and privacy summary mention recommendations (private for now)', (
+    testWidgets('delete dialog and privacy summary mention recommendations (private unless shared)', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -818,7 +818,11 @@ void main() {
         ),
       );
       expect(find.textContaining('recomendações são privadas'), findsOneWidget);
-      expect(find.textContaining('por enquanto'), findsOneWidget);
+      expect(
+        find.textContaining('só você as vê (fora o que você escolher mostrar a amigos, abaixo)'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('por enquanto'), findsNothing, reason: 'no leftover (Fatia 4)');
 
       await tester.pumpWidget(
         ProviderScope(
