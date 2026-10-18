@@ -43,7 +43,7 @@ Prioridade: P1 (recomendações tinham promessa explícita de consentimento na p
 | `TZ=UTC flutter test` | **1980/1980** |
 | `flutter build web --base-href /cinetrack/` | ✓ Built build/web |
 | `npm test` (regras) | **não rodado**: `firestore.rules`, fixtures e payloads (golden) inalterados |
-| `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp do HEAD final) | ver "Mutações" abaixo |
+| `python3 tool/dart_mutations.py` (lista completa, cópia em /tmp do HEAD final) | **170/170 KILLED** (148 anteriores + 22 novas `K1–K22`), "All Dart mutations were killed." |
 
 Testes novos: `test/fatia4_recs_test.dart` (controller, motor com relógio falso, builder/validador, leitor tolerante) e `test/fatia4_recs_widget_test.dart` (diálogo, prévia, desligar, perfil de amigo, 50/51/75, tolerância, foco, matriz 320/375/768/1024/1440 × 1×/2×/3× claro/escuro com 50 títulos longos, prévia do dono a 320/1440 × 1×/3×, diálogo de 51 títulos a 320 px 1×/3×). Ajustes: `test/sharing_section_test.dart` (3 interruptores, ordem de foco com Recomendados, frase da política) e `test/export_data_section_test.dart` (altura da superfície: o resumo de privacidade cresceu de novo).
 
@@ -51,7 +51,7 @@ Testes novos: `test/fatia4_recs_test.dart` (controller, motor com relógio falso
 K1 `recs` gravado sem consentimento (motor monta `recs` para todos); K2 `recs` fica no servidor depois de desligar; K3 visão do dono mantém `recs` depois de desligar; K4 "e mais 0" aos 50; K5 sem "e mais 1" aos 51; K6 ordem da aba invertida; K7 amigo lê "Recomendações" da lista e não de `recs.count`; K8 `recs.count` gravado como nº de itens listados; K9 "Recomendações" exibido da lista; K10 recomendar cria atividade; K11 prévia do dono sem a lista; K12 prévia do dono só com Estatísticas; K13 diálogo sem a prévia; K14 amigo vê recomendados quando ausente; K15 amigo ignora `recs`; K16 título recomendado não abre; K17 pôster fora do formato exibido; K18 item de tipo desconhecido exibido; K19 lista do amigo sem limite de 50; K20 sem o interruptor; K21 motor nunca vê mudança de `recs`; K22 visão local (releitura falhou) sem `recs`.
 - Rodada isolada (K1–K22, cópia em /tmp): **22/22 KILLED**.
 - Conferência extra: as **170** mutações da lista aplicam e **compilam** (nenhuma "morta" por erro de compilação; o script conta falha de compilação como "Some tests failed"). Achado nesta conferência e corrigido antes da rodada completa: o `SharedRecTile` repetia o trecho `'/movie/${item.id}' : '/tv/${item.id}'` da mutação `Q15` (Fatia 2), o que quebraria a unicidade exigida pelo script; a rota do item passou a `'/${movie ? 'movie' : 'tv'}/${item.id}'`. K11/K13 tinham erro de compilação na 1ª versão (promoção de nulo) e foram reescritas (`if (false && x != null)`), depois mortas.
-- Rodada completa: **RESULTADO_MUTACOES**.
+- Rodada completa (cópia em /tmp com o código final, antes só do commit de docs): **170/170 KILLED** (148 anteriores + K1–K22), "All Dart mutations were killed."
 
 ### Decisões tomadas (e por quem)
 - Dev (sujeitas a review):
