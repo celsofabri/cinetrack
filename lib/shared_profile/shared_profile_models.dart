@@ -561,19 +561,25 @@ class SharedSectionParsers {
     if (count == null || items is! List) return null;
     return SharedRecs(
       count: count,
-      items: [
-        for (final i in items)
-          if (i is Map &&
-              i['id'] is int &&
-              i['title'] is String &&
-              (i['mediaType'] == 'movie' || i['mediaType'] == 'tv'))
-            RecItem(
-              id: i['id'] as int,
-              mediaType: i['mediaType'] as String,
-              title: i['title'] as String,
-              poster: i['poster'] is String ? i['poster'] as String : null,
-            ),
-      ],
+      items: [for (final i in items) ?_recItem(i)],
+    );
+  }
+
+  /// Same safe id reader as the friend's (hotfix A2); the app writes ids in
+  /// 1..[kMaxSharedId] only, so its own items read exactly as before.
+  static RecItem? _recItem(Object? i) {
+    if (i is! Map) return null;
+    final id = readSafeInt(i['id'], min: 1, max: kMaxSharedId);
+    final title = i['title'];
+    final mediaType = i['mediaType'];
+    if (id == null || title is! String) return null;
+    if (mediaType != 'movie' && mediaType != 'tv') return null;
+    final poster = i['poster'];
+    return RecItem(
+      id: id,
+      mediaType: mediaType as String,
+      title: title,
+      poster: poster is String ? poster : null,
     );
   }
 }

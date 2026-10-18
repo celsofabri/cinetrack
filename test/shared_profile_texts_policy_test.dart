@@ -92,6 +92,38 @@ void main() {
     expect(SharedProfileTexts.activity(_ep(1, season: 1, episode: 3)), 'Assistiu T1E3 de Série X');
     expect(SharedProfileTexts.activity(_ep(4)), 'Assistiu 4 episódios de Série X, até T2E4');
     expect(SharedProfileTexts.activity(_ep(0)), 'Concluiu Série X');
+    // Unknown season/episode (refused by the reader, docs/92 rodada 2): no "T0E0".
+    ActivityItem unknown(int? count, {int? season, int? episode}) => ActivityItem(
+      type: ActivityType.watchedEpisodes,
+      id: 1,
+      mediaType: 'tv',
+      title: 'Série X',
+      at: _now,
+      count: count,
+      season: season,
+      episode: episode,
+    );
+    expect(SharedProfileTexts.activity(unknown(2)), 'Assistiu 2 episódios de Série X');
+    expect(SharedProfileTexts.activity(unknown(2, season: 1)), 'Assistiu 2 episódios de Série X');
+    expect(SharedProfileTexts.activity(unknown(2, episode: 3)), 'Assistiu 2 episódios de Série X');
+    expect(SharedProfileTexts.activity(unknown(1)), 'Assistiu um episódio de Série X');
+    expect(SharedProfileTexts.activity(unknown(null)), 'Assistiu um episódio de Série X');
+    expect(SharedProfileTexts.activity(unknown(1, season: 0, episode: 0)), 'Assistiu T0E0 de Série X');
+    expect(
+      SharedProfileTexts.activity(
+        ActivityItem.tryParse({
+          'type': 'watched_episodes',
+          'id': 1,
+          'mediaType': 'tv',
+          'title': 'Série X',
+          'at': _now,
+          'count': 2,
+          'season': double.parse('1e300'),
+          'episode': double.parse('2.5'),
+        })!,
+      ),
+      'Assistiu 2 episódios de Série X',
+    );
     expect(SharedProfileTexts.ago(_now.subtract(const Duration(hours: 2)), _now), 'há 2 h');
   });
 

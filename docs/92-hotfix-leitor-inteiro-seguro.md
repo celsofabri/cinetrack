@@ -33,7 +33,7 @@ Em produção (dart2js) todo número JS inteiro "é `int`", inclusive `Infinity`
 - `readCount(v, {max})` continua existindo (agora delega a `readSafeInt`), para a Fase 3 reutilizar.
 - Leitura tolerante mantida: desconhecido = "—"/ignorado, nunca erro.
 
-**Lado do dono** (`_nonNegInt` em `SharedSectionParsers`, documento próprio): mesmo leitor, **sem tetos** (docs/91 §5.2). `ActivityItem.tryParse` é compartilhado entre dono e amigo, então o documento próprio também passa pelos tetos de item. Escrita do dono **inalterada**: o que o app grava sai do `SharedProfileValidator.clamp` (ids 1..999 999 999, `count`/`season`/`episode` nas faixas, números inteiros), e a leitura disso dá exatamente o mesmo valor de antes; a comparação "só grava se mudou" continua igual (suíte do motor `shared_profile_sync_test` e golden de payloads verdes). Só um documento próprio escrito **por fora do app** com `Infinity`/fora da faixa passa a ser lido como seção/item ausente, o que leva a uma regravação com os números certos (antes também regravava, porque `Infinity` ≠ o calculado). `tz`/`calc` do documento próprio não foram tocados (de propósito: mudar ali poderia evitar uma regravação que hoje acontece).
+**Lado do dono** (`_nonNegInt` em `SharedSectionParsers`, documento próprio): mesmo leitor, **sem tetos** (docs/91 §5.2). `ActivityItem.tryParse` é compartilhado entre dono e amigo, então o documento próprio também passa pelos tetos de item. Escrita do dono **inalterada**: o que o app grava sai do `SharedProfileValidator.clamp` (ids 1..999 999 999, `count`/`season`/`episode` nas faixas, números inteiros), e a leitura disso dá exatamente o mesmo valor de antes; a comparação "só grava se mudou" continua igual (suíte do motor `shared_profile_sync_test` e golden de payloads verdes). Só um documento próprio escrito **por fora do app** com `Infinity`/fora da faixa passa a ser lido como seção/item ausente, o que leva a uma regravação com os números certos (antes também regravava, porque `Infinity` ≠ o calculado). Na rodada 2 (CR1) o `id` dos itens de recomendado do documento próprio também passou a `readSafeInt(i['id'], min: 1, max: 999 999 999)`, por consistência com o leitor do amigo: o app só grava ids nessa faixa (`_fixable` do validador), então os itens gravados pelo app são lidos igual, e um id fora dela (só por fora do app) faz o item sumir da leitura, o que leva a uma regravação de reparo (antes o id absurdo também diferia do calculado e regravava). `tz`/`calc` do documento próprio continuam intocados (de propósito: limitar `tz` ali poderia **evitar** uma regravação de reparo que hoje acontece, ex.: `tz` gravado 900 lido como 0 igual ao calculado).
 
 **`WatchTimeFormatter` nunca lança** (`lib/services/watch_time.dart`): `format` e `accumulatedHours` limitam a entrada a `0..kMaxFormattedMinutes` (= 2^53 − 1). Diferença para o docs/91 §5.2 (que sugeria limitar a 100 anos): o teste existente `accumulated hours with pt-BR thousands separator` usa 1 234 567 h (> 100 anos) para o **total do próprio dono**; limitar a 100 anos mudaria a tela do dono. Com 2^53 − 1 a aritmética é segura no web, `Infinity` não lança (vira o teto) e nada que o app mostra hoje muda. O teto de 100 anos dos números de amigo já vem do leitor.
 
@@ -45,7 +45,7 @@ Em produção (dart2js) todo número JS inteiro "é `int`", inclusive `Infinity`
 - Formatador: 100 anos continua "100 anos"/"876.000 h no total"; 2^53 − 1, 2^53 e (2^53 − 1) × 1000 dão o mesmo texto (teto); negativo = 0; **no web** `Infinity` (que lá "é int") não lança. Na VM o ramo web é pulado e o teste confere que `kIsWeb` é falso (não passa em branco por engano).
 - **Widget** `SharedStatsView.reading` (a seção de estatísticas do perfil de amigo) com documento cheio de `Infinity`/`1e300`: nenhuma exceção, nenhum `ErrorWidget`, nenhum texto "Infinity" ou "e+", "Tempo assistido: —" nos 3 períodos. No web, também com `Infinity` entregue direto à view (sem passar pelo leitor): renderiza com o teto.
 
-**CI** (`.github/workflows/deploy-pages.yml`): passo novo `Test (web semantics, Chrome)` depois de `Test`, com o mesmo `TZ: America/Sao_Paulo`: `flutter test --platform chrome test/shared_reading_web_safe_test.dart`. Só esse arquivo (≈ 26 s locais, incluindo a compilação dart2js). Os passos existentes não mudaram. Chrome: as imagens `ubuntu-latest` do GitHub trazem `google-chrome` no PATH (o nome que o `flutter_tools` procura no Linux); em modo `flutter test` o Chrome roda `--headless --no-sandbox` (conferido em `flutter_tools/lib/src/web/chrome.dart`, Flutter 3.47.5), então o sandbox de namespaces do Ubuntu 24.04 não atrapalha. YAML validado (parse com PyYAML, 12 passos na ordem).
+**CI** (`.github/workflows/deploy-pages.yml`): passo novo `Test (web semantics, Chrome)` depois de `Test`, com o mesmo `TZ: America/Sao_Paulo`: `flutter test --platform chrome test/shared_reading_web_safe_test.dart` (rodada 2: mais `test/qa_a2_friend_profile_test.dart`). Só esses arquivos (≈ 26 s locais, incluindo a compilação dart2js). Os passos existentes não mudaram. Chrome: as imagens `ubuntu-latest` do GitHub trazem `google-chrome` no PATH (o nome que o `flutter_tools` procura no Linux); em modo `flutter test` o Chrome roda `--headless --no-sandbox` (conferido em `flutter_tools/lib/src/web/chrome.dart`, Flutter 3.47.5), então o sandbox de namespaces do Ubuntu 24.04 não atrapalha. YAML validado (parse com PyYAML, 12 passos na ordem).
 
 **Mutações Dart** (`tool/dart_mutations.py`): o runner agora aceita listas de teste começando com `'--platform','chrome'` (passadas ao `flutter test` como estão). 33 mutações novas (A1–A4, A6–A13, B1–B21; a A5 foi removida, ver acima) e 5 antigas atualizadas porque as linhas mudaram (G8, V23, V31, K7, Z4; mesma intenção).
 
@@ -70,6 +70,26 @@ Mutações (todas na cópia, nunca na árvore de trabalho; `python3 tool/dart_mu
 - 1ª rodada: as 13 antigas das áreas tocadas (G8, V23, V31, K5, K7, K14, K15, K17–K19, Z4–Z6) e B1–B21 mortas. Na 2ª rodada só re-rodei o que as correções podiam afetar (leitor e formatador) mais uma amostra dos tetos; as B não dependem das linhas mudadas.
 - Tetos, um por ponto de leitura: B1–B8 (cada número do total/mês/ano), B9 teto trocado (minutos com o de episódios), B10–B11 `undated*`, B12 `recs.count`, B13 `id` de recomendado, B14–B15 `id` de atividade (teto e mínimo 1), B16–B19 `count` (teto e mínimo 1), `season`, `episode`, B20–B21 `tz`.
 
+### Rodada 2 (gates: Code Review APROVADO com 3 🟢; QA REPROVADO com 2 🟡 de lacuna de teste, código correto)
+| Achado | Correção |
+|---|---|
+| 🟡1 QA: falta teste do perfil de amigo **inteiro** com documento manipulado | `test/qa_a2_friend_profile_test.dart` (teste do QA, sem `print`; 2 testes: documento manipulado renderiza sem exceção/`ErrorWidget`/"Infinity"/"e+"/"NaN", itens absurdos somem, "Recomendações: —"; documento normal inalterado). Acrescentei: atividade com `count`/`season`/`episode` recusados mostra "Assistiu um episódio de Serie" e nenhum "T0E0". Entrou no passo Chrome da CI: `flutter test --platform chrome test/shared_reading_web_safe_test.dart test/qa_a2_friend_profile_test.dart`. |
+| 🟡2 QA: `undated*` e mês/ano sem os casos −Infinity, NaN, 12.5, −1, 12.0 | Trechos do QA (versão validada) no `test/shared_reading_web_safe_test.dart`: `undatedMovies`/`undatedEpisodes` com −Infinity, NaN, 1e300, 12.5, −1 ⇒ 0 e 12.0 ⇒ 12; mês/ano com −Infinity, NaN, 12.5, −1 ⇒ desconhecido e 12.0 ⇒ 12. Mutações do QA registradas: QM4 ⇒ **B22**, QM5 ⇒ **B23**, QM6 ⇒ **B24** (distintas: negativo aceito, fração truncada, fallback ≠ 0). |
+| 🟢 CR1: id de recomendado do documento próprio ainda com `is int` | `SharedSectionParsers.recs` usa `_recItem` com `readSafeInt(i['id'], min: 1, max: kMaxSharedId)`; justificativa no "Lado do dono" acima. Teste novo (documento próprio: teto e 1 aceitos, 12.0 = 12, 0/−1/teto + 1/Infinity/NaN/1e300/12.5 somem). Mutações **B25** (de volta a `is int`) e **B26** (sem teto). |
+| 🟢 CR2: runbook do passo Chrome | Seção "Runbook" abaixo. |
+| 🟢 QA3 (decisão do Orquestrador): "T0E0" com temporada/episódio desconhecido | `SharedProfileTexts.activity`: desconhecido (temporada **ou** episódio nulo) omite a parte "TxEy": "Assistiu 2 episódios de Série X" (sem ", até …"), e com 1 episódio "Assistiu um episódio de Série X". `T0E0` gravado de fato (0/0 conhecidos) continua como antes. Testes em `test/shared_profile_texts_policy_test.dart` (inclui item lido com `season` 1e300 e `episode` 2.5). Mutações **C1** (volta a "T0E0"), **C2** (só a temporada decide), **C3** (perde "um episódio"). |
+
+Números da rodada 2:
+| Comando | Resultado |
+|---|---|
+| `flutter analyze` | No issues found |
+| `TZ=America/Sao_Paulo flutter test` | 2015/2015 (+3: 2 do perfil inteiro, 1 do documento próprio; os outros casos novos entraram em testes existentes) |
+| `TZ=UTC flutter test` | 2015/2015 |
+| `flutter test --platform chrome test/shared_reading_web_safe_test.dart test/qa_a2_friend_profile_test.dart` | 32/32 |
+| `flutter build web --base-href /cinetrack/` | ok |
+| Mutações Dart, cópia nova, todas as entradas dos arquivos tocados (G8, V23, V31, K5, K7, K14, K15, K17–K19, Z4–Z6, A1–A4, A6–A13, B1–B26, C1–C3) | **54/54 mortas** |
+| `shasum -a 256 firestore.rules` | `6135322e…e612` (inalterado) |
+
 ### O que você precisa fazer
 - **Code Reviewer**: revisar `safe_int.dart`, os pontos de leitura (tabela acima) e a decisão do teto do formatador (2^53 − 1 em vez de 100 anos, motivo acima).
 - **QA**: conferir no web (build local ou pós-deploy) um amigo com documento manipulado (emulador ou cópia) com `Infinity`/`1e300`: seção de estatísticas renderiza com "—"; atividade/recomendado com `id` absurdo não aparece. Conferir que um amigo normal continua igual.
@@ -86,7 +106,8 @@ Mutações (todas na cópia, nunca na árvore de trabalho; `python3 tool/dart_mu
 - Tetos do docs/82 §4.4 aplicados também no leitor de estatísticas de amigo (o docs/91 §5.2 deixava `readCount` sem teto e punha os tetos só no ranking); pedido explícito da demanda ao Dev. Efeito: número de amigo acima do teto vira "—" (o app oficial nunca grava acima). — Dev, conforme a demanda.
 - Teto do formatador = 2^53 − 1, não 100 anos (preserva o total do próprio dono, coberto por teste existente). — Dev.
 - `isFinite` explícito removido do leitor (redundante com limites finitos; ver acima). — Dev.
-- `tz`/`calc` e ids de recomendado do **documento próprio** não foram tocados (lado do dono, autodano; mexer poderia evitar uma regravação de reparo). — Dev.
+- `tz`/`calc` do **documento próprio** não foram tocados (lado do dono, autodano; mexer poderia evitar uma regravação de reparo). Ids de recomendado do documento próprio migrados na rodada 2 (CR1). — Dev; CR1 pelo Code Reviewer.
+- Atividade de episódios com temporada/episódio desconhecido não mostra "T0E0": "Assistiu N episódios de X" (sem "até …") e, com 1 episódio, "Assistiu um episódio de X" (rodada 2, QA3). — Orquestrador (o texto de 1 episódio é escolha do Dev, seguindo a mesma regra).
 
 ### Suposições (não verificadas)
 - Chrome disponível e funcional no `ubuntu-latest` do GitHub (documentado pelo GitHub; não rodei a CI, não há push).
@@ -94,7 +115,12 @@ Mutações (todas na cópia, nunca na árvore de trabalho; `python3 tool/dart_mu
 
 ### Riscos / atenção
 - Um `12.0` passa a ser 12 também na VM (antes "—"); no web já era 12. Nada mais muda para dados do app oficial.
-- O passo novo deixa a CI um pouco mais lenta e depende do Chrome do runner; se falhar por ambiente (não por teste), a mensagem do `flutter test` aponta "Chrome not found"; o contorno é definir `CHROME_EXECUTABLE`.
+- O passo novo deixa a CI um pouco mais lenta e depende do Chrome do runner (ver o runbook abaixo).
+
+### Runbook: passo "Test (web semantics, Chrome)" falhou (rodada 2, CR2)
+- **Por design, o deploy fica bloqueado**: o passo está no job `build`, antes de `Build web`; se ele falha, nada é publicado e o site continua na versão anterior (nenhuma ação em produção é necessária).
+- **Falha de teste** (`Some tests failed` com nomes de teste): é regressão real do leitor/da tela; tratar como bug (não reexecutar até passar).
+- **Falha de ambiente** (ex.: "Chrome not found", "Unable to find Chrome", timeout ao abrir o navegador, sem nenhum teste executado): (1) reexecutar o job ("Re-run failed jobs") ou disparar de novo pelo `workflow_dispatch` (o workflow já aceita disparo manual); (2) se persistir, a imagem do runner pode ter mudado: definir `CHROME_EXECUTABLE` no passo (ex.: `env: CHROME_EXECUTABLE: /usr/bin/google-chrome`, ou instalar o Chrome com uma action de setup) num PR à parte; (3) **não** remover o passo para destravar o deploy sem decisão do Orquestrador/Manager (registro de risco aceito).
 - `.env` desta worktree foi (re)criado com a chave fictícia `TMDB_API_KEY=test` para analyze/test (é ignorado pelo git; o build web local usou essa chave fictícia e não foi publicado).
 
 ### Critério de aceite deste handoff

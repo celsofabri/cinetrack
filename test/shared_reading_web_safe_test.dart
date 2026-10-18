@@ -184,6 +184,10 @@ void main() {
           expect(periodOf(p(cap + 1), m), isNull, reason: which);
           expect(periodOf(p(inf), m), isNull, reason: which);
           expect(periodOf(p(huge), m), isNull, reason: which);
+          for (final bad in [negInf, nan, twelveAndHalf, -1]) {
+            expect(periodOf(p(bad), m), isNull, reason: '$which $bad');
+          }
+          expect(periodOf(p(twelve), m), 12, reason: which);
         }
       });
     }
@@ -212,6 +216,12 @@ void main() {
       final infinite = read(_stats(extra: {'undatedMovies': inf, 'undatedEpisodes': inf}));
       expect(infinite.undatedMovies, 0);
       expect(infinite.undatedEpisodes, 0);
+      for (final bad in [negInf, nan, huge, twelveAndHalf, -1]) {
+        final r = read(_stats(extra: {'undatedMovies': bad, 'undatedEpisodes': bad}));
+        expect([r.undatedMovies, r.undatedEpisodes], [0, 0], reason: '$bad');
+      }
+      final whole = read(_stats(extra: {'undatedMovies': twelve, 'undatedEpisodes': twelve}));
+      expect([whole.undatedMovies, whole.undatedEpisodes], [12, 12]);
     });
   });
 
@@ -343,6 +353,28 @@ void main() {
   });
 
   group('own document (owner side, no ceilings)', () {
+    test('recommended item id: same safe reader (1..$kMaxSharedId)', () {
+      List<int>? ids(List<Object?> items) => SharedProfileDoc.parse({
+        'sharing': {'recs': true},
+        'recs': {'count': 50, 'items': items},
+      })!.recs?.items.map((i) => i.id).toList();
+      expect(
+        ids([
+          _rec({'id': kMaxSharedId}),
+          _rec({'id': twelve}),
+          _rec({'id': 1}),
+        ]),
+        [kMaxSharedId, 12, 1],
+      );
+      expect(
+        ids([
+          for (final bad in [kMaxSharedId + 1, 0, -1, inf, negInf, nan, huge, twelveAndHalf])
+            _rec({'id': bad}),
+        ]),
+        isEmpty,
+      );
+    });
+
     test('same safe reader: Infinity drops the section, 12.0 is 12', () {
       SharedStats? stats(Object? minutes) => SharedProfileDoc.parse({
         'sharing': {'stats': true},

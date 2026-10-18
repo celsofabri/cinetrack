@@ -27,15 +27,25 @@ class SharedProfileTexts {
   static String episode(int? season, int? episode) => 'T${season ?? 0}E${episode ?? 0}';
 
   /// The sentence of an activity (RF-A8), without the relative date.
+  /// An episode activity whose season or episode is unknown (a value the
+  /// reader refused, hotfix A2) leaves the "TxEy" part out instead of
+  /// showing "T0E0" (Orquestrador's decision, docs/92 rodada 2).
   static String activity(ActivityItem a) => switch (a.type) {
     ActivityType.favorited => 'Favoritou ${a.title}',
     ActivityType.watchedMovie => 'Assistiu ${a.title}',
-    ActivityType.watchedEpisodes =>
-      (a.count ?? 1) <= 1
-          ? 'Assistiu ${episode(a.season, a.episode)} de ${a.title}'
-          : 'Assistiu ${a.count} episódios de ${a.title}, até ${episode(a.season, a.episode)}',
+    ActivityType.watchedEpisodes => _episodes(a),
     ActivityType.completedSeries => 'Concluiu ${a.title}',
   };
+
+  static String _episodes(ActivityItem a) {
+    final known = a.season != null && a.episode != null;
+    final at = known ? episode(a.season, a.episode) : null;
+    if ((a.count ?? 1) <= 1) {
+      return at == null ? 'Assistiu um episódio de ${a.title}' : 'Assistiu $at de ${a.title}';
+    }
+    final base = 'Assistiu ${a.count} episódios de ${a.title}';
+    return at == null ? base : '$base, até $at';
+  }
 
   /// DD/MM/AAAA of [instant] in the owner's zone [tz].
   static String date(DateTime instant, int tz) {
