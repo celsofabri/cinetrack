@@ -118,21 +118,26 @@ describe('ranking: get of each friend snapshot (docs/91 §4.1/§4.2)', () => {
     await assertFails(getDoc(spRef(t.db(ana), caio)));
   });
 
-  it('ex-friend: pair deleted by either side is denied on the next read; re-friended reads again', async () => {
+  it('ex-friend: pair deleted by either side is denied on the next read (both directions); re-friended reads again', async () => {
     await t.seedSocial(ana);
     await t.seedSocial(bruno);
+    await seedShared(ana);
     await seedShared(bruno);
     await t.seedFriendship(ana, bruno);
     await assertSucceeds(getDoc(spRef(t.db(ana), bruno)));
+    await assertSucceeds(getDoc(spRef(t.db(bruno), ana)));
     // Ana removes Bruno
     await assertSucceeds(deleteDoc(friendshipRef(t.db(ana), ana, bruno)));
     await assertFails(getDoc(spRef(t.db(ana), bruno)));
+    await assertFails(getDoc(spRef(t.db(bruno), ana)));
     // pair re-created (friends again) => readable again
     await t.seedFriendship(ana, bruno);
     await assertSucceeds(getDoc(spRef(t.db(ana), bruno)));
+    await assertSucceeds(getDoc(spRef(t.db(bruno), ana)));
     // Bruno removes Ana
     await assertSucceeds(deleteDoc(friendshipRef(t.db(bruno), ana, bruno)));
     await assertFails(getDoc(spRef(t.db(ana), bruno)));
+    await assertFails(getDoc(spRef(t.db(bruno), ana)));
   });
 
   it('blocked in both directions (real block batch): Ana->Dora and Bruno->Ana, both sides denied', async () => {
@@ -160,18 +165,24 @@ describe('ranking: get of each friend snapshot (docs/91 §4.1/§4.2)', () => {
     await assertFails(getDoc(spRef(t.db(dora), ana)));
   });
 
-  it('anonymous, password, anonymous-provider and no-claim friends are denied; Google friend reads', async () => {
-    await seedShared(bruno);
-    await t.seedFriendship(ana, bruno);
-    await assertFails(getDoc(spRef(t.anon(), bruno)));
-    await assertFails(getDoc(spRef(t.dbWith(ana, 'password'), bruno)));
-    await assertFails(getDoc(spRef(t.dbWith(ana, 'anonymous'), bruno)));
-    await assertFails(getDoc(spRef(t.dbNoClaim(ana), bruno)));
-    // the same denial for a friend WITHOUT a snapshot (no existence oracle for non-Google)
-    await t.seedFriendship(ana, caio);
-    await assertFails(getDoc(spRef(t.dbWith(ana, 'password'), caio)));
-    await assertSucceeds(getDoc(spRef(t.db(ana), bruno)));
-  });
+  // One `it` per non-Google identity (clearer RK4/RK5 diagnosis). Each also checks a friend WITHOUT a
+  // snapshot (no existence oracle for non-Google) and that the same friend with Google reads.
+  const nonGoogle = [
+    ['anonymous (signed out)', () => t.anon()],
+    ['password provider', () => t.dbWith(ana, 'password')],
+    ['anonymous provider', () => t.dbWith(ana, 'anonymous')],
+    ['no sign_in_provider claim', () => t.dbNoClaim(ana)],
+  ];
+  for (const [label, dbOf] of nonGoogle) {
+    it(`friend signed in as ${label} is denied (with and without a snapshot); Google reads`, async () => {
+      await seedShared(bruno);
+      await t.seedFriendship(ana, bruno);
+      await t.seedFriendship(ana, caio);
+      await assertFails(getDoc(spRef(dbOf(), bruno)));
+      await assertFails(getDoc(spRef(dbOf(), caio)));
+      await assertSucceeds(getDoc(spRef(t.db(ana), bruno)));
+    });
+  }
 
   it('account in deletion with the pair still present: get allowed, document does not exist; then denied', async () => {
     await t.seedSocial(carla);

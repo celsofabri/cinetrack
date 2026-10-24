@@ -11,7 +11,7 @@ Fluxo: feature | Etapa: Fatia 0 (gate: APROVADO sem ressalvas de CR e QA antes d
 Prioridade: P1 (abre as Fatias 1 a 4)
 
 ### O que foi feito
-- `firestore_rules_test/ranking.test.mjs` (novo, **35 testes em 5 suítes**), matriz do docs/91 §14.1 / docs/93 §4.1:
+- `firestore_rules_test/ranking.test.mjs` (novo, **38 testes em 5 suítes**; 35 na rodada 1, +3 com o G2 do QA), matriz do docs/91 §14.1 / docs/93 §4.1:
   - **`get` de cada amigo**: dono (existe/não existe, inclusive `password`); **12 amigos mútuos Google lidos por `get` numa janela deslizante de 10** (o teste mede o pico = 10 e confere cada documento); cada `get` decidido sozinho (não amigo no meio da janela é negado, os vizinhos são lidos); amigo sem snapshot ⇒ `get` permitido e documento inexistente; não amigo negado com e sem documento (sem oráculo de existência); ex-amigo com o par apagado por **cada** lado ⇒ negado, e refeito amigo ⇒ lê de novo; bloqueio pelo batch real nos dois sentidos (Ana→Dora e Bruno→Ana: os dois lados negados); bloqueio com o par ausente nunca dá leitura; anônimo, `password`, provedor `anonymous` e sem claim negados (inclusive para amigo sem snapshot); **conta em exclusão com o par presente** (na ordem do `AccountDeleter`: `deleting = true`, apaga o snapshot, com as credenciais da própria Carla) ⇒ `get` permitido e documento inexistente; depois da varredura (par apagado) ⇒ negado; amigo não escreve no documento do outro (set, update, delete).
   - **Consultas negadas**: `getDocs(collection)` (dono, amigo, anônimo), `documentId in [3 amigos]`, `in [10 amigos]`, `in` misto (amigo + não amigo), `documentId ==` um amigo, filtro por `sharing.stats` e por `stats.total.minutes` com `limit(50)`.
   - **Consentimento ⇔ seção (`stats`)**: create com `stats` e `sharing` sem `stats` negado; create com `sharing.stats` e sem a seção negado; update que acrescenta `stats` sem consentimento negado; update que tira `sharing.stats` mantendo `stats` negado e o que tira os dois aceito (o amigo lê sem o campo); amigo lê documento sem `stats` e recebe o documento sem o campo.
@@ -49,9 +49,10 @@ Prioridade: P1 (abre as Fatias 1 a 4)
 |---|---|
 | `npm test` (antes, base 1738dd2) | 522 testes (558 − 36 novos; não reexecutado à parte) |
 | `npm test` (depois) | **558 pass, 0 fail** (64 suítes): +35 `ranking.test.mjs`, +1 `rules_sha.test.mjs`; os 522 antigos sem alteração |
-| `npm run test:mutations` | baseline **536 ok / 0 not ok** (inclui `ranking.test.mjs`, exclui `rules_sha.test.mjs`); **All 159 mutations were killed** (144 anteriores + 15 RK novas), 0 sobreviventes, 0 erros, exit 0 |
+| `npm run test:mutations` | baseline **541 ok / 0 not ok** (a contagem TAP inclui as 5 suítes describe do ranking; inclui `ranking.test.mjs`, exclui `rules_sha.test.mjs`); **All 159 mutations were killed** (144 anteriores + 15 RK novas), 0 sobreviventes, 0 erros, exit 0 |
 | `shasum -a 256 firestore.rules` | `6135322e766b37f8f5c8a6057ff9863a54dcda5b6a2e1fb554f2f1f91300e612` (= produção); `sha256sum -c` do passo da CI conferido localmente (`firestore.rules: OK`) |
 | `flutter analyze` | No issues found (nenhuma mudança em Dart nesta fatia) |
+| **Rodada 2** (G1/G2 do QA; cópia `/tmp/ct_fatia0` via `git archive`, portas 18080/19150/14400/14500) | `npm test`: **561 pass, 0 fail** (64 suítes; +3 do G2). `ONLY=RK npm run test:mutations` (filtro por prefixo só na cópia): baseline **544 ok / 0 not ok** (541 + 3), **RK1–RK15: 15/15 mortos**, 0 sobreviventes, 0 erros, exit 0. sha256 de `firestore.rules` = `6135322e…e612` |
 
 ### O que você precisa fazer
 - **Code Reviewer**: revisar `ranking.test.mjs`, `rules_sha.test.mjs`, o diff de `mutations.mjs` (lista RK, guarda B11, baseline) e o passo da CI.
@@ -71,6 +72,11 @@ Prioridade: P1 (abre as Fatias 1 a 4)
 ### Suposições (não verificadas)
 - O emulador representa a produção em `count()` com `limit` e em `documentId in` (spike do docs/91 §4.3 e mesma premissa da Fase 2). A conferência real fica no smoke (docs/93 §5).
 - A consulta do D7 será exatamente `where('members', 'array-contains', uid)` + `limit(300)` + `count()` (Fatia 2). Se a Fatia 2 mudar a forma, este teste muda junto.
+
+### Rodada 2 (QA: APROVADO com 1 ajuste de doc + 2 🟢)
+- Doc: baseline corrigido para 541 ok (o número da rodada 1 já contava o commit 3d64d74 da Fatia S, S0, que acrescentou casos ao `rules_budget`).
+- 🟢 G1: o caso de ex-amigo semeia também o documento de Ana e confere a leitura **inversa** (Bruno → Ana) depois de cada `deleteDoc` do par e depois de refazer a amizade.
+- 🟢 G2: o `it` único dos 4 provedores não Google virou 4 `it`s (anônimo, `password`, provedor `anonymous`, sem claim), cada um com amigo com e sem snapshot e o controle Google; RK4 agora mata 4 testes e RK5 mata 3, com diagnóstico por provedor.
 
 ### Riscos / atenção
 - O [docs/95](./95-simplificacao-compartilhamento.md) (Fatia S, um interruptor só) não muda regras: as três seções continuam com consentimento ⇔ seção, então a matriz de consentimento daqui continua válida. Se o S0 do docs/95 concluir que precisa mudar regras, o gate de sha e este documento precisam ser revistos.
