@@ -175,6 +175,12 @@ class SocialController extends Notifier<SocialState> {
     } catch (_) {}
   }
 
+  Future<void> _forgetFriendsHint(String uid) async {
+    try {
+      await ref.read(localStoreProvider).setFriendsHint(uid, null);
+    } catch (_) {}
+  }
+
   Future<void> _forgetSharedHint(String uid) async {
     try {
       await ref.read(localStoreProvider).setSharedHint(uid, null);
@@ -355,6 +361,8 @@ class SocialController extends Notifier<SocialState> {
       // The shared profile was deleted with friendships (D11): forget its
       // toggles hint, so reactivating never shows the old sections.
       if (uid != null) await _forgetSharedHint(uid);
+      // No friendship left: the ranking entry's "has friends" hint goes too.
+      if (uid != null) await _forgetFriendsHint(uid);
       if (generation == _generation) ref.read(socialEpochProvider.notifier).state++;
     }
     // A deactivation that failed before closing leaves friendships on: the refresh goes on.

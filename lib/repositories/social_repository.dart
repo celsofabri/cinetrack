@@ -498,6 +498,10 @@ class SocialRepository {
   /// [kMaxReceivedListed].
   Future<int> receivedCount() => _data.countReceivedRequests();
 
+  /// Friends of this user for the ranking entry (docs/91 §8.1): ONE
+  /// aggregate `count()` (capped at [kMaxFriends], one billed read).
+  Future<int> friendsCount() => _data.countFriends();
+
   /// A page of received requests, newest first.
   Future<ReceivedPage> receivedRequests({Object? cursor, int pageSize = kReceivedPageSize}) async {
     final raw = await _data.readReceivedPage(cursor: cursor, limit: pageSize);

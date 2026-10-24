@@ -53,10 +53,16 @@ class FriendsApp {
 
   /// Reads of the social state, lists and searches. The badge's aggregate
   /// `count()` (slice 3, one per TTL while the icon shows) is separate:
-  /// [countReads].
+  /// [countReads]; so is the ranking signal's (docs/91 §8.1, one per
+  /// session): [friendsCountReads].
   List<String> get reads => [
     for (final r in social.readLog)
-      if (r != 'countReceived') r,
+      if (r != 'countReceived' && r != 'countFriends') r,
+  ];
+
+  List<String> get friendsCountReads => [
+    for (final r in social.readLog)
+      if (r == 'countFriends') r,
   ];
 
   List<String> get countReads => [

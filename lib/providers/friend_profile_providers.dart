@@ -7,6 +7,7 @@ import '../shared_profile/shared_stats_reading.dart';
 import '../social/social_models.dart';
 import 'providers.dart';
 import 'shared_profile_providers.dart';
+import 'friends_count_providers.dart';
 import 'sharing_providers.dart';
 import 'social_lists_providers.dart';
 import 'social_providers.dart';
@@ -267,6 +268,8 @@ class FriendProfileController extends AutoDisposeFamilyNotifier<FriendProfileSta
   void _revoked(String uid) {
     ref.read(friendProfileCacheProvider).remove(uid);
     ref.read(friendsControllerProvider.notifier).dropLocal(uid);
+    // A friendship ended elsewhere: the ranking signal recounts (docs/91 §8.1).
+    ref.read(friendsCountControllerProvider.notifier).invalidate();
   }
 
   /// "Remover amizade" from the profile: the Phase 1 flow, which also

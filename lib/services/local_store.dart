@@ -155,6 +155,26 @@ class LocalStore {
     return (active: parts[0] == 'a', at: DateTime.fromMillisecondsSinceEpoch(ms));
   }
 
+  /// Last known answer to "does [uid] have at least one friend?" and when
+  /// (docs/91 §8.1, ranking entry): lets the Ranking entry appear without a
+  /// read while the session count travels. A boolean per uid, no personal
+  /// data. Null = never known (or unreadable).
+  ({bool has, DateTime at})? friendsHint(String uid) {
+    final raw = _discoveryBox.get('friendsHint:$uid');
+    if (raw is! String) return null;
+    final parts = raw.split(':');
+    final ms = parts.length == 2 ? int.tryParse(parts[1]) : null;
+    if (ms == null || (parts[0] != 'y' && parts[0] != 'n')) return null;
+    return (has: parts[0] == 'y', at: DateTime.fromMillisecondsSinceEpoch(ms));
+  }
+
+  Future<void> setFriendsHint(String uid, bool? has, {DateTime? at}) => has == null
+      ? _discoveryBox.delete('friendsHint:$uid')
+      : _discoveryBox.put(
+          'friendsHint:$uid',
+          '${has ? 'y' : 'n'}:${(at ?? DateTime.now()).millisecondsSinceEpoch}',
+        );
+
   Future<void> setSocialHint(String uid, bool? active, {DateTime? at}) => active == null
       ? _discoveryBox.delete('socialHint:$uid')
       : _discoveryBox.put(

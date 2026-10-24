@@ -58,6 +58,16 @@ class FakeLocalStore extends LocalStore {
       ? socialHints.remove(uid)
       : socialHints[uid] = (active: active, at: at ?? DateTime.now());
 
+  final Map<String, ({bool has, DateTime at})> friendsHints = {};
+
+  @override
+  ({bool has, DateTime at})? friendsHint(String uid) => friendsHints[uid];
+
+  @override
+  Future<void> setFriendsHint(String uid, bool? has, {DateTime? at}) async => has == null
+      ? friendsHints.remove(uid)
+      : friendsHints[uid] = (has: has, at: at ?? DateTime.now());
+
   final Set<String> sharedRules = {};
 
   final Map<String, Set<String>> sharedHints = {};

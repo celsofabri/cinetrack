@@ -120,6 +120,8 @@ class AccountController extends Notifier<AccountDeletionState> {
         await ref.read(localStoreProvider).setSocialHint(uid, null);
         // "O que seus amigos veem": section names of the deleted account.
         await ref.read(localStoreProvider).setSharedHint(uid, null);
+        // Ranking entry: "has friends" of the deleted account.
+        await ref.read(localStoreProvider).setFriendsHint(uid, null);
       } catch (_) {}
       state = const AccountDeletionState();
       return true;
