@@ -89,9 +89,7 @@ final rankingCooldownProvider = Provider<Duration>((ref) => const Duration(secon
 
 /// One friend's snapshot from the SERVER (null = the document does not exist).
 /// Throws [SharedProfileFailure]. Tests inject their own.
-final rankingFriendReaderProvider = Provider<Future<FriendSharedView?> Function(String uid)>((
-  ref,
-) {
+final rankingFriendReaderProvider = Provider<Future<FriendSharedView?> Function(String uid)>((ref) {
   return (uid) => ref.read(sharedProfileRepositoryProvider).readFriend(uid);
 });
 

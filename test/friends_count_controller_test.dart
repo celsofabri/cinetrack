@@ -121,10 +121,8 @@ void main() {
 
     test('2: fresh hint (-1 h) has=T -> allowed without a read', () async {
       r = Rig(
-        hints: (s) => s.friendsHints['uid-ana'] = (
-          has: true,
-          at: _now.subtract(const Duration(hours: 1)),
-        ),
+        hints: (s) =>
+            s.friendsHints['uid-ana'] = (has: true, at: _now.subtract(const Duration(hours: 1))),
       );
       await r.signIn();
       expect(r.t, (null, false, false, false));
@@ -146,10 +144,8 @@ void main() {
       expect(r.access, RankingAccess.pending);
       r.dispose();
       r = Rig(
-        hints: (s) => s.friendsHints['uid-ana'] = (
-          has: true,
-          at: _now.subtract(const Duration(hours: 24)),
-        ),
+        hints: (s) =>
+            s.friendsHints['uid-ana'] = (has: true, at: _now.subtract(const Duration(hours: 24))),
       );
       await r.signIn();
       expect(r.access, RankingAccess.allowed);
@@ -194,39 +190,45 @@ void main() {
       expect(r.entry, isFalse);
     });
 
-    test('8-9: offline failure -> {null,F,F,F}; navigation does NOT retry; real reconnection does', () async {
-      r = Rig();
-      await r.signIn();
-      r.n.onShellShown();
-      await settle();
-      await r.fail();
-      expect(r.t, (null, false, false, false));
-      expect(r.access, RankingAccess.pending);
-      r.n.onShellShown();
-      await settle();
-      expect(r.calls, hasLength(1), reason: 'no count per navigation');
-      r.c.read(_offline.notifier).state = true;
-      await settle();
-      expect(r.calls, hasLength(1));
-      r.c.read(_offline.notifier).state = false;
-      await settle();
-      expect(r.t, (null, false, true, false));
-      expect(r.calls, hasLength(2));
-    });
+    test(
+      '8-9: offline failure -> {null,F,F,F}; navigation does NOT retry; real reconnection does',
+      () async {
+        r = Rig();
+        await r.signIn();
+        r.n.onShellShown();
+        await settle();
+        await r.fail();
+        expect(r.t, (null, false, false, false));
+        expect(r.access, RankingAccess.pending);
+        r.n.onShellShown();
+        await settle();
+        expect(r.calls, hasLength(1), reason: 'no count per navigation');
+        r.c.read(_offline.notifier).state = true;
+        await settle();
+        expect(r.calls, hasLength(1));
+        r.c.read(_offline.notifier).state = false;
+        await settle();
+        expect(r.t, (null, false, true, false));
+        expect(r.calls, hasLength(2));
+      },
+    );
 
-    test('10-11: added(Carla) with the list not loaded while a count travels; the answer is discarded', () async {
-      r = Rig();
-      await r.signIn();
-      r.n.onShellShown();
-      await settle();
-      r.n.added('uid-carla');
-      expect(r.t, (1, false, true, true));
-      expect(r.access, RankingAccess.allowed);
-      await r.answer(0);
-      expect(r.t, (1, false, false, false));
-      expect(r.access, RankingAccess.allowed);
-      expect(r.calls, hasLength(1));
-    });
+    test(
+      '10-11: added(Carla) with the list not loaded while a count travels; the answer is discarded',
+      () async {
+        r = Rig();
+        await r.signIn();
+        r.n.onShellShown();
+        await settle();
+        r.n.added('uid-carla');
+        expect(r.t, (1, false, true, true));
+        expect(r.access, RankingAccess.allowed);
+        await r.answer(0);
+        expect(r.t, (1, false, false, false));
+        expect(r.access, RankingAccess.allowed);
+        expect(r.calls, hasLength(1));
+      },
+    );
 
     test('12-13: added on a confirmed count; the same person twice counts once', () async {
       r = Rig();
@@ -321,20 +323,23 @@ void main() {
       expect(r.t, (3, true, false, false));
     });
 
-    test('22-23: invalidate on a confirmed count keeps the value until the answer (no blinking)', () async {
-      r = Rig();
-      await r.signIn();
-      await r.confirmed(2);
-      r.n.invalidate();
-      await settle();
-      expect(r.t, (2, true, true, false));
-      expect(r.access, RankingAccess.allowed);
-      // k invalidations while it travels: still ONE more count at most
-      expect(r.calls, hasLength(1));
-      await r.answer(0);
-      expect(r.t, (0, true, false, false));
-      expect(r.access, RankingAccess.noFriends);
-    });
+    test(
+      '22-23: invalidate on a confirmed count keeps the value until the answer (no blinking)',
+      () async {
+        r = Rig();
+        await r.signIn();
+        await r.confirmed(2);
+        r.n.invalidate();
+        await settle();
+        expect(r.t, (2, true, true, false));
+        expect(r.access, RankingAccess.allowed);
+        // k invalidations while it travels: still ONE more count at most
+        expect(r.calls, hasLength(1));
+        await r.answer(0);
+        expect(r.t, (0, true, false, false));
+        expect(r.access, RankingAccess.noFriends);
+      },
+    );
 
     test('24: complete first page while a count travels -> confirmed, answer discarded', () async {
       r = Rig();
@@ -348,23 +353,26 @@ void main() {
       expect(r.t, (2, true, false, false));
     });
 
-    test('25: complete empty page -> noFriends; a count in flight stays in flight and is discarded', () async {
-      r = Rig();
-      await r.signIn();
-      r.n.fromFirstPage(0, complete: true);
-      expect(r.t, (0, true, false, false));
-      expect(r.access, RankingAccess.noFriends);
-      r.dispose();
-      r = Rig();
-      await r.signIn();
-      r.n.onShellShown();
-      await settle();
-      r.n.fromFirstPage(0, complete: true);
-      expect(r.t, (0, true, true, true));
-      expect(r.access, RankingAccess.noFriends);
-      await r.answer(3);
-      expect(r.t, (0, true, false, false));
-    });
+    test(
+      '25: complete empty page -> noFriends; a count in flight stays in flight and is discarded',
+      () async {
+        r = Rig();
+        await r.signIn();
+        r.n.fromFirstPage(0, complete: true);
+        expect(r.t, (0, true, false, false));
+        expect(r.access, RankingAccess.noFriends);
+        r.dispose();
+        r = Rig();
+        await r.signIn();
+        r.n.onShellShown();
+        await settle();
+        r.n.fromFirstPage(0, complete: true);
+        expect(r.t, (0, true, true, true));
+        expect(r.access, RankingAccess.noFriends);
+        await r.answer(3);
+        expect(r.t, (0, true, false, false));
+      },
+    );
 
     test('26: a full page with more -> at least 51, not confirmed', () async {
       r = Rig();
@@ -395,53 +403,62 @@ void main() {
       expect(r.calls, hasLength(2));
     });
 
-    test('29: account switch: B starts clean, A answers are ignored, B gets its own count', () async {
-      r = Rig();
-      await r.signIn();
-      await r.confirmed(3);
-      r.n.invalidate();
-      await settle();
-      expect(r.calls, hasLength(1));
-      await r.signIn(_bia);
-      expect(r.s.count, isNull);
-      expect(r.calls, hasLength(2), reason: '+1 for the trigger of B');
-      await r.answer(9, at: 0); // A's late answer
-      expect(r.t, (null, false, true, false));
-      expect(r.store.friendsHints.containsKey('uid-bia'), isFalse);
-      await r.answer(1, at: 1);
-      expect(r.t, (1, true, false, false));
-      expect(r.store.friendsHints['uid-ana']!.has, isTrue);
-      expect(r.store.friendsHints['uid-bia']!.has, isTrue);
-    });
+    test(
+      '29: account switch: B starts clean, A answers are ignored, B gets its own count',
+      () async {
+        r = Rig();
+        await r.signIn();
+        await r.confirmed(3);
+        r.n.invalidate();
+        await settle();
+        expect(r.calls, hasLength(1));
+        await r.signIn(_bia);
+        expect(r.s.count, isNull);
+        expect(r.calls, hasLength(2), reason: '+1 for the trigger of B');
+        await r.answer(9, at: 0); // A's late answer
+        expect(r.t, (null, false, true, false));
+        expect(r.store.friendsHints.containsKey('uid-bia'), isFalse);
+        await r.answer(1, at: 1);
+        expect(r.t, (1, true, false, false));
+        expect(r.store.friendsHints['uid-ana']!.has, isTrue);
+        expect(r.store.friendsHints['uid-bia']!.has, isTrue);
+      },
+    );
 
-    test('30-31: friendships off -> state dropped, inactive; on again -> line 1 + trigger', () async {
-      r = Rig();
-      await r.signIn();
-      await r.confirmed(3);
-      r.social.set(SocialPhase.inactive);
-      await settle();
-      expect(r.t, (null, false, false, false));
-      expect(r.access, RankingAccess.inactive);
-      expect(r.calls, isEmpty);
-      r.social.set(SocialPhase.active);
-      await settle();
-      expect(r.calls, hasLength(1));
-      expect(r.t, (null, false, true, false));
-      expect(r.access, RankingAccess.allowed, reason: 'the hint of 3 friends stands in');
-    });
+    test(
+      '30-31: friendships off -> state dropped, inactive; on again -> line 1 + trigger',
+      () async {
+        r = Rig();
+        await r.signIn();
+        await r.confirmed(3);
+        r.social.set(SocialPhase.inactive);
+        await settle();
+        expect(r.t, (null, false, false, false));
+        expect(r.access, RankingAccess.inactive);
+        expect(r.calls, isEmpty);
+        r.social.set(SocialPhase.active);
+        await settle();
+        expect(r.calls, hasLength(1));
+        expect(r.t, (null, false, true, false));
+        expect(r.access, RankingAccess.allowed, reason: 'the hint of 3 friends stands in');
+      },
+    );
 
-    test('a session running on the "friendships on" hint reads NOTHING until confirmed (docs/59)', () async {
-      r = Rig(phase: SocialPhase.loading);
-      await r.signIn();
-      r.n.onShellShown();
-      r.n.invalidate();
-      r.n.removed('uid-carla');
-      await settle();
-      expect(r.calls, isEmpty);
-      r.social.set(SocialPhase.active);
-      await settle();
-      expect(r.calls, hasLength(1));
-    });
+    test(
+      'a session running on the "friendships on" hint reads NOTHING until confirmed (docs/59)',
+      () async {
+        r = Rig(phase: SocialPhase.loading);
+        await r.signIn();
+        r.n.onShellShown();
+        r.n.invalidate();
+        r.n.removed('uid-carla');
+        await settle();
+        expect(r.calls, isEmpty);
+        r.social.set(SocialPhase.active);
+        await settle();
+        expect(r.calls, hasLength(1));
+      },
+    );
 
     test('33: a new container (tab reloaded) = new session: hint + one count', () async {
       r = Rig();
@@ -538,10 +555,8 @@ void main() {
 
     test('7: confirmed 0 -> noFriends even with a has=T hint', () async {
       r = Rig(
-        hints: (s) => s.friendsHints['uid-ana'] = (
-          has: true,
-          at: _now.subtract(const Duration(minutes: 1)),
-        ),
+        hints: (s) =>
+            s.friendsHints['uid-ana'] = (has: true, at: _now.subtract(const Duration(minutes: 1))),
       );
       await r.signIn();
       r.n.fromFirstPage(0, complete: true);
