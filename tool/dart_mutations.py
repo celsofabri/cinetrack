@@ -886,6 +886,15 @@ M=[
  ('R2-30 block of a listed friend not decremented (runFor already dropped it)','lib/providers/social_lists_providers.dart',
   "final droppedFriend = friends.dropLocal(uid) || alreadyDroppedFriend;","final droppedFriend = friends.dropLocal(uid);",
   ['test/friends_count_controller_test.dart']),
+ ('R2-31 account deletion keeps friendsHint','lib/providers/account_providers.dart',
+  "        await ref.read(localStoreProvider).setFriendsHint(uid, null);\n","",
+  ['test/friends_hint_cleanup_test.dart']),
+ ('R2-32 deactivation keeps friendsHint','lib/providers/social_providers.dart',
+  "      if (uid != null) await _forgetFriendsHint(uid);\n","",
+  ['test/friends_hint_cleanup_test.dart']),
+ ('R2-33 friend profile revocation does not recount','lib/providers/friend_profile_providers.dart',
+  "    ref.read(friendsCountControllerProvider.notifier).invalidate();\n","",
+  ['test/ranking_controller_test.dart']),
 ]
 only=sys.argv[2:]
 bad=0
