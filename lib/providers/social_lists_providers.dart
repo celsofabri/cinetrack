@@ -6,6 +6,7 @@ import '../social/collation_key.dart';
 import '../social/social_models.dart';
 import '../social/social_validation.dart';
 import 'friend_profile_providers.dart';
+import 'friends_count_providers.dart';
 import 'providers.dart';
 import 'social_providers.dart';
 
@@ -387,6 +388,8 @@ class ReceivedRequestsController extends PagedListController<ReceivedRequest> {
       photo: request.fromPhoto,
       failure: failure,
       alreadyDroppedReceived: inList,
+      // A pending request means "not a friend" (rules invariant): no recount.
+      mayBeFriend: false,
       ownList: 'received',
     );
   }
@@ -458,8 +461,22 @@ class FriendsController extends PagedListController<Friend> {
 
   bool contains(String uid) => state.items.any((f) => f.uid == uid);
 
+  /// The whole list is in memory, from the server (nobody else is a friend).
+  bool get loadedComplete => state.phase == SentPhase.loaded && !state.hasMore && !state.fromCache;
+
+  @override
+  void onFirstPage(PagedState<Friend> loaded) {
+    // A server page is the best count there is (no extra read; docs/91 §8.1).
+    ref
+        .read(friendsCountControllerProvider.notifier)
+        .fromFirstPage(loaded.items.length, complete: !loaded.hasMore);
+  }
+
   /// A friendship just created by this device: shown without a read.
   void add(Friend friend) {
+    // BEFORE the early return: the ranking signal counts it even when the
+    // list is not loaded (the counter dedupes by uid; docs/91 §8.1).
+    ref.read(friendsCountControllerProvider.notifier).added(friend.uid);
     if (state.phase != SentPhase.loaded || contains(friend.uid)) return;
     // One new friend slots in by name among those shown; nothing else moves.
     final items = [...state.items];
@@ -475,6 +492,9 @@ class FriendsController extends PagedListController<Friend> {
     if (state.busy.contains(friend.uid)) return kBusyFailure;
     final generation = _generation;
     final repository = ref.read(socialRepositoryProvider);
+    // `runFor` drops the card on success: remember it was there (the
+    // ranking signal decrements once, docs/91 §8.1).
+    final inList = contains(friend.uid);
     final failure = await runFor(
       friend.uid,
       () => repository.blockUser(uid: friend.uid, name: friend.name, photo: friend.photoUrl),
@@ -488,6 +508,7 @@ class FriendsController extends PagedListController<Friend> {
       photo: friend.photoUrl,
       failure: failure,
       mayHavePendingRequest: false, // a friend has no pending request (rules invariant)
+      alreadyDroppedFriend: inList,
       ownList: 'friends',
     );
   }
@@ -499,8 +520,16 @@ class FriendsController extends PagedListController<Friend> {
   Future<SocialFailure?> remove(Friend friend) async {
     if (state.busy.contains(friend.uid)) return kBusyFailure;
     final repository = ref.read(socialRepositoryProvider);
+    final generation = _generation;
     final failure = await runFor(friend.uid, () => repository.removeFriend(friend.uid));
     ref.read(friendProfileCacheProvider).remove(friend.uid);
+    if (generation != _generation) return failure; // another account / period
+    final counts = ref.read(friendsCountControllerProvider.notifier);
+    if (failure == null) {
+      counts.removed(friend.uid);
+    } else if (failure.kind == SocialFailureKind.uncertain) {
+      counts.invalidate();
+    }
     return failure;
   }
 }
@@ -597,6 +626,8 @@ SocialFailure? afterBlock(
   required SocialFailure? failure,
   bool alreadyDroppedReceived = false,
   bool mayHavePendingRequest = true,
+  bool alreadyDroppedFriend = false,
+  bool mayBeFriend = true,
   String? ownList,
 }) {
   // Every block attempt (list, request, search or profile) forgets the
@@ -606,7 +637,17 @@ SocialFailure? afterBlock(
     // Same cleaning as the "Bloqueados" list, so nothing changes at the next read.
     name = SocialNickname.normalize(name) ?? 'Usuário';
     photo = SocialPhoto.sanitize(photo);
-    ref.read(friendsControllerProvider.notifier).dropLocal(uid);
+    final friends = ref.read(friendsControllerProvider.notifier);
+    final droppedFriend = friends.dropLocal(uid) || alreadyDroppedFriend;
+    // The ranking signal (docs/91 §8.1): a friend that left the list is one
+    // less; a list that is loaded and complete proves they were not a friend;
+    // otherwise nobody knows: one recount.
+    final counts = ref.read(friendsCountControllerProvider.notifier);
+    if (droppedFriend) {
+      counts.removed(uid);
+    } else if (mayBeFriend && !friends.loadedComplete) {
+      counts.invalidate();
+    }
     ref
         .read(receivedRequestsControllerProvider.notifier)
         .dropBlocked(
@@ -730,6 +771,8 @@ void refreshBadge(WidgetRef ref) {
     try {
       if (!ref.context.mounted) return;
       ref.read(receivedCountControllerProvider.notifier).ensureFresh();
+      // The ranking signal: one count on the first frame of the shell.
+      ref.read(friendsCountControllerProvider.notifier).onShellShown();
     } catch (_) {}
   });
   WidgetsBinding.instance.ensureVisualUpdate();
@@ -761,7 +804,10 @@ class _BadgeRefresherState extends ConsumerState<BadgeRefresher> with WidgetsBin
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) refreshBadge(ref);
+    if (state == AppLifecycleState.resumed) {
+      refreshBadge(ref);
+      ref.read(friendsCountControllerProvider.notifier).onResume();
+    }
   }
 
   @override
