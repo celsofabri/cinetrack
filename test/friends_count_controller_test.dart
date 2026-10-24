@@ -4,12 +4,15 @@ import 'package:cinetrack/auth/app_user.dart';
 import 'package:cinetrack/providers/friends_count_providers.dart';
 import 'package:cinetrack/providers/providers.dart';
 import 'package:cinetrack/providers/ranking_providers.dart';
+import 'package:cinetrack/providers/shared_profile_providers.dart';
 import 'package:cinetrack/providers/social_lists_providers.dart';
 import 'package:cinetrack/providers/social_providers.dart';
 import 'package:cinetrack/social/social_models.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/fake_shared_profile_cloud.dart';
+import 'support/fake_social_cloud.dart';
 import 'support/favorites_harness.dart';
 
 /// docs/91 §8 (Fatia 2): the "tenho ≥ 1 amigo" signal (O7) and who may open
@@ -40,7 +43,11 @@ class Rig {
   DateTime now = _now;
   late final ProviderContainer c;
 
-  Rig({SocialPhase phase = SocialPhase.active, void Function(FakeLocalStore s)? hints}) {
+  Rig({
+    SocialPhase phase = SocialPhase.active,
+    void Function(FakeLocalStore s)? hints,
+    List<Override> extra = const [],
+  }) {
     hints?.call(store);
     c = ProviderContainer(
       overrides: [
@@ -56,6 +63,7 @@ class Rig {
         socialConnectivityProvider.overrideWith(
           (ref) => (offline: ref.watch(_offline), fromCache: false),
         ),
+        ...extra,
       ],
     );
     c.listen(friendsCountControllerProvider, (_, _) {});
@@ -578,6 +586,123 @@ void main() {
       expect(r.s.count, 0);
       expect(r.s.confirmed, isFalse);
       expect(r.access, RankingAccess.pending);
+    });
+  });
+
+  group('hooks of the friends lists (docs/91 §8.1)', () {
+    late Rig r;
+    late FakeSocialCloud social;
+    tearDown(() => r.dispose());
+
+    Future<void> make({int friends = 3}) async {
+      social = FakeSocialCloud()..seedActive('uid-ana', 'ana', nickname: 'Ana');
+      for (var i = 0; i < friends; i++) {
+        social.seedActive('uid-f$i', 'amigo$i', nickname: 'Amigo $i');
+        social.seedFriendship('uid-ana', 'uid-f$i', aName: 'Ana', bName: 'Amigo $i');
+      }
+      social.seedActive('uid-zed', 'zed', nickname: 'Zed');
+      final shared = FakeSharedProfileCloud();
+      r = Rig(
+        extra: [
+          socialDataSourceFactoryProvider.overrideWithValue(
+            (uid) => InMemorySocialDataSource(social, uid: uid),
+          ),
+          sharedProfileDataSourceFactoryProvider.overrideWithValue(
+            (uid) => InMemorySharedProfileDataSource(shared, uid: uid),
+          ),
+        ],
+      );
+      await r.signIn();
+    }
+
+    FriendsController friends() => r.c.read(friendsControllerProvider.notifier);
+
+    test(
+      'add() counts BEFORE the early return: list not loaded -> 1; same person again -> 1',
+      () async {
+        await make();
+        expect(r.c.read(friendsControllerProvider).phase, SentPhase.idle);
+        friends().add(const Friend(uid: 'uid-new', name: 'Novo'));
+        expect(r.t, (1, false, false, false));
+        friends().add(const Friend(uid: 'uid-new', name: 'Novo'));
+        expect(r.t, (1, false, false, false));
+        expect(r.calls, isEmpty);
+      },
+    );
+
+    test('a complete server page confirms the count; remove() success = -1', () async {
+      await make();
+      await friends().ensureLoaded();
+      expect(r.t, (3, true, false, false));
+      final f0 = r.c.read(friendsControllerProvider).items.first;
+      expect(await friends().remove(f0), isNull);
+      expect(r.t, (2, true, false, false));
+      expect(r.calls, isEmpty);
+    });
+
+    test('remove() with an unconfirmed outcome -> one recount', () async {
+      await make();
+      await friends().ensureLoaded();
+      social.failures['removeFriend'] = const SocialFailure(SocialFailureKind.uncertain);
+      final f0 = r.c.read(friendsControllerProvider).items.first;
+      await friends().remove(f0);
+      await settle();
+      expect(r.calls, hasLength(1));
+    });
+
+    test(
+      'block() of a friend in the loaded list = ONE decrement (runFor already dropped it)',
+      () async {
+        await make();
+        await friends().ensureLoaded();
+        final f1 = r.c.read(friendsControllerProvider).items[1];
+        expect(await friends().block(f1), isNull);
+        expect(r.t, (2, true, false, false));
+        expect(r.calls, isEmpty);
+      },
+    );
+
+    test('blocking a non-friend: complete list = nothing; list not loaded = one recount', () async {
+      await make();
+      await friends().ensureLoaded();
+      final blocked = r.c.read(blockedControllerProvider.notifier);
+      expect(await blocked.blockPerson(uid: 'uid-zed', name: 'Zed'), isNull);
+      expect(r.t, (3, true, false, false));
+      expect(r.calls, isEmpty);
+      r.dispose();
+      await make();
+      await r.confirmed(3);
+      expect(
+        await r.c.read(blockedControllerProvider.notifier).blockPerson(uid: 'uid-zed', name: 'Zed'),
+        isNull,
+      );
+      await settle();
+      expect(r.calls, hasLength(1));
+      expect(r.t, (3, true, true, false), reason: 'kept while it travels');
+    });
+  });
+
+  group('O11 (session rows)', () {
+    late Rig r;
+    tearDown(() => r.dispose());
+
+    test('20: session WITHOUT friendships -> 0 aggregate', () async {
+      r = Rig(phase: SocialPhase.inactive);
+      await r.signIn();
+      r.n.onShellShown();
+      r.n.onResume();
+      await settle();
+      expect(r.calls, isEmpty);
+    });
+
+    test('19: session with friendships, ranking never opened -> exactly 1 aggregate', () async {
+      r = Rig();
+      await r.signIn();
+      for (var i = 0; i < 5; i++) {
+        r.n.onShellShown();
+      }
+      await settle();
+      expect(r.calls, hasLength(1));
     });
   });
 }
