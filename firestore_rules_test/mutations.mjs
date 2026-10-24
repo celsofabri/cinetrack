@@ -10,6 +10,11 @@ const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8
 
 // Suites that kill the Phase 2 mutations (SP*).
 const SP = ['shared_profile.test.mjs', 'favorites_epsat.test.mjs', 'social_compat.test.mjs', 'rules_budget.test.mjs', 'shared_profile_payloads.test.mjs'];
+// Suite that kills the Phase 3 mutations (RK*, docs/91 §14.1, docs/93 §4.5). Run ALONE on purpose:
+// a kill proves that the ranking tests themselves pin the clause (not only the Phase 2 suites).
+const RK = ['ranking.test.mjs'];
+// B11 (docs/93): the sha gate changes verdict for EVERY mutant, so it must never be in a suite list.
+const SHA_GATE = 'rules_sha.test.mjs';
 
 const MUTATIONS = [
   ['M1 friendship without the other side\'s request (no consent)',
@@ -187,6 +192,38 @@ const MUTATIONS = [
   ['SP82 ranking metric bound loosened (> -1000)', [["p.minutes >= 0;", "p.minutes > -1000;"]], SP],
   ['SP83 activity at == actSince denied (> instead of >=)', [["(n <= 0 || l[0].at >= since)", "(n <= 0 || l[0].at > since)"]], SP],
   ['SP84 favorites readable by any Google user', [["        allow read, delete: if isOwner(uid);\n", "        allow read: if isOwner(uid) || isGoogle();\n        allow delete: if isOwner(uid);\n"]], SP],
+  // Phase 3 (ranking, docs/91 §14.1): clauses the ranking relies on, each killed by ranking.test.mjs
+  // alone (never by rules_sha.test.mjs, which is in no suite list).
+  ['RK1 shared_profiles list opened to signed-in users (getDocs/in queries)',
+    [["      allow list: if false;\n      // Primeiro interruptor", "      allow list: if request.auth != null;\n      // Primeiro interruptor"]], RK],
+  ['RK2 shared_profiles list opened to friends (documentId in [friends])',
+    [["      allow list: if false;\n      // Primeiro interruptor", "      allow list: if isGoogle() && isFriend(uid, request.auth.uid);\n      // Primeiro interruptor"]], RK],
+  ['RK3 friend read without isFriend (isFriend -> true)',
+    [["allow get: if isOwner(uid) || (isGoogle() && isFriend(uid, request.auth.uid));", "allow get: if isOwner(uid) || (isGoogle() && true);"]], RK],
+  ['RK4 friend read without isGoogle (password/anonymous/no-claim friends read)',
+    [["allow get: if isOwner(uid) || (isGoogle() && isFriend(uid, request.auth.uid));", "allow get: if isOwner(uid) || (isFriend(uid, request.auth.uid));"]], RK],
+  ['RK5 friend read with any non-anonymous provider instead of Google',
+    [["allow get: if isOwner(uid) || (isGoogle() && isFriend(uid, request.auth.uid));", "allow get: if isOwner(uid) || (request.auth.token.firebase.sign_in_provider != 'anonymous' && isFriend(uid, request.auth.uid));"]], RK],
+  ['RK6 non-existing snapshot readable by anyone (existence oracle)',
+    [["allow get: if isOwner(uid) || (isGoogle() && isFriend(uid, request.auth.uid));", "allow get: if resource == null || isOwner(uid) || (isGoogle() && isFriend(uid, request.auth.uid));"]], RK],
+  ['RK7 owner branch removed from the read (my own row cannot be read)',
+    [["allow get: if isOwner(uid) || (isGoogle() && isFriend(uid, request.auth.uid));", "allow get: if (isGoogle() && isFriend(uid, request.auth.uid));"]], RK],
+  ['RK8 friend read also allowed when the pair is absent but a block exists (blocked reads)',
+    [["allow get: if isOwner(uid) || (isGoogle() && isFriend(uid, request.auth.uid));", "allow get: if isOwner(uid) || (isGoogle() && (isFriend(uid, request.auth.uid) || isBlockedEither(uid, request.auth.uid)));"]], RK],
+  ['RK9 stats section without stats consent (consent <=> section removed)',
+    [["        && ('stats' in d) == ('stats' in s)\n", "\n"]], RK],
+  ['RK10 stats allowed without consent (only consent => section kept)',
+    [["        && ('stats' in d) == ('stats' in s)\n", "        && (!('stats' in s) || ('stats' in d))\n"]], RK],
+  ['RK11 stats consent without the section (only section => consent kept)',
+    [["        && ('stats' in d) == ('stats' in s)\n", "        && (!('stats' in d) || ('stats' in s))\n"]], RK],
+  ['RK12 friendships count/list opened to non-members (count someone else\'s friends)',
+    [["allow list: if request.auth != null && request.auth.uid in resource.data.members;", "allow list: if request.auth != null;"]], RK],
+  ['RK13 friendships count/list closed to members (D7 signal breaks)',
+    [["allow list: if request.auth != null && request.auth.uid in resource.data.members;", "allow list: if false;"]], RK],
+  ['RK14 rankOk hardened: minutes must be an int (documentary rows must notice)',
+    [["p.minutes >= 0;", "p.minutes is int && p.minutes >= 0;"]], RK],
+  ['RK15 rankOk hardened: metric capped (1e300 denied; documentary rows must notice)',
+    [["p.minutes >= 0;", "p.minutes >= 0 && p.minutes <= 52560000;"]], RK],
 ];
 
 // Mutations of the PAYLOADS (the Dart side) instead of the rules: a deliberately broken copy of the
@@ -295,7 +332,13 @@ function dropOp(fx, prefix) {
 }
 
 const dir = mkdtempSync(join(tmpdir(), 'cinetrack-mut-'));
-const SUITES = ['social.test.mjs', 'social_compat.test.mjs', 'dart_payloads.test.mjs', ...SP.filter((f) => f !== 'social_compat.test.mjs')];
+const SUITES = ['social.test.mjs', 'social_compat.test.mjs', 'dart_payloads.test.mjs', ...SP.filter((f) => f !== 'social_compat.test.mjs'), ...RK];
+for (const list of [SUITES, SP, RK, ...MUTATIONS.map((m) => m[2]).filter(Array.isArray)]) {
+  if (list.includes(SHA_GATE)) {
+    console.error(`${SHA_GATE} must not be in a mutant suite list (docs/93 B11).`);
+    process.exit(2);
+  }
+}
 const notOk = (stdout) => [...stdout.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => m[1]);
 const okCount = (stdout) => [...stdout.matchAll(/^\s*ok \d+ - /gm)].length;
 

@@ -20,6 +20,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # The app is published by this workflow, but the Firestore rules are
+      # published by the CLI (never from CI). The app in main must match the
+      # rules live in production: fail fast if firestore.rules differs from the
+      # published sha256 (docs/91 §13, docs/93 B11; also pinned by
+      # firestore_rules_test/rules_sha.test.mjs). Update both after a rules deploy.
+      - name: Ensure firestore.rules matches production (sha256)
+        run: echo "6135322e766b37f8f5c8a6057ff9863a54dcda5b6a2e1fb554f2f1f91300e612  firestore.rules" | sha256sum -c -
+
       - name: Setup Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
