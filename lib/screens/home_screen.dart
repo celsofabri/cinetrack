@@ -9,6 +9,8 @@ import '../widgets/continue_watching_section.dart';
 import '../widgets/count_badge.dart';
 import '../widgets/discovery_section.dart';
 import '../providers/providers.dart';
+import '../providers/ranking_providers.dart';
+import '../providers/ranking_ui_providers.dart';
 import '../providers/social_lists_providers.dart';
 import '../providers/social_providers.dart';
 
@@ -25,8 +27,13 @@ class HomeScreen extends ConsumerWidget {
     // The Amigos entry only exists for accounts with friendships on.
     final friends = ref.watch(socialActiveProvider);
     final pending = ref.watch(receivedBadgeProvider);
+    // Ranking: only with >= 1 friend (docs/91 O8), right after Amigos.
+    final ranking = ref.watch(rankingAccessProvider) == RankingAccess.allowed;
     refreshBadge(ref);
-    final labelsMinWidth = kTopMenuLabelsMinWidth + (friends ? kTopMenuFriendsExtraWidth : 0);
+    final labelsMinWidth =
+        kTopMenuLabelsMinWidth +
+        (friends ? kTopMenuFriendsExtraWidth : 0) +
+        (ranking ? kTopMenuRankingExtraWidth : 0);
     return Scaffold(
       appBar: MobileShellScope.active(context)
           ? null
@@ -78,6 +85,13 @@ class HomeScreen extends ConsumerWidget {
                     onPressed: () =>
                         context.push(pending > 0 ? '/friends?tab=pedidos' : '/friends'),
                   ),
+                if (ranking)
+                  _NavAction(
+                    label: 'Ranking',
+                    labelsMinWidth: labelsMinWidth,
+                    icon: Icons.leaderboard,
+                    onPressed: () => openRanking(context, ref, from: '/'),
+                  ),
                 const AccountAction(),
                 const SizedBox(width: 8),
               ],
@@ -103,6 +117,10 @@ const double kTopMenuLabelsMinWidth = 960;
 
 /// Extra room the "Amigos" item needs before the labels fit.
 const double kTopMenuFriendsExtraWidth = 120;
+
+/// Extra room the "Ranking" item needs (docs/91 §9; the test locks the
+/// behavior: labels without overflow exactly at the minimum width).
+const double kTopMenuRankingExtraWidth = 130;
 
 /// Top-menu button: icon + label on wide screens, icon-only (with tooltip)
 /// on narrow ones so the actions never overflow the app bar.

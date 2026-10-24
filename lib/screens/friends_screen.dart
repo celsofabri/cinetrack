@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../providers/ranking_providers.dart';
+import '../providers/ranking_ui_providers.dart';
 import '../providers/social_lists_providers.dart';
 import '../providers/social_providers.dart';
 import '../providers/sync_providers.dart';
@@ -128,14 +130,25 @@ class _FriendsBodyState extends ConsumerState<_FriendsBody> {
               'Procure uma pessoa pelo identificador exato (@usuario) e envie um pedido de amizade.',
             ),
             const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
-                onPressed: () => context.push('/friends/add'),
-                icon: const Icon(Icons.person_add_alt_1_outlined),
-                label: const Text('Adicionar amigo'),
-              ),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
+                  onPressed: () => context.push('/friends/add'),
+                  icon: const Icon(Icons.person_add_alt_1_outlined),
+                  label: const Text('Adicionar amigo'),
+                ),
+                // Ranking: only with >= 1 friend (docs/90 RF-V1), every width.
+                if (ref.watch(rankingAccessProvider) == RankingAccess.allowed)
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+                    onPressed: () => openRanking(context, ref, from: '/friends'),
+                    icon: const Icon(Icons.leaderboard_outlined),
+                    label: const Text('Ver ranking'),
+                  ),
+              ],
             ),
             const SizedBox(height: 16),
             FriendsTabs(selected: _tab, pending: pending, onSelect: _select),

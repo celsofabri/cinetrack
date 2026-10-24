@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'models/media_type.dart';
 import 'providers/providers.dart';
+import 'providers/ranking_providers.dart';
 import 'providers/social_lists_providers.dart';
 import 'social/social_models.dart';
 import 'screens/add_friend_screen.dart';
@@ -18,6 +19,7 @@ import 'screens/movie_details_screen.dart';
 import 'screens/not_found_screen.dart';
 import 'screens/person_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/ranking_screen.dart';
 import 'screens/recommendations_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/tv_details_screen.dart';
@@ -35,6 +37,9 @@ int? _parseId(GoRouterState state) {
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier<int>(0);
   ref.listen(authStateProvider, (_, _) => refresh.value++);
+  // `/ranking` follows the ranking access live (docs/91 §8.3): the last
+  // friend removed sends it to `/friends` without a reload.
+  ref.listen(rankingAccessProvider, (_, _) => refresh.value++);
   ref.onDispose(refresh.dispose);
 
   final router = GoRouter(
@@ -42,6 +47,15 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: refresh,
     redirect: (context, state) {
       final location = state.matchedLocation;
+      if (location == '/ranking') {
+        // docs/91 O8: pending (session, friendships or the signal still
+        // loading) stays and shows the skeleton; the query is kept.
+        return switch (ref.read(rankingAccessProvider)) {
+          RankingAccess.noSession => '/',
+          RankingAccess.inactive || RankingAccess.noFriends => '/friends',
+          RankingAccess.pending || RankingAccess.allowed => null,
+        };
+      }
       if (location != '/profile' && location != '/friends' && !location.startsWith('/friends/')) {
         return null;
       }
@@ -66,6 +80,15 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
           GoRoute(path: '/profile', builder: (context, state) => const ProfileScreen()),
           GoRoute(path: '/friends', builder: (context, state) => const FriendsScreen()),
+          // The ranking (docs/90 RF-V): opened with `go` so the filter stays in
+          // the address (T2); `extra` = where "Voltar" leads (a string).
+          GoRoute(
+            path: '/ranking',
+            builder: (context, state) {
+              final extra = state.extra;
+              return RankingScreen(from: extra is String ? extra : null);
+            },
+          ),
           // A sibling, not a child: a nested route keeps the parent page alive under it, and the
           // list behind the search would be read although the search must read nothing.
           GoRoute(path: '/friends/add', builder: (context, state) => const AddFriendScreen()),

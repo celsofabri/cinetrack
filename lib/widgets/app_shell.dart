@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../providers/catalog_sync_providers.dart';
 import '../providers/sharing_providers.dart';
 import '../providers/providers.dart';
+import '../providers/ranking_providers.dart';
+import '../providers/ranking_ui_providers.dart';
 import '../providers/social_lists_providers.dart';
 import '../providers/social_providers.dart';
 import 'count_badge.dart';
@@ -68,11 +70,20 @@ const double kBrandNameMinWidth = 56;
 /// the icon is hidden and the pending requests show as a dot on the Perfil
 /// destination instead (docs/50 §13); Perfil -> "Gerenciar amigos" still
 /// reaches the screen.
-bool friendsIconFits(BuildContext context) {
+bool friendsIconFits(BuildContext context) => topBarFits(context, 1);
+
+/// Whether the Ranking icon fits too (docs/91 §9, D6): it sits left of
+/// Amigos and is the FIRST to give way; Amigos and Perfil keep the entries.
+bool rankingIconFits(BuildContext context) => topBarFits(context, 2);
+
+/// Whether [extraIcons] 48 px icons fit in the mobile top bar next to the
+/// logo, the name (room in proportion to the font size), the magnifier and
+/// the sync indicator.
+bool topBarFits(BuildContext context, int extraIcons) {
   const padding = 32.0, button = 48.0, sync = 32.0, logo = 32.0, gap = 8.0;
   final width = MediaQuery.sizeOf(context).width;
   final scale = MediaQuery.textScalerOf(context).scale(1);
-  final room = width - padding - button /* search */ - sync - button /* friends */;
+  final room = width - padding - button /* search */ - sync - button * extraIcons;
   return room >= logo + gap + kBrandNameMinWidth * scale;
 }
 
@@ -88,6 +99,8 @@ class MobileTopBar extends ConsumerWidget {
     // Only for accounts with friendships on (loads the social state once per session).
     final friends = ref.watch(socialActiveProvider) && friendsIconFits(context);
     final pending = ref.watch(receivedBadgeProvider);
+    // Ranking: only with >= 1 friend (O8), and only while it fits.
+    final ranking = ref.watch(rankingAccessProvider) == RankingAccess.allowed && rankingIconFits(context);
     refreshBadge(ref);
     return Material(
       color: theme.colorScheme.surface,
@@ -112,6 +125,14 @@ class MobileTopBar extends ConsumerWidget {
                       ),
                     ),
                   ),
+                  if (ranking)
+                    IconButton(
+                      key: const Key('topbar-ranking'),
+                      tooltip: 'Ranking',
+                      style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                      icon: const Icon(Icons.leaderboard_outlined),
+                      onPressed: () => openRanking(context, ref),
+                    ),
                   if (friends)
                     IconButton(
                       tooltip: friendsSemanticLabel(pending),
@@ -234,7 +255,11 @@ class AppShell extends ConsumerWidget {
       (t) => t.path == '/' ? location == '/' : location.startsWith(t.path),
     );
     // Amigos "lives" in the Profile (docs/50 §13): its screens keep Perfil selected.
-    if (selected < 0 && (location.startsWith('/profile') || location.startsWith('/friends'))) {
+    // So does the ranking (docs/91 §9, A11).
+    if (selected < 0 &&
+        (location.startsWith('/profile') ||
+            location.startsWith('/friends') ||
+            location.startsWith('/ranking'))) {
       selected = profileIndex;
     }
     // `/search` (opened from the magnifier in the top bar) is not a tab; it is

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../providers/ranking_providers.dart';
+import '../providers/ranking_ui_providers.dart';
 import '../providers/social_lists_providers.dart';
 import '../providers/social_providers.dart';
 import '../providers/social_refresh_providers.dart';
@@ -259,6 +261,14 @@ class _Active extends ConsumerWidget {
                           '${pending == 1 ? 'pedido recebido' : 'pedidos recebidos'}',
               ),
             ),
+            // Ranking: only with >= 1 friend (docs/90 RF-V1).
+            if (ref.watch(rankingAccessProvider) == RankingAccess.allowed)
+              FilledButton.tonalIcon(
+                style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
+                onPressed: () => openRanking(context, ref, from: '/profile'),
+                icon: const Icon(Icons.leaderboard_outlined),
+                label: const Text('Ranking'),
+              ),
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
               onPressed: locked || !canChange ? null : () => showChangeHandleDialog(context),
