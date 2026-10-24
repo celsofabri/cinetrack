@@ -373,3 +373,7 @@ Cenário: Ranking com confirmação pendente
 - [ ] QA revisou a testabilidade (estados, textos, transações, migração).
 - [ ] S0 confirmou o orçamento (transação única) ou o Orquestrador aprovou o plano B.
 - [ ] docs/90 e docs/91 coerentes com este documento.
+
+## Decisão do Manager sobre o ❓1 (2026-10-24)
+
+Aprovada a recomendação: aviso B uma vez por sessão com "Parar de compartilhar" ou "Aparecer na busca e compartilhar tudo"; até a escolha, mantém o que a pessoa já compartilha. Nada é apagado sem ação dela.

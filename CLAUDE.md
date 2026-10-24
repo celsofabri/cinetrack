@@ -40,7 +40,7 @@ O Emulator usa as portas 8080, 9150, 4400 e 4500. Para rodar em paralelo, use um
 
 1. **Nenhum usuário perde dados.** Toda mudança em dados, regras ou payloads precisa provar compatibilidade com os documentos e o app que estão em produção (fixtures `firestore_rules_test/fixtures/firestore.rules.v*` e `social_compat`).
 2. **Regras antes do app, e regras nunca voltam.** Publicar `firestore.rules`/índices pelo CLI (`firebase deploy --only firestore:rules` / `firestore:indexes --project cinetrack-d9398`) antes do app que depende delas. Nunca usar `--force` nem aceitar apagar índices. Antes de publicar, conferir que o sha256 das regras de produção é o esperado.
-3. **Visibilidade só entre amigos mútuos.** `users/{uid}/favorites` nunca é legível por terceiros. O que amigos veem sai só de `shared_profiles/{uid}`, com consentimento por seção.
+3. **Visibilidade só entre amigos mútuos.** `users/{uid}/favorites` nunca é legível por terceiros. O que amigos veem sai só de `shared_profiles/{uid}`. Desde a fase 3, um único interruptor ("Aparecer na busca") liga a busca e o compartilhamento das 3 seções com um consentimento só; desligado, nada é compartilhado (`docs/95`). Nunca compartilhar sem consentimento registrado nem apagar o que a pessoa compartilhou sem ação dela.
 4. **Cota gratuita do Spark.** Estime leituras e escritas de toda feature nova. Quem não usa o social não gera escrita nova.
 5. **Orçamento de expressões das regras está apertado:** a pior escrita do app usa ~64% do limite de 1000 expressões, travado por `firestore_rules_test/rules_budget.test.mjs`. Se ele falhar, reveja o NFR ou otimize as regras; nunca afrouxe o teste.
 6. Exclusão de conta (`AccountDeleter`), desativação de amizades e "Exportar meus dados" precisam cobrir todo dado novo.
