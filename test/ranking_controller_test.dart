@@ -69,10 +69,10 @@ class _Friends extends FriendsController {
   }
 }
 
-class _Pending {
+class PendingRead {
   final String uid;
   final Completer<Map<String, dynamic>?> k = Completer();
-  _Pending(this.uid);
+  PendingRead(this.uid);
 }
 
 class _Shared extends SignedOutSharedProfileDataSource {
@@ -88,7 +88,7 @@ class _Shared extends SignedOutSharedProfileDataSource {
     rig.reads.add(friendUid);
     rig.inFlight++;
     rig.peak = math.max(rig.peak, rig.inFlight);
-    final p = _Pending(friendUid);
+    final p = PendingRead(friendUid);
     rig.pending.add(p);
     return p.k.future.whenComplete(() => rig.inFlight--);
   }
@@ -142,7 +142,7 @@ class Rig {
   /// Documents read by each friends-list query (one entry per query).
   final List<int> listQueries = [];
   final List<String> reads = [];
-  final List<_Pending> pending = [];
+  final List<PendingRead> pending = [];
   final List<Completer<int>> counts = [];
   int inFlight = 0;
   int peak = 0;
@@ -215,12 +215,12 @@ class Rig {
   FriendProfileCache get cache => c.read(friendProfileCacheProvider);
   int get started => reads.length;
 
-  List<_Pending> get open_ => [
+  List<PendingRead> get openReads => [
     for (final p in pending)
       if (!p.k.isCompleted) p,
   ];
 
-  void _complete(_Pending p, A a) {
+  void _complete(PendingRead p, A a) {
     final k = p.k;
     switch (a) {
       case A.stats:
@@ -257,7 +257,7 @@ class Rig {
 
   /// Answers the oldest read still open (or the one of [uid]).
   Future<void> respond(A a, {String? uid}) async {
-    final p = uid == null ? open_.first : open_.firstWhere((p) => p.uid == uid);
+    final p = uid == null ? openReads.first : openReads.firstWhere((p) => p.uid == uid);
     _complete(p, a);
     await settle();
   }
@@ -270,7 +270,7 @@ class Rig {
 
   /// Answers every read, including the ones that start meanwhile.
   Future<void> respondAll(A a) async {
-    while (open_.isNotEmpty) {
+    while (openReads.isNotEmpty) {
       await respond(a);
     }
   }
@@ -333,7 +333,7 @@ void main() {
       expect(r.s.phase, RankingPhase.error);
       expect(r.s.failed, hasLength(50));
       expect(r.started, 10);
-      expect(r.open_, isEmpty);
+      expect(r.openReads, isEmpty);
     });
 
     test(
@@ -390,7 +390,7 @@ void main() {
       expect(r.s.phase, RankingPhase.quota);
       expect(r.s.showsRows, isFalse);
       expect(r.started, 12);
-      expect(r.open_, hasLength(9));
+      expect(r.openReads, hasLength(9));
       await r.respondAll(A.stats);
       expect(r.started, 12, reason: 'nothing new after a terminal answer');
       expect(r.s.phase, RankingPhase.quota);
@@ -584,7 +584,7 @@ void main() {
     test('16: account switch with 6 in flight -> B starts clean, nothing of A cached', () async {
       await rig(6);
       await r.open();
-      expect(r.open_, hasLength(6));
+      expect(r.openReads, hasLength(6));
       final cacheA = r.cache;
       await r.signIn(_bia);
       final inFlightOfA = r.pending.take(6).toList();
@@ -603,9 +603,9 @@ void main() {
         await rig(8);
         await r.open();
         await r.respondEach([A.stats, A.stats]);
-        expect(r.open_, hasLength(6));
+        expect(r.openReads, hasLength(6));
         await r.leave();
-        for (final p in r.open_) {
+        for (final p in r.openReads) {
           r._complete(p, A.stats);
         }
         await settle();
@@ -1054,7 +1054,7 @@ void main() {
         await rig(20);
         await r.open();
         var denied = 0;
-        while (r.open_.isNotEmpty) {
+        while (r.openReads.isNotEmpty) {
           await r.respond(denied++ < k ? A.denied : A.stats);
         }
         expect(r.reads, hasLength(20));

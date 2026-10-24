@@ -23,8 +23,8 @@ final _now = DateTime.utc(2026, 10, 15, 15);
 
 final _offline = StateProvider<bool>((ref) => false);
 
-class _Social extends SocialController {
-  _Social(this.initial);
+class FakeSocial extends SocialController {
+  FakeSocial(this.initial);
   final SocialPhase initial;
 
   @override
@@ -45,7 +45,7 @@ class Rig {
     c = ProviderContainer(
       overrides: [
         authStateProvider.overrideWith((ref) => auth.stream),
-        socialControllerProvider.overrideWith(() => _Social(phase)),
+        socialControllerProvider.overrideWith(() => FakeSocial(phase)),
         localStoreProvider.overrideWithValue(store),
         socialClockProvider.overrideWithValue(() => now),
         friendsCountReaderProvider.overrideWithValue(() {
@@ -71,7 +71,7 @@ class Rig {
   FriendsCountState get s => c.read(friendsCountControllerProvider);
   RankingAccess get access => c.read(rankingAccessProvider);
   bool get entry => access == RankingAccess.allowed;
-  _Social get social => c.read(socialControllerProvider.notifier) as _Social;
+  FakeSocial get social => c.read(socialControllerProvider.notifier) as FakeSocial;
 
   /// `{count, confirmed, inFlight, dirty}` as in the O7 table.
   (int?, bool, bool, bool) get t => (s.count, s.confirmed, s.inFlight, s.dirty);
