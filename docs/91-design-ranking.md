@@ -317,7 +317,7 @@ Estado: `{int? count, bool confirmed, bool inFlight, bool dirty, Set<String> add
 | 22 | `{2, T, F, F}` | `invalidate()` por negação (1 ou k na mesma carga do ranking) | `{2, T, T, F}` | **1** agregada | allowed (sem piscar) | visível |
 | 23 | linha 22 | resposta 0 | `{0, T, F, F}` | 0 | noFriends | oculta |
 | 24 | `{null, F, T, F}` | `fromFirstPage(2, complete)` | `{2, T, T, T}` (a agregada em voo será descartada) | 0 | allowed | visível |
-| 25 | qualquer | `fromFirstPage(0, complete)` | `{0, T, …}` | 0 | noFriends | oculta |
+| 25 | qualquer, inclusive `{null, F, T, F}` (contagem em voo) | `fromFirstPage(0, complete)` | `{0, T, inFlight, dirty = inFlight}`: se havia contagem em voo, ela continua em voo e a resposta será **descartada** (como na linha 24) | 0 | noFriends | oculta |
 | 26 | `{null, F, F, F}` | `fromFirstPage(50, hasMore)` | `{51, F, F, F}` (`max(count ?? 0, 51)`) | 0 | allowed | visível |
 | 27 | qualquer | 1ª página `fromCache` | sem mudança (`onFirstPage` não é chamado) | 0 | — | — |
 | 28 | `{3, T, F, F}` | retorno do background | sem mudança | 0 | allowed | visível |
@@ -367,7 +367,7 @@ Contas: em 320 px os dois cabem até ≈ 1,28× de fonte; em 375 px, até ≈ 2,
 **Barra inferior**: inalterada. Em `/ranking`, o selecionado é **Perfil** (`AppShell` trata `location.startsWith('/ranking')` como `/friends`).
 **Filtros (T2 do docs/90)**:
 - Parse puro `RankingFilter.parse(Uri, last)`: por chave exata (`estatistica`, `periodo`), primeira ocorrência (`queryParametersAll[k].first`), valor sem diferenciar maiúsculas; ausente ou inválido ⇒ último filtro da sessão (`rankingLastFilterProvider`, memória, por uid) ⇒ padrão `episodios`/`ano`. `canonical(uri, filter)` reescreve só `estatistica`/`periodo` e preserva os outros parâmetros na ordem.
-- Ao abrir com URL não canônica e a cada troca de filtro: `Router.neglect(context, () => context.replace(canonical))`. `replace` do go_router 14.8.1 (versão travada no `pubspec.lock`) **reusa a chave da página**: não refaz a pilha (o "voltar" do AppBar continua), não recria a tela (o `RankingController` não é descartado; 0 leituras) e não anima. `Router.neglect` evita entrada nova no histórico do navegador. Mesmo padrão das abas de Amigos (`friends_screen.dart:107`).
+- Ao abrir com URL não canônica e a cada troca de filtro: `Router.neglect(context, () => context.replace(canonical))`. `replace` do go_router 14.8.1 (versão travada no `pubspec.lock`) **reusa a chave da página**: não refaz a pilha (o "voltar" do AppBar continua), não recria a tela (o `RankingController` não é descartado; 0 leituras) e não anima. As abas de Amigos já usam `context.replace` (`friends_screen.dart:107`), mas **sem** `Router.neglect`: o `Router.neglect` (evitar entrada nova no histórico do navegador) é um **mecanismo novo** no app, não usado em nenhum lugar de `lib/` hoje, e por isso entra no spike da Fatia 3 (abaixo) e no smoke ("Voltar" do navegador sai do ranking, docs/93 §5).
 - **Não verificado**: com `GoRouter.optionURLReflectsImperativeAPIs = false` (padrão), a barra de endereço do web pode não refletir rotas imperativas (`push`/`replace`). Primeira tarefa da Fatia 3: spike de 30 min em `/tmp` (via `git archive`) confirmando que `/#/ranking?…` aparece na barra depois do `push` e do `replace` e que recarregar mantém o filtro. Se não refletir, a alternativa é abrir o ranking com `go` e um `extra`/parâmetro de origem para o "voltar" (decisão minha, sem mudar o comportamento da T2).
 - Seletores: dois menus suspensos ("Período", "Estatística"), um foco cada (T3). `SegmentedButton` foi descartado: 3 a 5 segmentos não cabem em 320 px com fonte 3×.
 **Cabeçalho**: desktop, AppBar "Ranking" com voltar (como Amigos); mobile, sem AppBar (`MobileShellScope`), título no corpo.
@@ -385,7 +385,7 @@ class RankingState {
   final int notSharing;                     // respostas ok sem stats (D10)
   final Set<String> failed;                 // unavailable/timeout/unknown/não iniciados pelo disjuntor (D13)
   final int? limitedTo; final int? totalFriends; // RF-R12
-  final DateTime? freshAt;                  // leitura de servidor mais antiga entre as entradas ok exibidas (O10)
+  final DateTime? freshAt;                  // leitura de servidor mais antiga entre TODAS as respostas ok dos considerados (O10)
   final bool refreshing;
   final bool awaitingRecount;               // todos os considerados negados: esqueleto até a recontagem
 }
@@ -410,6 +410,7 @@ A tela calcula `RankingTable.rank(participantes, filtro, serverClock.now())` no 
 ### 10.3 Janela e disjuntor
 - **Janela deslizante de 10**: no máximo 10 leituras em voo; quando uma termina, a próxima da fila começa (sem lotes em degraus), **desde que já tenha chegado ao menos uma resposta `ok` ou `denied`** nesta carga.
 - **Antes da primeira `ok`/`denied`**, a janela não desliza: as 10 primeiras leituras correm e nenhuma 11ª começa. Se as **10 primeiras respostas** forem `failed`, o disjuntor dispara: nenhuma leitura nova, os não iniciados entram em `failed`. Assim o pior caso de erro total é ≈ 8 s e exatamente 10 `get` (QA B6: X = 10).
+- **Contagem exata** (oráculo dos testes): enquanto a carga segue, `iniciados = min(N_fila, 10 + R)`, onde R = número de respostas `ok`/`denied`/`failed` chegadas **a partir da primeira `ok`/`denied`, inclusive**. Uma resposta terminal (`quota`, `unauthenticated`) ou a queda da conexão não libera vaga e congela `iniciados`; `em voo` = `iniciados − respostas chegadas` (a terminal conta como chegada). Ex.: 20 amigos, respostas `ok`, `ok`, `quota` ⇒ iniciados = 10 + 2 = 12, em voo = 12 − 3 = 9.
 - Menos de 10 leituras na fila: todas começam; o disjuntor não se aplica (vale "todas terminaram em falha").
 - Fase final: há ≥ 1 amigo com dado `ok` (servidor ou cache) ⇒ `content` (+ aviso se `failed` não vazio); nenhum ⇒ `error` (ou `offline`, se a conexão caiu enquanto as respostas viajavam).
 
@@ -420,12 +421,12 @@ A tela calcula `RankingTable.rank(participantes, filtro, serverClock.now())` no 
 | 2 | 50 amigos, 10 primeiras respostas `failed` | `error` | nenhuma | — | 0 | 50 | **10** | 0 |
 | 3 | 50 amigos, 10 primeiras = 9 `failed` + 1 `ok` (a 10ª), resto `ok` com `stats` | `content` | eu + 41 | "…carregar 9 amigos…" | 0 | 9 | 50 | 41 |
 | 4 | 10 amigos, todos `denied` | esqueleto (`awaitingRecount`) → recontagem 0 ⇒ `noFriends` ⇒ redirect + SnackBar (se visível) | — | — | 0 | 0 | 10 (+1 agregada) | 0; 10 `dropLocal` |
-| 5 | 20 amigos, 2 `ok`, a 3ª `quota`, 7 em voo | `quota` | nenhuma (nem a minha) | — | — | — | 10 | 2 (as 7 em voo descartadas) |
+| 5 | 20 amigos; respostas na ordem: 1ª `ok`, 2ª `ok`, 3ª `quota` (9 em voo) | `quota` | nenhuma (nem a minha) | — | — | — | **12** (10 + 2) | 2 (as 9 em voo descartadas) |
 | 6 | 5 amigos; Carla com timeout de 8 s e resposta `ok` aos 9 s | `content` | eu + 4 | "…carregar 1 amigo…" | 0 | {Carla} | 5 | 4 (Carla não) |
 | 7 | 5 amigos com 2 `failed` (Carla, Davi) + "Tentar novamente": Carla `ok`, Davi `denied` | `content` | eu + 4 (Carla entra, Davi some) | — | 0 | ∅ | 2 (+1 agregada) | +1 |
 | 8 | 2 `failed` + "Tentar novamente": os 2 `failed` de novo | `content` | as mesmas | "…carregar 2 amigos…" | 0 | 2 | 2 | 0 |
-| 9 | 20 amigos, conexão cai na 4ª resposta (3 `ok` antes) | `offline` | nenhuma | — | — | — | ≤ 10 | 3 (as tardias descartadas) |
-| 10 | 20 amigos, 4ª resposta `unauthenticated` | `sessionExpired` (fluxo existente) | nenhuma | — | — | — | ≤ 10 | só as anteriores |
+| 9 | 20 amigos; respostas 1ª–3ª `ok`, a conexão cai antes da 4ª | `offline` | nenhuma | — | — | — | **13** (10 + 3) | 3 (as 10 em voo descartadas) |
+| 10 | 20 amigos; respostas 1ª–3ª `ok`, 4ª `unauthenticated` (9 em voo) | `sessionExpired` (fluxo existente) | nenhuma | — | — | — | **13** (10 + 3) | 3 (as 9 em voo descartadas) |
 | 11 | 20 amigos, 12 frescos no cache, 8 leituras todas `failed` | `content` | eu + 12 | "…carregar 8 amigos…" | 0 | 8 | 8 | 0 |
 | 12 | 9 amigos considerados: 7 `ok` (3 com `stats`, 1 `not-found`, 1 sem `stats`, 1 `stats: 3`, 1 `stats: {}`), 2 `failed` | `content` | eu + 4 (o de `{}` com "—") | "…carregar 2 amigos…" | **3** | 2 | 9 | 7 |
 | 13 | falha da lista (unavailable) | `error` | nenhuma | — | — | — | **0** | 0 |
@@ -437,7 +438,7 @@ A tela calcula `RankingTable.rank(participantes, filtro, serverClock.now())` no 
 Rodapé RF-E11: conta só respostas `ok` sem `stats` (linha 12: `not-found` + sem `stats` + `stats: 3`); nunca falhas, negados ou amigos além do limite (com 80 amigos, só os 50 considerados podem entrar na contagem).
 
 ### 10.4 Cooldown (N1)
-`freshAt` = a leitura de servidor **mais antiga** (`FriendProfileEntry.at`) entre as entradas `ok` dos amigos considerados exibidos (inclui entradas servidas do cache, inclusive as gravadas pelo perfil de amigo; exclui `failed` e a minha linha). Sem nenhuma entrada `ok` ⇒ `freshAt = null` ⇒ sem cooldown. "Atualizar" bloqueado ⇔ `freshAt != null && agora − freshAt < 60 s` (mesma comparação estrita do `PagedListController.refresh`). A lista mantém o `refreshCooldownProvider` (15 s) dela.
+`freshAt` = a leitura de servidor **mais antiga** (`FriendProfileEntry.at`) entre **todas** as respostas `ok` dos amigos considerados, com ou sem `stats` (inclui `not-found` e `stats` ausente/não mapa, para que "ninguém compartilha" e "só eu" também tenham cooldown; inclui entradas servidas do cache, inclusive as gravadas pelo perfil de amigo; exclui `failed`, negados e a minha linha). Sem nenhuma entrada `ok` ⇒ `freshAt = null` ⇒ sem cooldown. "Atualizar" bloqueado ⇔ `freshAt != null && agora − freshAt < 60 s` (mesma comparação estrita do `PagedListController.refresh`). A lista mantém o `refreshCooldownProvider` (15 s) dela.
 
 **O10 — Cooldown** (`ranking_controller_test`, relógio falso; N = 20; lista e snapshots lidos em t0 salvo indicação):
 | # | Situação | Ação | Leituras | Resultado |
@@ -453,6 +454,8 @@ Rodapé RF-E11: conta só respostas `ok` sem `stats` (linha 12: `not-found` + se
 | 9 | erro em t0 | "Tentar novamente" em t0+1 s | carga completa | sem cooldown |
 | 10 | cota em t0 | "Tentar novamente" em t0+1 s | carga completa | sem cooldown |
 | 11 | carga em curso | "Atualizar" | 0 adicionais | junta-se à carga (botão desabilitado) |
+| 12 | "ninguém compartilha": 3 amigos `ok` sem `stats` (1 `not-found`) lidos em t0 | "Atualizar" em t0+10 s | 0 | SnackBar (`freshAt` = t0) |
+| 13 | idem | "Atualizar" em t0+60 s | 1 lista + 3 `get` | `freshAt = t0+60 s` |
 
 ### 10.5 Concorrência com o perfil de amigo
 Os dois controllers escrevem no mesmo cache, e a última escrita vence (leituras do servidor equivalentes). Abrir o perfil de alguém enquanto o ranking ainda o lê pode gerar 1 leitura duplicada (≤ 2 `get` do mesmo uid): aceito. Sem "single-flight" compartilhado, para não mexer no `FriendProfileController` em produção.
@@ -501,7 +504,7 @@ Mapeamento do quadro do docs/90 para `RankingState` (textos literais da T1; foco
 | 10 | "Atualizar" em t0+60 s com a lista lida em t0+50 s | 20 | 0 | 0 | 0 | 20 | ≈ 40 |
 | 11 | parcial (2 timeouts) + "Tentar novamente" | 20 + 2 | 0 | 0 | 0 | 22 | ≈ 36 + 4 (+ os 2 timeouts: cobrança não verificada) |
 | 12 | disjuntor, N = 50 | 10 | 0 | 0 | 0 | ≤ 10 | ≤ 20 (não verificado) |
-| 13 | cota na 3ª resposta | 10 | 0 | 0 | 0 | — | — |
+| 13 | cota na 3ª resposta (1ª e 2ª `ok`) | 12 | 0 | 0 | 0 | — | — |
 | 14 | 1 negado | 20 | 0 | 1 | 0 | 20 | ≈ 38 + negação (≤ 1, não verificado) + 1 |
 | 15 | 5 negados na mesma carga | 20 | 0 | **1** | 0 | 20 | ≈ 30 + ≤ 5 + 1 |
 | 16 | perfil aberto pelo ranking no TTL | 0 | 0 | 0 | 0 | 0 | 0 (0 leitura do par: `extra`) |

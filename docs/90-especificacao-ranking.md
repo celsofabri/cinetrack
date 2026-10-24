@@ -136,11 +136,11 @@ Metadados do documento que o ranking usa: `updatedAt` (hora do servidor, exigida
 - RF-R4. **Ordenação e empates** (D4): valor decrescente; mesma posição para valores iguais com numeração de competição ("1º, 1º, 3º"); dentro do empate, `collationKey(apelido)` asc e depois `uid` asc ("Ana", "ana" e "ANA" têm a mesma chave e ficam pela ordem do uid); "Você" não tem prioridade e ordena pelo **mesmo texto que a linha mostra** (`displayLabelProvider`); "empatado" vale para **todas** as linhas do grupo, inclusive a 1ª. Horas ordenam e empatam por **minutos**. Oráculo: docs/91 **O1** (entrada ⇒ `RankingResult`).
 - RF-R5. **Valor desconhecido** (campo ausente, ilegível, descartado pelo leitor estrito ou pela coerência): a pessoa aparece **depois** de todos os que têm valor, sem posição (célula de posição vazia, valor "—"), em ordem de `collationKey` e uid. Não conta como 0 e não entra no "de N".
 - RF-R6. **Zero** é valor: participantes com 0 são ordenados normalmente (todos com 0 empatam). `nobodyScored` = há ≥ 1 posicionado **e** todos os posicionados têm 0 (desconhecidos não impedem: "Ana 0, Bia —" ⇒ mensagem RF-E13).
-- RF-R7. **Linha**: posição ("1º"), avatar (`Friend.photoUrl`; o meu, a foto do Google; foto que falha ao carregar cai no avatar com inicial, sem exceção), apelido (do par, já limpo por `SocialNickname.clean`, "Usuário" se vazio; o meu, `displayLabelProvider`), valor formatado (T1) e marcador de desatualizado (RF-E12). Minha linha tem destaque visual **e** o rótulo visível "Você" ao lado do apelido. O resumo de posição fica no topo (T1: 3 variantes; nenhum resumo enquanto `meSharing == null`).
+- RF-R7. **Linha**: posição ("1º"), avatar (`Friend.photoUrl`; o meu, a foto do Google; foto que falha ao carregar cai no avatar com inicial, sem exceção), apelido (do par: `SocialNickname.clean(...)` e "Usuário" se vazio em `SocialRepository._friendOf`, `social_repository.dart:555–560`; a lista Bloqueados usa `SocialNickname.normalize(...) ?? 'Usuário'`, `social_lists_providers.dart:618`; o meu, `displayLabelProvider`), valor formatado (T1) e marcador de desatualizado (RF-E12). Minha linha tem destaque visual **e** o rótulo visível "Você" ao lado do apelido. O resumo de posição fica no topo (T1: 3 variantes; nenhum resumo enquanto `meSharing == null`).
 - RF-R8. Ativar uma linha de amigo (toque, Enter ou Espaço) abre `/friends/u/<uid>` com o `Friend` como `extra` (cabeçalho sem leitura) e, se a entrada do cache está fresca, o perfil abre com **0 `get`** e 0 leitura do par. Minha linha abre `/profile`. Linha com valor desconhecido também abre.
 - RF-R9. **Nota de datas** (mesmo oráculo da F2): com período Este mês ou Este ano, a nota "Marcações anteriores a esta versão contam só no total." aparece uma vez sob os filtros se **algum participante exibido** (inclusive eu; nunca quem não participa, falhou ou ficou além do limite) tem `notePlacementFor(undated, datedFrom, updatedAt, tz, agora)` verdadeiro **para o período escolhido** (`.month` em Este mês, `.year` em Este ano). Em Total, nunca. Reutiliza `SharedProfileTexts.notePlacementFor` e o texto genérico da F2 (a versão com data é por pessoa e não cabe numa nota única).
 - RF-R10. **Filtros sem leitura**: trocar métrica ou período reordena os dados já em memória (0 leituras no fake). O filtro fica no endereço (D15) com as regras da tabela **T2** (sem query ⇒ último filtro da sessão, senão o padrão; inválido ⇒ idem, com a URL reescrita; repetido ⇒ primeiro; maiúsculas aceitas; parâmetros desconhecidos preservados; troca de filtro **sem** entrada nova no histórico e sem perder o "voltar" do AppBar).
-- RF-R11. **"Atualizar"** (N1): relê do servidor a lista de amigos (se fora do cooldown de 15 s **da lista**) e os snapshots, ignorando o TTL. Cooldown do ranking de **60 s** contado desde a **leitura de servidor mais antiga entre as entradas de amigo exibidas** (inclui entradas servidas do cache; ver docs/91 **O10**). Dentro dele: 0 leituras e o SnackBar da F1 "A lista já está atualizada (atualizada há instantes)." Durante a leitura o ranking anterior fica visível, com progresso no botão (desabilitado). "Tentar novamente" (erro, parcial, cota) **nunca** tem cooldown.
+- RF-R11. **"Atualizar"** (N1): relê do servidor a lista de amigos (se fora do cooldown de 15 s **da lista**) e os snapshots, ignorando o TTL. Cooldown do ranking de **60 s** contado desde a **leitura de servidor mais antiga entre todas as respostas `ok` dos amigos considerados**, com ou sem `stats` (inclui `not-found` e entradas servidas do cache, para que "ninguém compartilha" e "só eu" também tenham cooldown; ver docs/91 **O10**). Dentro dele: 0 leituras e o SnackBar da F1 "A lista já está atualizada (atualizada há instantes)." Durante a leitura o ranking anterior fica visível, com progresso no botão (desabilitado). "Tentar novamente" (erro, parcial, cota) **nunca** tem cooldown.
 - RF-R12. **Limite prático** (D5 = 50): amigos considerados = **os 50 primeiros de `FriendsController.state.items` no momento da carga** (1ª página ordenada por nome + amigos aceitos neste aparelho, inseridos por nome + páginas de "Ver mais" já carregadas, na ordem em memória). Se há mais de 50 em memória **ou** `hasMore`, aparece o aviso de limite (T1): com N confirmado pela contagem, "O ranking compara você com 50 dos seus N amigos."; sem N confirmado, "O ranking compara você com 50 dos seus amigos."
 
 **RF-L: Leitor estrito para o ranking (D12)**
@@ -168,7 +168,7 @@ Metadados do documento que o ranking usa: `updatedAt` (hora do servidor, exigida
 - RNF1 **Privacidade por construção**: só `shared_profiles/{uid}` de amigos mútuos, por `get` permitido pela regra atual (`isOwner || isGoogle && isFriend`, 1 chamada); `list` continua negado; nenhum dado de favoritos de terceiros; o ranking não grava nada no servidor.
 - RNF2 **Spark**: sem Cloud Functions; sem regra nova (D16); sem índice novo.
 - RNF3 **Nunca perder dados**: nenhuma escrita nesta fase; nenhuma mudança em favoritos, progresso, snapshot ou dados sociais. Abrir o ranking não altera o motor do snapshot.
-- RNF4 **Cota e concorrência**: leituras de amigos numa **janela deslizante de até 10 `get` simultâneos** (a 11ª começa quando qualquer uma termina, depois que houve ao menos uma resposta `ok`/`denied`), timeout de 8 s por leitura e disjuntor nas 10 primeiras respostas (docs/91 §10.3, O9). Leituras e cobrança por cenário: docs/91 O11.
+- RNF4 **Cota e concorrência**: leituras de amigos numa **janela deslizante de até 10 `get` simultâneos** (antes da primeira resposta `ok`/`denied` a janela não desliza; a partir dela, inclusive, cada resposta libera a próxima: `iniciados = min(N, 10 + respostas desde a 1ª ok/denied)`), timeout de 8 s por leitura e disjuntor nas 10 primeiras respostas (docs/91 §10.3, O9). Leituras e cobrança por cenário: docs/91 O11.
 - RNF5 **Revogação**: remover/bloquear por mim ⇒ fora do ranking na próxima renderização, sem leitura; pelo outro ⇒ negado pela regra na próxima leitura do servidor (D8).
 - RNF6 **Isolamento de conta**: sair/trocar de conta ou desativar/reativar amizades descarta o estado de `FriendProfileCache`, `FriendsController`, `FriendsCountController` e `RankingController` e o último filtro da sessão; a pista do uid anterior não é lida para o novo; uma carga em curso na troca (geração antiga) não grava nada no cache novo.
 - RNF7 **Acessibilidade e layout**: 320/375/768/769/1024/1440 px × fonte 1×/2×/3× × claro/escuro, sem overflow (`tester.takeException()` nulo) nem rolagem horizontal; apelidos de 40 caracteres com reticências e texto completo no `Semantics`. Rótulos Semantics literais na T1; ordem de foco e teclas na **T3**.
@@ -624,10 +624,11 @@ Cenário: Falha parcial (D13)
   Então o log tem exatamente 2 gets, dos 2 que falharam
 
 Cenário: Cota
-  Dado 20 amigos e a 3ª resposta é resource-exhausted com 7 leituras em voo
+  Dado 20 amigos e as respostas chegam na ordem: 1ª ok, 2ª ok, 3ª resource-exhausted
+  E, pela janela, 12 leituras foram iniciadas (10 + 2) e 9 estão em voo
   Então vê "Muitas operações hoje. Tente de novo amanhã." e "Tentar novamente"
   E nenhuma linha (nem a minha), nenhum resumo, nenhuma leitura nova
-  E as 7 respostas em voo não entram no cache
+  E as 9 respostas em voo não entram no cache (só as 2 ok anteriores ficam)
 
 Cenário: Sessão expirada no meio da carga
   Dado que a 4ª resposta é unauthenticated
@@ -731,7 +732,7 @@ Cenário: Teclado e leitor de tela (T3)
 - **Virada de mês com a tela aberta**: um `Timer` para a próxima virada entre os fusos dos participantes força o recálculo, sem leitura (docs/91 §7.3).
 - **Horário de verão**: vale o `tz` gravado pelo dono (borda de 1 h, aceita na F2).
 - **Apelido igual entre dois amigos ou igual ao meu**: desempate final por uid (O1).
-- **Apelido vazio/só espaços no par**: o repositório já entrega "Usuário" (`SocialNickname.clean`), então ordenação e Semantics nunca recebem texto vazio.
+- **Apelido vazio/só espaços no par**: o repositório já entrega "Usuário" (`SocialNickname.clean` + fallback em `social_repository.dart:555–560`), então ordenação e Semantics nunca recebem texto vazio.
 - **Amigo com `stats` mas sem `month`/`year`**: mês/ano desconhecidos, Total válido.
 - **"Ver mais" carregado ou amigo recém-aceito**: o conjunto considerado são os 50 primeiros de `state.items` no momento da carga (RF-R12); uma recarga posterior pode trocar quem entra.
 - **Relógio do aparelho errado**: atrasado é corrigido pelo `max(updatedAt)`; adiantado pode dar 0 indevido em "este mês" (aceito, N4; O5).
@@ -810,7 +811,14 @@ A1–A11 respondidas no docs/91 §17.1. Nenhuma pergunta em aberto.
 4. **Fechamento**: review e QA integrados, smoke com contas Google (docs/93 §5), cota no console na 1ª semana, checklist de release no modelo do docs/89. Ordem de publicação: regras = só conferir o sha → política → app.
 
 ## Definition of Done (desta especificação)
-- [ ] B1–B11 e os ajustes menores do docs/93 incorporados no docs/90 e no docs/91, conferidos pelo QA (reconferência de testabilidade).
-- [ ] Todos os critérios de aceite verificáveis por teste (unit, widget, emulador), com os oráculos O1–O11 e T1–T3 copiáveis 1:1.
-- [ ] Nenhum ❓ bloqueante em aberto.
-- [ ] docs/90, docs/91 e ADR-007 coerentes entre si (decisões aprovadas em 2026-10-24).
+- [x] B1–B11 e os ajustes menores do docs/93 incorporados no docs/90 e no docs/91, conferidos pelo QA (reconferência de testabilidade).
+- [x] Todos os critérios de aceite verificáveis por teste (unit, widget, emulador), com os oráculos O1–O11 e T1–T3 copiáveis 1:1.
+- [x] Nenhum ❓ bloqueante em aberto.
+- [x] docs/90, docs/91 e ADR-007 coerentes entre si (decisões aprovadas em 2026-10-24).
+
+**Reconferência QA (2026-10-24)** sobre `1738dd2`: B1–B11 OK. Pendências corrigidas antes da Fatia 2, nesta revisão:
+- 🔴 Contagens da janela deslizante: fórmula exata `iniciados = min(N, 10 + respostas desde a 1ª ok/denied, inclusive)` no docs/91 §10.3 e RNF4. Ordem de chegada fixada nos oráculos e números corrigidos: O9 linhas 5 (12 iniciados, 9 em voo), 9 e 10 (13 iniciados); O11 linha 13 (12); Gherkin "Cota" (9 em voo).
+- 🟡1 `freshAt` conta todas as respostas `ok` dos considerados (com ou sem `stats`); linhas 12–13 novas na O10 ("ninguém compartilha" tem cooldown).
+- 🟡2 O7 linha 25: contagem em voo continua em voo e é descartada (`dirty`), como na linha 24.
+- 🟡3 docs/91 §9: `Router.neglect` descrito como mecanismo novo (não usado em `lib/`), coberto pelo spike da Fatia 3 e pelo smoke.
+- 🟡4 RF-R7: origem do "Usuário" corrigida. O apelido do **amigo** vem de `SocialRepository._friendOf` (`SocialNickname.clean` + "Usuário" se vazio, `social_repository.dart:555–560`). O `SocialNickname.normalize(...) ?? 'Usuário'` (`social_lists_providers.dart:618`) é o do `afterBlock`, para a lista Bloqueados; as duas referências ficaram registradas.
