@@ -47,7 +47,7 @@ Prioridade: P1 (abre as Fatias 1 a 4)
 ### Números (emulador local, JDK 24, portas padrão 8080/9150/4400/4500)
 | Comando | Resultado |
 |---|---|
-| `npm test` (antes, base 1738dd2) | 522 testes |
+| `npm test` (antes, base 1738dd2) | 522 testes (558 − 36 novos; não reexecutado à parte) |
 | `npm test` (depois) | **558 pass, 0 fail** (64 suítes): +35 `ranking.test.mjs`, +1 `rules_sha.test.mjs`; os 522 antigos sem alteração |
 | `npm run test:mutations` | baseline **536 ok / 0 not ok** (inclui `ranking.test.mjs`, exclui `rules_sha.test.mjs`); **All 159 mutations were killed** (144 anteriores + 15 RK novas), 0 sobreviventes, 0 erros, exit 0 |
 | `shasum -a 256 firestore.rules` | `6135322e766b37f8f5c8a6057ff9863a54dcda5b6a2e1fb554f2f1f91300e612` (= produção); `sha256sum -c` do passo da CI conferido localmente (`firestore.rules: OK`) |
