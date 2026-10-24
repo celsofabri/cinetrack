@@ -733,7 +733,7 @@ M=[
   'if (monthCurrent && yearPast) return false;','if (monthCurrent && yearPast && (m ?? 0) > 0) return false;',
   ['test/ranking_reading_test.dart']),
  ('L19 coherence across every metric','lib/ranking/ranking_reading.dart',
-  'final ok = _coherent(t: t, y: y, m: mo, yearCurrent: year == _Key.current, monthCurrent: month == _Key.current, yearPast: year == _Key.past);','final ok = RankingMetric.values.every((x) => _coherent(t: x.of(stats.total), y: _period(year, x.of(stats.year)), m: _period(month, x.of(stats.month)), yearCurrent: year == _Key.current, monthCurrent: month == _Key.current, yearPast: year == _Key.past));',
+  "      final ok = _coherent(\n        t: t,\n        y: y,\n        m: mo,\n        yearCurrent: year == _Key.current,\n        monthCurrent: month == _Key.current,\n        yearPast: year == _Key.past,\n      );\n","      final ok = RankingMetric.values.every((x) => _coherent(\n        t: x.of(stats.total),\n        y: _period(year, x.of(stats.year)),\n        m: _period(month, x.of(stats.month)),\n        yearCurrent: year == _Key.current,\n        monthCurrent: month == _Key.current,\n        yearPast: year == _Key.past,\n      ));\n",
   ['test/ranking_reading_test.dart']),
  ('L20 year > total accepted','lib/ranking/ranking_reading.dart',
   'if (yearCurrent && !le(y, t)) return false;','',
