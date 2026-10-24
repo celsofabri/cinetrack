@@ -15,7 +15,7 @@
 
 ### 1.1 O que o snapshot da Fase 2 oferece ao ranking (lido em `main` 827cec5; reconferido em 9389bc5)
 
-Fonte única: `shared_profiles/{uid}.stats` (docs/82 §4.1/§4.4), que só existe enquanto o dono mantém **"Estatísticas"** ligado (regra: `stats` ⇔ `sharing.stats`). Pela D13 (aprovada) esse mesmo interruptor governa o ranking, e o texto literal do consentimento já diz "…no seu perfil **e nas comparações entre amigos**". Quem já ligou "Estatísticas" consentiu com o ranking; **não é preciso consentimento novo**.
+Fonte única: `shared_profiles/{uid}.stats` (docs/82 §4.1/§4.4), que só existe enquanto o dono mantém **"Estatísticas"** ligado (regra: `stats` ⇔ `sharing.stats`). Pela D13 (aprovada) esse mesmo interruptor governa o ranking, e o texto literal do consentimento já diz "…no seu perfil **e nas comparações entre amigos**". Quem já ligou "Estatísticas" consentiu com o ranking; **não é preciso consentimento novo**. **Atualização 2026-10-24 ([docs/95](./95-simplificacao-compartilhamento.md), Fatia S):** os interruptores por seção dão lugar a um só, "Aparecer na busca", com consentimento único que cita o Ranking. A fonte do ranking continua `stats` no documento.
 
 | Métrica do snapshot | Total | Mês / Ano | Validada nas regras (`rankOk`) | Serve ao ranking? |
 |---|---|---|---|---|
@@ -159,7 +159,7 @@ Metadados do documento que o ranking usa: `updatedAt` (hora do servidor, exigida
 - RF-E7. **Amigo negado** (`permission-denied`: me removeu, me bloqueou, conta excluída já concluída): sai do ranking em silêncio, sai da lista de amigos em memória e do cache de perfil **na hora**; não conta como "não participa" nem como falha; dispara **1 recontagem por carga** (não uma por negação). Se todos os considerados foram negados, a tela segura o esqueleto até a recontagem responder (nunca mostra "erro" nem RF-E8/E9 nesse intervalo); recontagem 0 ⇒ RF-V3.
 - RF-E8. **Ninguém compartilha** (eu não compartilho, confirmado, e nenhum amigo participa): mensagem RF-E8 + faixa RF-E10 + rodapé.
 - RF-E9. **Só eu** (eu compartilho e nenhum amigo participa): minha linha em 1º + mensagem RF-E9 + rodapé.
-- RF-E10. **Eu não compartilho** (D9, `meSharing == false`): faixa fixa no topo + botão "Compartilhar estatísticas" que leva a `/profile`. Enquanto `meSharing == null` (estado do dono ainda não confirmado nesta sessão: ranking como 1ª tela social, esperando o `readOwn`), nem a faixa, nem a minha linha, nem o resumo, nem RF-E8/E9 aparecem: esqueleto até a confirmação (a faixa nunca pisca).
+- RF-E10. **Eu não compartilho** (D9, `meSharing == false` = documento confirmado sem `stats`; com a Fatia S, docs/95 §10): faixa fixa no topo com duas variantes (T1): busca desligada ⇒ botão "Ir para o Perfil" (`/profile`); "falta confirmar" (E2 do docs/95) ⇒ botão "Revisar", que abre o aviso A do docs/95. Enquanto `meSharing == null` (estado do dono ainda não confirmado nesta sessão: ranking como 1ª tela social, esperando o `readOwn`), nem a faixa, nem a minha linha, nem o resumo, nem RF-E8/E9 aparecem: esqueleto até a confirmação (a faixa nunca pisca).
 - RF-E11. **Não participam** (D10): rodapé com a contagem das respostas `ok` sem `stats` (inclui `not-found` e `stats` que não é mapa). Nunca conta falhas, negados, nem amigos além do limite. 0 ⇒ sem rodapé.
 - RF-E12. **Desatualizado** (D11): marcador na linha do **amigo** (nunca na minha, porque eu vejo o Perfil ao vivo), conforme O6; a pessoa continua no ranking com os números que tem.
 - RF-E13. **Período sem movimento**: `nobodyScored` ⇒ lista normal (todos "1º", "empatado") + mensagem RF-E13 acima das linhas. **Todos desconhecidos** (`ranked = 0`): linhas com "—" e o resumo correspondente, sem mensagem extra.
@@ -201,7 +201,8 @@ Números visíveis com separador de milhar pt-BR ("1.234"); nos rótulos Semanti
 | `RF-E6` | 1: "Não foi possível carregar 1 amigo. As posições podem mudar." · N: "Não foi possível carregar 2 amigos. As posições podem mudar." |
 | `RF-E8` | "Nenhum amigo compartilha estatísticas ainda." |
 | `RF-E9` | "Nenhum amigo compartilha estatísticas ainda. Quando compartilharem, eles aparecem aqui." |
-| `RF-E10` faixa / botão | "Você não aparece no ranking dos seus amigos porque suas estatísticas não estão compartilhadas." / "Compartilhar estatísticas" |
+| `RF-E10` faixa / botão (busca desligada) | "Você não aparece no ranking dos seus amigos porque "Aparecer na busca" está desligado." / "Ir para o Perfil" |
+| `RF-E10` faixa / botão (falta confirmar, docs/95 E2) | "Você não aparece no ranking dos seus amigos porque ainda não confirmou o que eles veem." / "Revisar" |
 | `RF-E11` | 1: "1 amigo não compartilha estatísticas." · N: "2 amigos não compartilham estatísticas." |
 | `RF-E12` | "Atualizado há 8 dias" (N ≥ 8 sempre, então só plural) · sem `updatedAt` ou `calc` inválido: "Atualização desconhecida" |
 | `RF-E13` | "Ninguém pontuou neste período ainda." |
@@ -264,10 +265,10 @@ Ordem de leitura (leitor de tela); **negrito** = parada de Tab, na mesma ordem:
 | Estado | Ordem |
 |---|---|
 | conteúdo, eu compartilho | [**Voltar** (só desktop)] → **Período** → **Estatística** → **Atualizar** → resumo → [aviso de limite] → [nota RF-R9] → [mensagem RF-E13] → **linhas**, de cima para baixo → [rodapé RF-E11] |
-| conteúdo, eu não compartilho | … **Atualizar** → resumo ("Você não está no ranking") → faixa RF-E10 → **Compartilhar estatísticas** → [aviso de limite] → [nota] → **linhas** → [rodapé] |
-| parcial | … resumo → [faixa + **Compartilhar estatísticas**] → aviso RF-E6 → **Tentar novamente** → [aviso de limite] → [nota] → **linhas** → [rodapé] |
+| conteúdo, eu não compartilho | … **Atualizar** → resumo ("Você não está no ranking") → faixa RF-E10 → **Ir para o Perfil** (ou **Revisar**) → [aviso de limite] → [nota] → **linhas** → [rodapé] |
+| parcial | … resumo → [faixa + **Ir para o Perfil** (ou **Revisar**)] → aviso RF-E6 → **Tentar novamente** → [aviso de limite] → [nota] → **linhas** → [rodapé] |
 | só eu | … **Atualizar** → resumo ("Sua posição: 1º de 1") → **linha "Você"** → mensagem RF-E9 → [rodapé] |
-| ninguém compartilha | … **Atualizar** → resumo → faixa RF-E10 → **Compartilhar estatísticas** → mensagem RF-E8 → [rodapé] |
+| ninguém compartilha | … **Atualizar** → resumo → faixa RF-E10 → **Ir para o Perfil** (ou **Revisar**) → mensagem RF-E8 → [rodapé] |
 | carregando | [**Voltar**] → **Período** → **Estatística** → (Atualizar desabilitado, fora do Tab) → [**linha "Você"**] → esqueleto (não focável) |
 | erro / cota | [**Voltar**] → mensagem → **Tentar novamente** |
 | offline | [**Voltar**] → mensagem |
@@ -436,7 +437,7 @@ Cenário: Só amigos com "Estatísticas" ligado participam
 Cenário: Eu não compartilho
   Dado que Ana não compartilha estatísticas (estado confirmado pelo servidor) e Carla compartilha
   Quando Ana abre o ranking
-  Então vê a faixa RF-E10 e o botão "Compartilhar estatísticas", que leva a /profile
+  Então vê a faixa RF-E10 e o botão "Ir para o Perfil", que leva a /profile
   E a única linha é Carla e o resumo é "Você não está no ranking"
 
 Cenário: Minha linha sai do meu próprio documento, sem leitura extra
@@ -785,7 +786,7 @@ D1–D16 aprovadas na recomendação, com os refinamentos do Arquiteto (docs/91 
 | **D6** | Onde a entrada entra | **(a)** menu do topo da Início (desktop, depois de Amigos), ícone na `MobileTopBar` à esquerda de Amigos (primeiro a sair), "Ver ranking" em Amigos e "Ranking" no Perfil; Perfil selecionado na barra inferior em `/ranking` | Nenhuma barra perde destino |
 | D7 | Sinal "≥ 1 amigo" | **(a)** contador: agregada 1×/sessão + pista local por uid + ajustes locais + descarte da resposta em voo + recontagem em revogação | Oráculo O7/O8 |
 | D8 | Ex-amigo × cache | **(a)** cache de memória de 5 min compartilhado com o perfil de amigo | Ex-amigo revê o que já viu por ≤ 5 min |
-| D9 | Minha linha quando não compartilho | **(a)** não apareço + faixa e botão para o Perfil | Reciprocidade; fonte única |
+| D9 | Minha linha quando não compartilho | **(a)** não apareço + faixa e botão para o Perfil; desde 2026-10-24 "não compartilho" corresponde ao interruptor único "Aparecer na busca" (docs/95) | Reciprocidade; fonte única |
 | D10 | Amigos que não compartilham | **(a)** contagem anônima no rodapé (`not-found` + sem `stats` + `stats` não mapa) | Sem pressão por nome |
 | D11 | Snapshot desatualizado | **(a)** marcador neutro com `inDays > 7` sobre o relógio do ranking; `updatedAt` ausente e `calc` < 1 também; nunca na minha linha | Oráculo O6 |
 | D12 | Valores implausíveis | **(a)** leitor estrito (inteiro, finito, ≤ teto, coerência; chave ilegível/futura = "—") | Oráculos O2–O4 |
@@ -804,6 +805,7 @@ D1–D16 aprovadas na recomendação, com os refinamentos do Arquiteto (docs/91 
 A1–A11 respondidas no docs/91 §17.1. Nenhuma pergunta em aberto.
 
 ## Fatiamento (atualizado em 2026-10-24; a Fatia H, hotfix A2, já está em produção)
+S. **Fatia S — Um interruptor só** (decisão do Manager de 2026-10-24): primeira fatia da Fase 3, especificada no [docs/95](./95-simplificacao-compartilhamento.md) (S0–S4). Vem antes das fatias visíveis do ranking; a Fatia 0 abaixo não conflita.
 0. **Fatia 0 — Testes de regra (sem mudar regras)**: `firestore_rules_test/ranking.test.mjs` com a matriz do docs/91 §14.1 (inclui a agregada `count` de `friendships` permitida ao membro e negada com o uid de outra pessoa, e conta excluída com o par presente: `get` permitido, documento inexistente); mutantes RK* em `mutations.mjs`, cada um morto por um teste que **não** é o de sha; gate de sha256 num arquivo **separado** `rules_sha.test.mjs`, que não entra nas suítes dos mutantes, mais o passo de conferência do sha na CI (SRE). Nada de app.
 1. **Fatia 1 — Domínio puro** (`lib/ranking/`): leitor estrito (reusa `readCount`; chave de período estrita; coerência; marcador), `RankingTable.rank` com o relógio do ranking, `RankingTexts`; testes parametrizados pelas tabelas O1–O6 e T1, na VM e com `--platform chrome` (acrescentados ao passo Chrome existente da CI).
 2. **Fatia 2 — Dados e sinal**: `FriendsCountController` + pista + ganchos (`FriendsController.add` **antes** do retorno antecipado, `remove`, `onFirstPage`, `afterBlock`, `_revoked`), `rankingAccessProvider`; `RankingController` (conjunto considerado, janela de 10 com disjuntor, cache compartilhado, fases, cooldown 60 s, minha linha); fakes com contadores, pico de simultaneidade, timeout injetável e falhas por ordem de chegada. Oráculos O7–O11.

@@ -461,7 +461,7 @@ Rodapé RF-E11: conta só respostas `ok` sem `stats` (linha 12: `not-found` + se
 Os dois controllers escrevem no mesmo cache, e a última escrita vence (leituras do servidor equivalentes). Abrir o perfil de alguém enquanto o ranking ainda o lê pode gerar 1 leitura duplicada (≤ 2 `get` do mesmo uid): aceito. Sem "single-flight" compartilhado, para não mexer no `FriendProfileController` em produção.
 
 ### 10.6 Minha linha
-`ref.watch(sharingControllerProvider)`: `confirmed && doc.sharing.contains(stats) && doc.stats != null` ⇒ participante "Você" com `RankingReading.fromOwn(SharedStatsReading.of(doc.stats!))` (tetos reaplicados, §5.2), `tz = doc.tz` (fora da faixa ⇒ 0), `updatedAt = doc.updatedAt`, `name = displayLabelProvider`. `confirmed && !stats` ⇒ `meSharing = false`. `!confirmed` ⇒ `meSharing = null` (ranking como 1ª tela: espera o `readOwn`, 1 leitura **de sessão**, não do ranking). Desligar/religar "Estatísticas" ⇒ a transação já atualizou o `doc` (otimista) ⇒ a linha sai/volta sem leitura.
+`ref.watch(sharingControllerProvider)`: `confirmed && doc.sharing.contains(stats) && doc.stats != null` ⇒ participante "Você" com `RankingReading.fromOwn(SharedStatsReading.of(doc.stats!))` (tetos reaplicados, §5.2), `tz = doc.tz` (fora da faixa ⇒ 0), `updatedAt = doc.updatedAt`, `name = displayLabelProvider`. `confirmed && !stats` ⇒ `meSharing = false` (com a Fatia S, docs/95: busca desligada ou "falta confirmar"; a faixa escolhe a variante pelo `sharingModeProvider`). `!confirmed` ⇒ `meSharing = null` (ranking como 1ª tela: espera o `readOwn`, 1 leitura **de sessão**, não do ranking). Desligar/religar "Estatísticas" ⇒ a transação já atualizou o `doc` (otimista) ⇒ a linha sai/volta sem leitura.
 
 ## 11. Estados de UI
 Mapeamento do quadro do docs/90 para `RankingState` (textos literais da T1; foco da T3):
@@ -590,6 +590,7 @@ O histórico do navegador (`Router.neglect`) e o "Voltar" do navegador ficam no 
 | 15 | O `max(updatedAt)` faz o "este mês" de um amigo depender de quem carregou | conjunto definido (O5), determinístico | aceito |
 
 ## 16. Fatias (atualizado em 2026-10-24; a antiga Fatia H, hotfix A2, já está em produção)
+- **S. Um interruptor só** (docs/95, decisão do Manager de 2026-10-24): primeira fatia da Fase 3 (S0 orçamento de regras, S1 dados, S2 UI, S3 política, S4 fechamento).
 - **0. Testes de regra** (backend; sem mudar regras): `ranking.test.mjs` (§14.1, inclui a agregada de `friendships` e a conta em exclusão), mutantes RK*, `rules_sha.test.mjs` fora das suítes dos mutantes; passo de sha na CI (SRE).
 - **1. Domínio puro** (`lib/ranking/`): modelos, `RankingReading` (chave estrita, coerência, marcador, `fromOwn`), `RankingTable.rank` com o relógio, `RankingTexts`, `RankingFilter`; `FriendSharedView.calc`; testes O1–O6, T1, T2 na VM e no Chrome. Nada visível.
 - **2. Dados e sinal**: `FriendsCountController` + pista + ganchos (§8.1), `rankingAccessProvider`; `RankingController` (considerados, janela + disjuntor, cache, fases, cooldown, minha linha); fakes ampliados. Oráculos O7–O11. Nada visível.
