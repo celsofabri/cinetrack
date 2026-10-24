@@ -592,9 +592,9 @@ O histórico do navegador (`Router.neglect`) e o "Voltar" do navegador ficam no 
 ## 16. Fatias (atualizado em 2026-10-24; a antiga Fatia H, hotfix A2, já está em produção)
 - **S. Um interruptor só** (docs/95, decisão do Manager de 2026-10-24): primeira fatia da Fase 3 (S0 orçamento de regras, S1 dados, S2 UI, S3 política, S4 fechamento).
 - **0. Testes de regra** (backend; sem mudar regras): `ranking.test.mjs` (§14.1, inclui a agregada de `friendships` e a conta em exclusão), mutantes RK*, `rules_sha.test.mjs` fora das suítes dos mutantes; passo de sha na CI (SRE).
-- **1. Domínio puro** (`lib/ranking/`): modelos, `RankingReading` (chave estrita, coerência, marcador, `fromOwn`), `RankingTable.rank` com o relógio, `RankingTexts`, `RankingFilter`; `FriendSharedView.calc`; testes O1–O6, T1, T2 na VM e no Chrome. Nada visível.
+- **1. Domínio puro** (`lib/ranking/`): modelos, `RankingReading` (chave estrita, coerência, marcador, `fromOwn`), `RankingTable.rank` com o relógio, `RankingTexts`; `FriendSharedView.calc`; testes O1–O6 e T1 na VM e no Chrome. Nada visível. (`RankingFilter`/T2 foi para a Fatia 3, junto da rota; docs/96.)
 - **2. Dados e sinal**: `FriendsCountController` + pista + ganchos (§8.1), `rankingAccessProvider`; `RankingController` (considerados, janela + disjuntor, cache, fases, cooldown, minha linha); fakes ampliados. Oráculos O7–O11. Nada visível.
-- **3. Rota, navegação e tela**: spike do §9 (barra de endereço); `/ranking` + redirect + saída quando empilhado; 4 entradas; barra inferior; filtros (T2) com `replace` + `Router.neglect`; tela, estados, foco (T3), matriz de layout; política (RF-V6) e README.
+- **3. Rota, navegação e tela**: spike do §9 (barra de endereço); `/ranking` + redirect + saída quando empilhado; 4 entradas; barra inferior; filtros (T2: `RankingFilter.parse/canonical` puro + `ranking_filter_test` na VM e no Chrome) com `replace` + `Router.neglect`; tela, estados, foco (T3), matriz de layout; política (RF-V6) e README.
 - **4. Fechamento**: review e QA integrados; smoke (docs/93 §5); checklist de release no modelo do docs/89 (ordem: política → app; regras: só conferir o sha).
 
 ## 17. Respostas ao PA e posição sobre D1–D16

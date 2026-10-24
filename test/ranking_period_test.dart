@@ -143,6 +143,51 @@ void main() {
       expect(at(DateTime.utc(2026, 11, 1, 2, 59, 59)), 7);
       expect(at(DateTime.utc(2026, 11, 1, 3)), 0);
     });
+    test('linhas 4/5: chave com largura errada que compararia como antiga é ilegível ("—", não 0)', () {
+      int? read(Object? monthKey, Object? yearKey, RankingPeriod p) {
+        final f = friendOf(
+          'u1',
+          'Carla',
+          statsMap(
+            monthKey: monthKey,
+            yearKey: yearKey,
+            total: {'watchedEpisodes': 100},
+            year: {'watchedEpisodes': 30},
+            month: {'watchedEpisodes': 5},
+          ),
+          updatedAt: kRankNow,
+        );
+        return RankingTable.rank([f], RankingMetric.episodes, p, kRankNow).rows.single.value;
+      }
+
+      for (final y in ['199', '20', '1']) {
+        expect(read('2026-09', y, RankingPeriod.year), isNull, reason: 'ano "$y"');
+      }
+      for (final m in ['999-10', '202-09', '2025-9']) {
+        expect(read(m, '2026', RankingPeriod.month), isNull, reason: 'mês "$m"');
+      }
+    });
+    test('tz fora da faixa vale 0 também para a nota de datas (RF-R9)', () {
+      // Corte 2026-10-31T08:00Z e agora 10:00Z: em UTC, ambos em outubro;
+      // com +900 cru, o corte cairia em outubro e o agora em novembro.
+      final now = DateTime.utc(2026, 10, 31, 10);
+      for (final tz in [900, -900]) {
+        final r = RankingReading.read(
+          SharedStatsReading(
+            total: const PeriodReading(watchedEpisodes: 9),
+            month: const PeriodReading(key: '2026-10', watchedEpisodes: 1),
+            year: const PeriodReading(key: '2026', watchedEpisodes: 2),
+            undatedEpisodes: 5,
+            datedFrom: DateTime.utc(2026, 10, 31, 8),
+          ),
+          tz: tz,
+          updatedAt: now,
+          calc: 1,
+          now: now,
+        );
+        expect(r.undatedPlacement, (month: true, year: true), reason: 'tz $tz');
+      }
+    });
     test('fuso do próprio dono fora da faixa (RankingReading direto) lê como 0', () {
       // 2026-10-31T10:00Z: UTC ainda em outubro; +900 min já seria novembro.
       final at = DateTime.utc(2026, 10, 31, 10);

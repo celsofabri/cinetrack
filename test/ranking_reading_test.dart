@@ -191,6 +191,27 @@ void main() {
     });
   });
 
+  group('O2 - minha linha com o PRÓPRIO teto por métrica', () {
+    test('minutos 1000001 e episódios 100001 ficam como estão (teto trocado mata)', () {
+      final me = RankingParticipant.me(
+        uid: 'me',
+        name: 'Eu',
+        stats: const SharedStats(
+          total: TotalStats(watchedMovies: 100000, watchedEpisodes: 100001, minutes: 1000001),
+          year: PeriodStats(key: '2026', watchedEpisodes: 100001, minutes: 1000001),
+          month: PeriodStats(key: '2026-10', watchedEpisodes: 100001, minutes: 1000001),
+        ),
+        updatedAt: kRankNow,
+        tz: kRankTz,
+        calc: 1,
+      );
+      for (final p in RankingPeriod.values) {
+        expect(RankingTable.rank([me], RankingMetric.hours, p, kRankNow).rows.single.value, 1000001, reason: p.slug);
+        expect(RankingTable.rank([me], RankingMetric.episodes, p, kRankNow).rows.single.value, 100001, reason: p.slug);
+      }
+    });
+  });
+
   group('O3 - coerência (docs/91 §5.3)', () {
     // agora = 2026-10-15T15:00Z, tz −180: atuais "2026-10"/"2026";
     // anteriores "2026-09"/"2025"; "ausente" = sem chave, ilegível ou futura.

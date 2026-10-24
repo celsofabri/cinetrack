@@ -57,10 +57,15 @@ void main() {
         'Nenhum amigo compartilha estatísticas ainda. Quando compartilharem, eles aparecem aqui.',
       );
       expect(
-        RankingTexts.notSharingBanner,
-        'Você não aparece no ranking dos seus amigos porque suas estatísticas não estão compartilhadas.',
+        RankingTexts.notSharingSearchOff,
+        'Você não aparece no ranking dos seus amigos porque "Aparecer na busca" está desligado.',
       );
-      expect(RankingTexts.shareStats, 'Compartilhar estatísticas');
+      expect(RankingTexts.goToProfile, 'Ir para o Perfil');
+      expect(
+        RankingTexts.notSharingUnconfirmed,
+        'Você não aparece no ranking dos seus amigos porque ainda não confirmou o que eles veem.',
+      );
+      expect(RankingTexts.review, 'Revisar');
       expect(RankingTexts.staleUnknown, 'Atualização desconhecida');
       expect(RankingTexts.nobodyScored, 'Ninguém pontuou neste período ainda.');
       expect(RankingTexts.undatedNote, 'Marcações anteriores a esta versão contam só no total.');
@@ -84,6 +89,9 @@ void main() {
       expect(RankingTexts.partialFailure(2), 'Não foi possível carregar 2 amigos. As posições podem mudar.');
       expect(RankingTexts.notSharing(1), '1 amigo não compartilha estatísticas.');
       expect(RankingTexts.notSharing(2), '2 amigos não compartilham estatísticas.');
+      // 0 is plural too (T1).
+      expect(RankingTexts.partialFailure(0), 'Não foi possível carregar 0 amigos. As posições podem mudar.');
+      expect(RankingTexts.notSharing(0), '0 amigos não compartilham estatísticas.');
       expect(RankingTexts.limited(50, 80), 'O ranking compara você com 50 dos seus 80 amigos.');
       expect(RankingTexts.limited(50, null), 'O ranking compara você com 50 dos seus amigos.');
       expect(RankingTexts.limited(50, 1234), 'O ranking compara você com 50 dos seus 1.234 amigos.');

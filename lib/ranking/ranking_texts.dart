@@ -25,9 +25,16 @@ class RankingTexts {
   static const sessionExpired = 'Sessão expirada. Entre novamente.';
   static const nobodyShares = 'Nenhum amigo compartilha estatísticas ainda.';
   static const onlyMe = 'Nenhum amigo compartilha estatísticas ainda. Quando compartilharem, eles aparecem aqui.';
-  static const notSharingBanner =
-      'Você não aparece no ranking dos seus amigos porque suas estatísticas não estão compartilhadas.';
-  static const shareStats = 'Compartilhar estatísticas';
+
+  /// RF-E10 (D9 with the Fatia S, docs/95 §10): "Aparecer na busca" off.
+  static const notSharingSearchOff =
+      'Você não aparece no ranking dos seus amigos porque "Aparecer na busca" está desligado.';
+  static const goToProfile = 'Ir para o Perfil';
+
+  /// RF-E10: sharing not confirmed yet (docs/95 E2); the button opens notice A.
+  static const notSharingUnconfirmed =
+      'Você não aparece no ranking dos seus amigos porque ainda não confirmou o que eles veem.';
+  static const review = 'Revisar';
   static const staleUnknown = 'Atualização desconhecida';
   static const nobodyScored = 'Ninguém pontuou neste período ainda.';
 
