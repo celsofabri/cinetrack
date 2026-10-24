@@ -24,6 +24,21 @@ typedef SharedTxRunner =
       Future<void> Function(Map<String, dynamic>? current, void Function(SocialWrite) apply) body,
     );
 
+/// Runs the "Aparecer na busca" transaction: reads [cardPath] and the own
+/// document, then calls [body] with both and the write to perform. Default:
+/// Firestore `runTransaction`; tests inject a fake (error mapping).
+typedef SharedSearchTxRunner =
+    Future<void> Function(
+      String cardPath,
+      String path,
+      Future<void> Function(
+        Map<String, dynamic>? card,
+        Map<String, dynamic>? current,
+        void Function(SocialWrite) apply,
+      )
+      body,
+    );
+
 /// Sends one recalculation `update`. Default: Firestore.
 typedef SharedDocUpdate = Future<void> Function(String path, Map<String, Object?> data);
 
@@ -41,6 +56,7 @@ class FirestoreSharedProfileDataSource implements SharedProfileDataSource {
   final SharedDocGet? getter;
   final SharedDocDelete? deleter;
   final SharedTxRunner? txRunner;
+  final SharedSearchTxRunner? searchTxRunner;
   final SharedDocUpdate? updater;
 
   /// A toggle without an answer within this time is "uncertain" (RF-P7).
@@ -59,6 +75,7 @@ class FirestoreSharedProfileDataSource implements SharedProfileDataSource {
     @visibleForTesting this.getter,
     @visibleForTesting this.deleter,
     @visibleForTesting this.txRunner,
+    @visibleForTesting this.searchTxRunner,
     @visibleForTesting this.updater,
   });
 
@@ -128,20 +145,38 @@ class FirestoreSharedProfileDataSource implements SharedProfileDataSource {
   static const _uncertainCodes = {'unavailable', 'deadline-exceeded', 'cancelled'};
 
   @override
-  Future<void> toggle(SocialWrite Function(Map<String, dynamic>? current) plan) async {
-    var sent = false;
-    Future<void> body(Map<String, dynamic>? current, void Function(SocialWrite) apply) async {
-      final write = plan(current);
-      if (write.mode != SocialWriteMode.transaction) {
-        throw StateError('a toggle is a transaction');
-      }
-      apply(write);
-      sent = true;
-    }
+  Future<void> toggle(SocialWrite Function(Map<String, dynamic>? current) plan) => _guardTx(
+    (sent) => _runTx((current, apply) async {
+      apply(_checked(plan(current)));
+      sent();
+    }),
+  );
 
+  @override
+  Future<void> searchAndShare(
+    String handle,
+    SocialWrite Function(Map<String, dynamic>? card, Map<String, dynamic>? current) plan,
+  ) => _guardTx(
+    (sent) => _runSearchTx(SocialPayloads.handlePath(handle), (card, current, apply) async {
+      apply(_checked(plan(card, current)));
+      sent();
+    }),
+  );
+
+  static SocialWrite _checked(SocialWrite write) {
+    if (write.mode != SocialWriteMode.transaction) {
+      throw StateError('a toggle is a transaction');
+    }
+    return write;
+  }
+
+  /// The failure mapping of a consent transaction (B5): [start] runs it and
+  /// calls `sent` once the write was handed to the transaction.
+  Future<void> _guardTx(Future<void> Function(void Function() sent) start) async {
+    var sent = false;
     // The ORIGINAL transaction: the local timeout does not cancel it, so it
     // may still commit after we gave up waiting (docs/86 rodada 2, A).
-    final tx = _runTx(body);
+    final tx = start(() => sent = true);
     try {
       await tx.timeout(toggleTimeout);
     } on SocialFailure {
@@ -160,6 +195,46 @@ class FirestoreSharedProfileDataSource implements SharedProfileDataSource {
     }
   }
 
+  Future<void> _runSearchTx(
+    String cardPath,
+    Future<void> Function(
+      Map<String, dynamic>? card,
+      Map<String, dynamic>? current,
+      void Function(SocialWrite) apply,
+    )
+    body,
+  ) {
+    final custom = searchTxRunner;
+    if (custom != null) return custom(cardPath, _path, body);
+    final cardRef = _db.doc(cardPath);
+    final ref = _db.doc(_path);
+    return _db.runTransaction((tx) async {
+      final card = await tx.get(cardRef);
+      final snap = await tx.get(ref);
+      final cardData = card.data();
+      final data = snap.data();
+      await body(
+        card.exists && cardData != null ? FirestoreSocialDataSource.convert(cardData) : null,
+        snap.exists && data != null ? FirestoreSocialDataSource.convert(data) : null,
+        (write) => _apply(tx, write),
+      );
+    });
+  }
+
+  void _apply(Transaction tx, SocialWrite write) {
+    for (final op in write.ops) {
+      final doc = _db.doc(op.path);
+      switch (op.op) {
+        case 'set':
+          tx.set(doc, _resolved(op.data!));
+        case 'update':
+          tx.update(doc, _resolved(op.data!));
+        case 'delete':
+          tx.delete(doc);
+      }
+    }
+  }
+
   Future<void> _runTx(
     Future<void> Function(Map<String, dynamic>? current, void Function(SocialWrite) apply) body,
   ) {
@@ -169,21 +244,10 @@ class FirestoreSharedProfileDataSource implements SharedProfileDataSource {
     return _db.runTransaction((tx) async {
       final snap = await tx.get(ref);
       final data = snap.data();
-      await body(snap.exists && data != null ? FirestoreSocialDataSource.convert(data) : null, (
-        write,
-      ) {
-        for (final op in write.ops) {
-          final doc = _db.doc(op.path);
-          switch (op.op) {
-            case 'set':
-              tx.set(doc, _resolved(op.data!));
-            case 'update':
-              tx.update(doc, _resolved(op.data!));
-            case 'delete':
-              tx.delete(doc);
-          }
-        }
-      });
+      await body(
+        snap.exists && data != null ? FirestoreSocialDataSource.convert(data) : null,
+        (write) => _apply(tx, write),
+      );
     });
   }
 

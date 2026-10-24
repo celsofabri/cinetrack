@@ -3,9 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/account_providers.dart';
 import '../providers/providers.dart';
+import '../providers/sharing_providers.dart';
 import '../providers/social_providers.dart';
+import '../shared_profile/shared_profile_models.dart';
+import '../shared_profile/sharing_texts.dart';
 import '../social/social_models.dart';
 import '../social/social_validation.dart';
+import 'sharing_section.dart';
 
 /// Opt-in form: handle, nickname, photo and "Aparecer na busca". Nothing is
 /// copied anywhere until the user taps "Ativar amizades".
@@ -88,6 +92,20 @@ class _ActivateSocialDialogState extends ConsumerState<ActivateSocialDialog> {
       });
       return;
     }
+    // docs/95 RF-SC5: "Aparecer na busca" ligado = explicit consent (T-C)
+    // BEFORE any write; the card is always created with the search off and
+    // "Ligar" turns it on in a second transaction (the shared document needs
+    // the friendships to exist first).
+    SharedProfileContent? consent;
+    if (_discoverable) {
+      var notNow = false;
+      consent = await showSearchConsentDialog(
+        context,
+        fromForm: true,
+        onNotNow: () => notNow = true,
+      );
+      if (!mounted || (consent == null && !notNow)) return; // Esc/outside: nothing written
+    }
     setState(() {
       _busy = true;
       _failure = null;
@@ -98,11 +116,19 @@ class _ActivateSocialDialogState extends ConsumerState<ActivateSocialDialog> {
           handle: _handle.text,
           nickname: _nickname.text,
           showPhoto: _showPhoto && _photoAvailable,
-          discoverable: _discoverable,
+          discoverable: false,
         );
     if (!mounted) return;
     if (failure == null) {
-      Navigator.of(context).pop(true);
+      final content = consent;
+      if (content != null) {
+        ref.read(sharingControllerProvider); // created now that friendships are on
+        await ref.read(sharingControllerProvider.notifier).settle();
+        await ref
+            .read(sharingControllerProvider.notifier)
+            .setSearchSharing(true, content: content, failureText: SharingTexts.formFailed);
+      }
+      if (mounted) Navigator.of(context).pop(true);
       return;
     }
     setState(() {
@@ -195,8 +221,8 @@ class _ActivateSocialDialogState extends ConsumerState<ActivateSocialDialog> {
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Aparecer na busca'),
-              subtitle: const Text('Quem digitar seu identificador exato vê seu apelido e foto.'),
+              title: const Text(SharingTexts.switchTitle),
+              subtitle: const Text(SharingTexts.formSubtitle),
               value: _discoverable,
               onChanged: _busy ? null : (v) => setState(() => _discoverable = v),
             ),

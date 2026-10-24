@@ -1,62 +1,43 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../providers/providers.dart';
 import '../providers/shared_profile_providers.dart';
 import '../providers/sharing_providers.dart';
+import '../providers/social_providers.dart';
+import '../providers/sync_providers.dart';
 import '../repositories/shared_profile_repository.dart';
 import '../shared_profile/shared_profile_models.dart';
 import '../shared_profile/shared_profile_texts.dart';
 import '../shared_profile/shared_stats_reading.dart';
+import '../shared_profile/sharing_texts.dart';
+import '../social/social_models.dart';
 import 'shared_profile_widgets.dart';
-
-/// Literal texts of the consent dialogs (docs/81, "Textos literais").
-const kSharingDialogs = {
-  SharedSection.stats: (
-    title: 'Compartilhar estatísticas com amigos?',
-    body:
-        'Seus amigos mútuos vão ver seus números (favoritos, filmes e episódios assistidos, séries '
-        'assistidas e concluídas e tempo assistido), os totais deste mês e deste ano e desde quando '
-        'você está no CineTrack, no seu perfil e nas comparações entre amigos. Você pode desligar '
-        'quando quiser: desligar apaga na hora.',
-  ),
-  SharedSection.activity: (
-    title: 'Compartilhar atividades recentes com amigos?',
-    body:
-        'Seus amigos mútuos vão ver até 10 das suas atividades mais recentes (seu perfil mostra '
-        'as 3 últimas): títulos que você favoritou, filmes e episódios que marcou como assistidos '
-        'e séries que concluiu. Só entra o que você fizer a partir de agora. Recomendações nunca '
-        'aparecem como atividade. Você pode desligar quando quiser: desligar apaga na hora.',
-  ),
-  SharedSection.recs: (
-    title: 'Compartilhar seus recomendados com amigos?',
-    body:
-        'Seus amigos mútuos vão ver os títulos que você marcou com Recomendo (até 50, na ordem da '
-        'sua aba) e quantos são. Para você, nada muda nas suas recomendações. Você pode desligar '
-        'quando quiser: desligar apaga na hora.',
-  ),
-};
 
 const kSharingAllOff = 'Seus amigos veem só seu cartão (apelido e foto).';
 const kSharingNoActivity = 'Suas próximas atividades aparecem aqui.';
 const kSharingUncertain = 'Ainda não confirmado…';
 
-String _label(SharedSection s) => switch (s) {
-  SharedSection.stats => 'Estatísticas',
-  SharedSection.activity => 'Atividades recentes',
-  SharedSection.recs => 'Recomendados',
-};
+/// The last controller notice already shown as a SnackBar: the Profile and
+/// the shell both listen, only one shows it.
+final sharingNoticeShownProvider = StateProvider<int>((ref) => 0);
 
-/// What the screen reader announces for a toggle (with its on/off state).
-String _semantic(SharedSection s) => switch (s) {
-  SharedSection.stats => 'Compartilhar estatísticas com amigos',
-  SharedSection.activity => 'Compartilhar atividades recentes com amigos',
-  SharedSection.recs => 'Compartilhar recomendados com amigos',
-};
+/// Shows the controller's notices (T-S SnackBars) once.
+void listenSharingNotices(WidgetRef ref, BuildContext context) {
+  ref.listen(sharingControllerProvider.select((s) => s.notice), (prev, next) {
+    if (next == null || next.id == prev?.id) return;
+    if (ref.read(sharingNoticeShownProvider) >= next.id) return;
+    ref.read(sharingNoticeShownProvider.notifier).state = next.id;
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(next.text)));
+  });
+}
 
-/// "O que seus amigos veem" (docs/81 RF-P, docs/82 §7.1, §10): only with
-/// active friendships. Opt-in per section (D2), consent dialog with preview,
-/// turning off without confirmation, "Atualizado há", the preview "Como seus
-/// amigos veem" (statistics and recommended titles), "Atividades recentes".
+/// "O que seus amigos veem" (docs/81 RF-P, docs/95 RF-SC1): only with active
+/// friendships. No switches any more (one consent: "Aparecer na busca"):
+/// the state text (T-V), "Atualizado há", the preview "Como seus amigos
+/// veem" (statistics and recommended titles) and "Atividades recentes".
 class SharingSection extends ConsumerStatefulWidget {
   const SharingSection({super.key});
 
@@ -69,26 +50,29 @@ class _SharingSectionState extends ConsumerState<SharingSection> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(sharingControllerProvider.select((s) => s.notice), (prev, next) {
-      if (next == null || next.id == prev?.id) return;
-      ScaffoldMessenger.maybeOf(context)
-        ?..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(next.text)));
-    });
+    listenSharingNotices(ref, context);
     final state = ref.watch(sharingControllerProvider);
     if (state.phase == SharingPhase.hidden) return const SizedBox.shrink();
+    final mode = ref.watch(sharingModeProvider);
     final theme = Theme.of(context);
     final now = ref.read(serverClockProvider).now();
     final doc = state.confirmed ? state.doc : null;
-    final sections = state.sections;
     // What the preview "Como seus amigos veem" shows: the sections in the
     // written document (the same components as the friend's profile).
     final sharedStats = doc != null && doc.sharing.contains(SharedSection.stats) ? doc.stats : null;
     final sharedRecs = doc != null && doc.sharing.contains(SharedSection.recs) ? doc.recs : null;
-    final skeleton = !state.confirmed && state.hint == null && state.phase == SharingPhase.loading;
+    final skeleton = !state.confirmed && state.phase == SharingPhase.loading;
     final inline = switch (state.phase) {
       SharingPhase.offline => SharedProfileFailure.offlineMessage,
       SharingPhase.unavailable => SharedProfileFailure.unavailableMessage,
+      _ => null,
+    };
+    final statusText = switch (mode) {
+      SharingMode.off => kSharingAllOff,
+      SharingMode.on => SharingTexts.viewOn,
+      SharingMode.review => SharingTexts.review,
+      SharingMode.legacy => SharingTexts.legacy(doc?.sharing ?? const {}),
+      SharingMode.uncertain => kSharingUncertain,
       _ => null,
     };
 
@@ -102,25 +86,23 @@ class _SharingSectionState extends ConsumerState<SharingSection> {
             child: Text('O que seus amigos veem', style: theme.textTheme.titleMedium),
           ),
           const SizedBox(height: 4),
-          if (skeleton)
-            const _Skeleton()
-          else
-            for (final s in kSharingSections) _toggle(s, state, sections.contains(s)),
+          if (skeleton) const _Skeleton(),
           if (inline != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(inline, style: TextStyle(color: theme.colorScheme.error)),
             ),
-          if (state.confirmed && sections.isEmpty)
+          if (statusText != null)
             Card(
+              key: const Key('sharing-status'),
               margin: const EdgeInsets.only(top: 8),
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Row(
                   children: [
-                    const Icon(Icons.badge_outlined),
+                    Icon(mode == SharingMode.off ? Icons.badge_outlined : Icons.people_outline),
                     const SizedBox(width: 12),
-                    Expanded(child: Text(kSharingAllOff, style: theme.textTheme.bodyMedium)),
+                    Expanded(child: Text(statusText, style: theme.textTheme.bodyMedium)),
                   ],
                 ),
               ),
@@ -141,7 +123,7 @@ class _SharingSectionState extends ConsumerState<SharingSection> {
                 child: TextButton.icon(
                   onPressed: () => setState(() => _previewOpen = !_previewOpen),
                   icon: Icon(_previewOpen ? Icons.expand_less : Icons.expand_more),
-                  label: const Text('Como seus amigos veem'),
+                  label: const Text(SharingTexts.previewTitle),
                 ),
               ),
             ),
@@ -181,33 +163,6 @@ class _SharingSectionState extends ConsumerState<SharingSection> {
       ),
     );
   }
-
-  Widget _toggle(SharedSection s, SharingState state, bool on) {
-    final uncertain = state.uncertain.containsKey(s);
-    final running = state.busy == s;
-    final enabled = state.confirmed && state.phase == SharingPhase.ready && !uncertain;
-    final waiting =
-        running || uncertain || (!state.confirmed && state.phase == SharingPhase.loading);
-    return SwitchListTile(
-      contentPadding: EdgeInsets.zero,
-      value: on,
-      title: Semantics(label: _semantic(s), excludeSemantics: true, child: Text(_label(s))),
-      subtitle: uncertain ? const Text(kSharingUncertain) : null,
-      secondary: waiting
-          ? const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
-          : null,
-      onChanged: enabled ? (value) => _onChanged(s, value) : null,
-    );
-  }
-
-  Future<void> _onChanged(SharedSection s, bool value) async {
-    final controller = ref.read(sharingControllerProvider.notifier);
-    final reason = controller.blockReason();
-    if (reason != null) return controller.tell(reason);
-    if (!value) return controller.turnOff(s);
-    final content = await showSharingConsentDialog(context, s);
-    if (content != null && mounted) await controller.turnOn(s, content);
-  }
 }
 
 class _Skeleton extends StatelessWidget {
@@ -218,92 +173,444 @@ class _Skeleton extends StatelessWidget {
     final color = Theme.of(context).colorScheme.surfaceContainerHighest;
     return Semantics(
       label: 'Carregando o que seus amigos veem',
-      child: Column(
-        children: [
-          for (var i = 0; i < kSharingSections.length; i++)
-            Container(
-              height: 40,
-              margin: const EdgeInsets.symmetric(vertical: 6),
-              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(8)),
-            ),
-        ],
+      child: Container(
+        height: 48,
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
 }
 
-/// The consent dialog of [section] with the literal texts and the preview
-/// (RF-P4). Returns the previewed content when the user taps "Compartilhar"
-/// (null: "Cancelar", Esc or outside). While the data is not trustworthy
-/// the button reads "Calculando…" and is disabled.
-Future<SharedProfileContent?> showSharingConsentDialog(
-  BuildContext context,
-  SharedSection section,
-) {
-  final texts = kSharingDialogs[section]!;
+/// The single switch "Aparecer na busca" (docs/95 RF-SC1, T-I) for the
+/// "Amizades" card, with the E2 ("Revisar") and E3 (legacy) lines.
+class SearchSharingTile extends ConsumerWidget {
+  final SocialProfile profile;
+
+  const SearchSharingTile({super.key, required this.profile});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(sharingModeProvider);
+    final sharing = ref.watch(sharingControllerProvider);
+    final offline = ref.watch(syncStatusProvider.select((s) => s.offline));
+    final socialBusy = ref.watch(socialControllerProvider.select((s) => s.busy));
+    final controller = ref.read(sharingControllerProvider.notifier);
+    final theme = Theme.of(context);
+    final value = switch (mode) {
+      SharingMode.on || SharingMode.review => true,
+      SharingMode.off || SharingMode.legacy => false,
+      _ => profile.discoverable,
+    };
+    final settled = switch (mode) {
+      SharingMode.on || SharingMode.review || SharingMode.off || SharingMode.legacy => true,
+      _ => false,
+    };
+    final enabled = settled && !sharing.busy && !offline && !socialBusy;
+    final waiting = sharing.busy || mode == SharingMode.uncertain || mode == SharingMode.pending;
+    final tile = SwitchListTile(
+      key: const Key('search-sharing-switch'),
+      contentPadding: EdgeInsets.zero,
+      value: value,
+      title: Semantics(
+        label: SharingTexts.switchSemantics,
+        excludeSemantics: true,
+        child: const Text(SharingTexts.switchTitle),
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(SharingTexts.switchSubtitle),
+          if (mode == SharingMode.uncertain) const Text(kSharingUncertain),
+        ],
+      ),
+      secondary: waiting
+          ? const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
+          : null,
+      onChanged: enabled
+          ? (on) => on ? turnSearchOn(context, ref) : turnSearchOff(context, ref)
+          : null,
+    );
+    final sections = sharing.doc?.sharing ?? const <SharedSection>{};
+    final actionsEnabled = enabled;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // A disabled switch still answers a tap with the reason (offline...).
+        if (enabled)
+          tile
+        else
+          GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () {
+              final reason = controller.blockReason();
+              if (reason != null) controller.tell(reason);
+            },
+            child: tile,
+          ),
+        if (mode == SharingMode.review)
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            children: [
+              Text(SharingTexts.review, style: theme.textTheme.bodyMedium),
+              TextButton(
+                style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                onPressed: actionsEnabled ? () => openSharingNotice(context, ref) : null,
+                child: const Text(SharingTexts.reviewButton),
+              ),
+            ],
+          ),
+        if (mode == SharingMode.legacy) ...[
+          Text(SharingTexts.legacy(sections), style: theme.textTheme.bodyMedium),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              TextButton(
+                style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                onPressed: actionsEnabled ? () => controller.setSearchSharing(false) : null,
+                child: const Text(SharingTexts.legacyStop),
+              ),
+              FilledButton.tonal(
+                style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
+                onPressed: actionsEnabled ? () => turnSearchOn(context, ref) : null,
+                child: const Text(SharingTexts.legacyAll),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// E0/E3 -> E1 (RF-SC2): T-C first; nothing is written before "Ligar".
+Future<void> turnSearchOn(BuildContext context, WidgetRef ref) async {
+  final controller = ref.read(sharingControllerProvider.notifier);
+  final reason = controller.blockReason();
+  if (reason != null) return controller.tell(reason);
+  final content = await showSearchConsentDialog(context);
+  if (content != null) await controller.setSearchSharing(true, content: content);
+}
+
+/// E1/E2/E3 -> E0 (RF-SC3): T-D first.
+Future<void> turnSearchOff(BuildContext context, WidgetRef ref) async {
+  final controller = ref.read(sharingControllerProvider.notifier);
+  final reason = controller.blockReason();
+  if (reason != null) return controller.tell(reason);
+  final confirmed = await showSearchOffDialog(context);
+  if (confirmed == true) await controller.setSearchSharing(false);
+}
+
+/// "Como seus amigos veem" for [content] (the 3 sections; activities start
+/// empty): the same components as the friend's profile.
+class SharingPreview extends StatelessWidget {
+  final SharedProfileContent content;
+  final DateTime now;
+
+  const SharingPreview({super.key, required this.content, required this.now});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final stats = content.stats;
+    final recs = content.recs;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          header: true,
+          child: Text(SharingTexts.previewTitle, style: theme.textTheme.titleSmall),
+        ),
+        const SizedBox(height: 8),
+        if (stats != null)
+          SharedStatsView(
+            stats: stats,
+            tz: content.tz,
+            now: now,
+            totalGridKey: const Key('sharing-preview-grid'),
+          ),
+        Padding(
+          padding: const EdgeInsets.only(top: 12, bottom: 4),
+          child: Semantics(
+            header: true,
+            child: Text('Atividades recentes', style: theme.textTheme.titleSmall),
+          ),
+        ),
+        Text(kSharingNoActivity, style: theme.textTheme.bodyMedium),
+        if (recs != null) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 4),
+            child: Semantics(
+              header: true,
+              child: Text('Recomendados', style: theme.textTheme.titleSmall),
+            ),
+          ),
+          SharedRecsView(
+            key: const Key('sharing-preview-recs'),
+            reading: SharedRecsReading.of(recs),
+            emptyText: SharedProfileTexts.ownNoRecs,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// T-C (RF-SC2, RF-SC5): returns the previewed content when the user taps
+/// "Ligar" (null: "Cancelar"/"Agora não", Esc or outside). While the data is
+/// not trustworthy the button reads "Calculando…" and is disabled.
+/// [fromForm] = the activation form ("Agora não"); there [notNowResult] tells
+/// "Agora não" (true) from Esc/outside (null).
+Future<SharedProfileContent?> showSearchConsentDialog(
+  BuildContext context, {
+  bool fromForm = false,
+  void Function()? onNotNow,
+}) {
   return showDialog<SharedProfileContent>(
     context: context,
     builder: (dialogContext) => Consumer(
       builder: (context, ref, _) {
-        final preview = ref.watch(sharedPreviewProvider(section));
-        final stats = preview?.stats;
-        final recs = preview?.recs;
+        final preview = ref.watch(sharedPreviewProvider);
         return AlertDialog(
-          // The whole dialog scrolls: 320 px at 3x font still fits (RNF7).
+          // The whole dialog scrolls: 320 px at 3x font still fits.
           scrollable: true,
-          title: Text(texts.title),
-          content: SizedBox(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(texts.body),
-                if (section == SharedSection.stats && stats != null) ...[
-                  const SizedBox(height: 16),
-                  Semantics(
-                    header: true,
-                    child: Text('Prévia', style: Theme.of(context).textTheme.titleSmall),
+          title: const Text(SharingTexts.consentTitle),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(SharingTexts.consentBody),
+              const SizedBox(height: 8),
+              for (final item in SharingTexts.consentItems)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const ExcludeSemantics(child: Text('•  ')),
+                      Expanded(child: Text(item)),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  // Everything the dialog promises: totals, this month and
-                  // year (owner's zone), time watched, "No CineTrack desde".
-                  SharedStatsView(
-                    stats: stats,
-                    tz: preview!.tz,
-                    now: ref.read(serverClockProvider).now(),
-                    totalGridKey: const Key('sharing-preview-grid'),
-                  ),
-                ],
-                if (section == SharedSection.recs && recs != null) ...[
-                  const SizedBox(height: 16),
-                  Semantics(
-                    header: true,
-                    child: Text('Prévia', style: Theme.of(context).textTheme.titleSmall),
-                  ),
-                  const SizedBox(height: 8),
-                  // Exactly what friends will see: the number, up to 50
-                  // titles in the order of the tab and "e mais N".
-                  SharedRecsView(
-                    key: const Key('sharing-preview-recs'),
-                    reading: SharedRecsReading.of(recs),
-                    emptyText: SharedProfileTexts.ownNoRecs,
-                  ),
-                ],
+                ),
+              const SizedBox(height: 4),
+              const Text(SharingTexts.consentClosing),
+              if (preview != null) ...[
+                const SizedBox(height: 16),
+                SharingPreview(content: preview, now: ref.read(serverClockProvider).now()),
               ],
-            ),
+            ],
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancelar'),
+              onPressed: () {
+                onNotNow?.call();
+                Navigator.of(dialogContext).pop();
+              },
+              child: Text(fromForm ? SharingTexts.notNow : SharingTexts.cancel),
             ),
             FilledButton(
               onPressed: preview == null ? null : () => Navigator.of(dialogContext).pop(preview),
-              child: Text(preview == null ? 'Calculando…' : 'Compartilhar'),
+              child: Text(preview == null ? SharingTexts.calculating : SharingTexts.turnOn),
             ),
           ],
         );
       },
     ),
   );
+}
+
+/// T-D (RF-SC3): true = "Desligar".
+Future<bool?> showSearchOffDialog(BuildContext context) => showDialog<bool>(
+  context: context,
+  builder: (dialogContext) => AlertDialog(
+    scrollable: true,
+    title: const Text(SharingTexts.offTitle),
+    content: const Text(SharingTexts.offBody),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(dialogContext).pop(false),
+        child: const Text(SharingTexts.cancel),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.of(dialogContext).pop(true),
+        child: const Text(SharingTexts.turnOff),
+      ),
+    ],
+  ),
+);
+
+/// What the person chose in notice A or B (null = closed without choosing).
+sealed class SharingNoticeChoice {
+  const SharingNoticeChoice();
+}
+
+/// "OK" (A) with the previewed content.
+class NoticeAccepted extends SharingNoticeChoice {
+  final SharedProfileContent content;
+
+  const NoticeAccepted(this.content);
+}
+
+/// "Desligar" (A) / "Parar de compartilhar" (B).
+class NoticeStop extends SharingNoticeChoice {
+  const NoticeStop();
+}
+
+/// "Aparecer na busca e compartilhar tudo" (B): goes through T-C.
+class NoticeShareAll extends SharingNoticeChoice {
+  const NoticeShareAll();
+}
+
+/// T-A (RF-SC4). [sections] = what the person already shares.
+Future<SharingNoticeChoice?> showReviewNotice(BuildContext context, Set<SharedSection> sections) {
+  return showDialog<SharingNoticeChoice>(
+    context: context,
+    builder: (dialogContext) => Consumer(
+      builder: (context, ref, _) {
+        final preview = ref.watch(sharedPreviewProvider);
+        final controller = ref.read(sharingControllerProvider.notifier);
+        ref.watch(sharingControllerProvider.select((s) => (s.busy, s.uncertain, s.confirmed)));
+        ref.watch(syncStatusProvider.select((s) => s.offline));
+        final blocked = controller.blockReason() != null;
+        return AlertDialog(
+          scrollable: true,
+          title: const Text(SharingTexts.noticeTitle),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(SharingTexts.noticeBody),
+              if (sections.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(SharingTexts.noticeAlready(sections)),
+              ],
+              const SizedBox(height: 8),
+              Text(
+                sections.isEmpty ? SharingTexts.noticeClosing : SharingTexts.noticeClosingAlready,
+              ),
+              if (preview != null) ...[
+                const SizedBox(height: 16),
+                SharingPreview(content: preview, now: ref.read(serverClockProvider).now()),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: blocked ? null : () => Navigator.of(dialogContext).pop(const NoticeStop()),
+              child: const Text(SharingTexts.turnOff),
+            ),
+            FilledButton(
+              onPressed: preview == null || blocked
+                  ? null
+                  : () => Navigator.of(dialogContext).pop(NoticeAccepted(preview)),
+              child: Text(preview == null ? SharingTexts.calculating : SharingTexts.ok),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+/// T-B (legacy, E3): nothing is deleted without a choice.
+Future<SharingNoticeChoice?> showLegacyNotice(BuildContext context, Set<SharedSection> sections) {
+  return showDialog<SharingNoticeChoice>(
+    context: context,
+    builder: (dialogContext) => Consumer(
+      builder: (context, ref, _) {
+        final controller = ref.read(sharingControllerProvider.notifier);
+        ref.watch(sharingControllerProvider.select((s) => (s.busy, s.uncertain, s.confirmed)));
+        ref.watch(syncStatusProvider.select((s) => s.offline));
+        final blocked = controller.blockReason() != null;
+        return AlertDialog(
+          scrollable: true,
+          title: const Text(SharingTexts.legacyTitle),
+          content: Text(SharingTexts.legacyBody(sections)),
+          actions: [
+            TextButton(
+              onPressed: blocked ? null : () => Navigator.of(dialogContext).pop(const NoticeStop()),
+              child: const Text(SharingTexts.legacyStop),
+            ),
+            FilledButton(
+              onPressed: blocked
+                  ? null
+                  : () => Navigator.of(dialogContext).pop(const NoticeShareAll()),
+              child: const Text(SharingTexts.legacyAll),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+/// Opens the notice that fits the confirmed state (A for E2, B for E3),
+/// marks it seen for this session and runs the choice. "Desligar" in A and
+/// "Parar de compartilhar" in B need no T-D (the notice explains it);
+/// closing without a choice writes nothing.
+Future<void> openSharingNotice(BuildContext context, WidgetRef ref) async {
+  final uid = ref.read(currentUidProvider);
+  final mode = ref.read(sharingModeProvider);
+  if (uid == null || (mode != SharingMode.review && mode != SharingMode.legacy)) return;
+  ref.read(sharingNoticeSeenProvider.notifier).update((seen) => {...seen, uid});
+  final sections = ref.read(sharingControllerProvider).doc?.sharing ?? const <SharedSection>{};
+  final choice = mode == SharingMode.review
+      ? await showReviewNotice(context, sections)
+      : await showLegacyNotice(context, sections);
+  if (!context.mounted) return;
+  final controller = ref.read(sharingControllerProvider.notifier);
+  switch (choice) {
+    case NoticeAccepted(:final content):
+      await controller.setSearchSharing(true, content: content);
+    case NoticeStop():
+      await controller.setSearchSharing(false);
+    case NoticeShareAll():
+      await turnSearchOn(context, ref);
+    case null:
+      break;
+  }
+}
+
+/// Opens notice A/B once per session when the confirmed state asks for it
+/// (RF-SC4, ❓1), with the shell visible; shows the T-S SnackBars anywhere.
+class SharingNoticeHost extends ConsumerStatefulWidget {
+  final Widget child;
+
+  const SharingNoticeHost({super.key, required this.child});
+
+  @override
+  ConsumerState<SharingNoticeHost> createState() => _SharingNoticeHostState();
+}
+
+class _SharingNoticeHostState extends ConsumerState<SharingNoticeHost> {
+  bool _open = false;
+
+  @override
+  void initState() {
+    super.initState();
+    ref.listenManual(sharingNoticeDueProvider, (_, due) => _maybeOpen(due), fireImmediately: true);
+  }
+
+  void _maybeOpen(SharingNoticeKind? due) {
+    if (due == null || _open) return;
+    _open = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        // Still due once the frame is done (nothing changed meanwhile).
+        if (mounted && ref.read(sharingNoticeDueProvider) != null) {
+          await openSharingNotice(context, ref);
+        }
+      } finally {
+        _open = false;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    listenSharingNotices(ref, context);
+    return widget.child;
+  }
 }

@@ -8,6 +8,7 @@ import '../providers/providers.dart';
 import '../providers/social_lists_providers.dart';
 import '../providers/social_providers.dart';
 import 'count_badge.dart';
+import 'sharing_section.dart';
 import 'auth_gate.dart';
 import 'sync_widgets.dart';
 
@@ -151,11 +152,7 @@ class DetailBottomBanner extends StatelessWidget {
 
 /// AppBar for a detail screen (outside the shell): back button as usual and,
 /// on mobile, the logo before the title so it is visible there too.
-AppBar detailAppBar(
-  BuildContext context, {
-  required String title,
-  List<Widget>? actions,
-}) {
+AppBar detailAppBar(BuildContext context, {required String title, List<Widget>? actions}) {
   final mobile = isMobileWidth(context);
   return AppBar(
     // A deep link has no history: the usual back button would not appear, so
@@ -223,7 +220,8 @@ class AppShell extends ConsumerWidget {
     // The shared-profile engine (docs/82 §6): idle for anyone who shares
     // nothing (no read, no write).
     ref.read(sharedProfileSyncProvider);
-    if (!isMobileWidth(context)) return child;
+    // docs/95: notices A/B once per session and the T-S SnackBars.
+    if (!isMobileWidth(context)) return SharingNoticeHost(child: child);
 
     final user = ref.watch(currentUserProvider);
     final pending = ref.watch(receivedBadgeProvider);
@@ -255,52 +253,54 @@ class AppShell extends ConsumerWidget {
       }
     }
 
-    return Column(
-      children: [
-        const MobileTopBar(),
-        Expanded(
-          child: MediaQuery.removePadding(
-            context: context,
-            removeTop: true,
-            removeBottom: true,
-            child: MobileShellScope(child: child),
-          ),
-        ),
-        MediaQuery.removePadding(
-          context: context,
-          removeBottom: true,
-          child: SyncBanner(onOpenProfile: () => context.go('/profile')),
-        ),
-        NavigationBar(
-          selectedIndex: selected < 0 ? 0 : selected,
-          onDestinationSelected: onSelected,
-          destinations: [
-            for (final t in _tabs)
-              NavigationDestination(
-                icon: Icon(t.icon),
-                selectedIcon: Icon(t.selectedIcon),
-                label: t.label,
-                tooltip: t.tooltip ?? t.label,
-              ),
-            NavigationDestination(
-              icon: CountBadge(
-                count: dotOnProfile ? pending : 0,
-                dot: true,
-                child: Icon(signedOut ? Icons.login : Icons.person_outline),
-              ),
-              selectedIcon: CountBadge(
-                count: dotOnProfile ? pending : 0,
-                dot: true,
-                child: const Icon(Icons.person),
-              ),
-              label: signedOut ? 'Entrar' : 'Perfil',
-              tooltip: signedOut
-                  ? 'Entrar com Google'
-                  : (dotOnProfile ? profileSemanticLabel(pending) : 'Perfil'),
+    return SharingNoticeHost(
+      child: Column(
+        children: [
+          const MobileTopBar(),
+          Expanded(
+            child: MediaQuery.removePadding(
+              context: context,
+              removeTop: true,
+              removeBottom: true,
+              child: MobileShellScope(child: child),
             ),
-          ],
-        ),
-      ],
+          ),
+          MediaQuery.removePadding(
+            context: context,
+            removeBottom: true,
+            child: SyncBanner(onOpenProfile: () => context.go('/profile')),
+          ),
+          NavigationBar(
+            selectedIndex: selected < 0 ? 0 : selected,
+            onDestinationSelected: onSelected,
+            destinations: [
+              for (final t in _tabs)
+                NavigationDestination(
+                  icon: Icon(t.icon),
+                  selectedIcon: Icon(t.selectedIcon),
+                  label: t.label,
+                  tooltip: t.tooltip ?? t.label,
+                ),
+              NavigationDestination(
+                icon: CountBadge(
+                  count: dotOnProfile ? pending : 0,
+                  dot: true,
+                  child: Icon(signedOut ? Icons.login : Icons.person_outline),
+                ),
+                selectedIcon: CountBadge(
+                  count: dotOnProfile ? pending : 0,
+                  dot: true,
+                  child: const Icon(Icons.person),
+                ),
+                label: signedOut ? 'Entrar' : 'Perfil',
+                tooltip: signedOut
+                    ? 'Entrar com Google'
+                    : (dotOnProfile ? profileSemanticLabel(pending) : 'Perfil'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

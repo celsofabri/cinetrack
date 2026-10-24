@@ -1,5 +1,4 @@
 import '../data/shared_profile_data_source.dart';
-import '../data/social_payloads.dart';
 import '../shared_profile/shared_profile_doc.dart';
 import '../shared_profile/shared_profile_models.dart';
 import '../shared_profile/shared_profile_payloads.dart';
@@ -42,16 +41,20 @@ class SharedProfileFailure implements Exception {
 
   const SharedProfileFailure(this.kind, {this.code, this.settled});
 
-  factory SharedProfileFailure.fromSocial(SocialFailure f) => SharedProfileFailure(switch (f.kind) {
-    SocialFailureKind.offline => SharedProfileFailureKind.offline,
-    SocialFailureKind.uncertain => SharedProfileFailureKind.uncertain,
-    SocialFailureKind.denied => SharedProfileFailureKind.denied,
-    SocialFailureKind.quotaExceeded => SharedProfileFailureKind.quota,
-    SocialFailureKind.sessionExpired => SharedProfileFailureKind.sessionExpired,
-    SocialFailureKind.busy => SharedProfileFailureKind.busy,
-    _ when f.code == 'not-found' => SharedProfileFailureKind.notFound,
-    _ => SharedProfileFailureKind.unknown,
-  }, code: f.code, settled: f is SharedToggleUncertain ? f.settled : null);
+  factory SharedProfileFailure.fromSocial(SocialFailure f) => SharedProfileFailure(
+    switch (f.kind) {
+      SocialFailureKind.offline => SharedProfileFailureKind.offline,
+      SocialFailureKind.uncertain => SharedProfileFailureKind.uncertain,
+      SocialFailureKind.denied => SharedProfileFailureKind.denied,
+      SocialFailureKind.quotaExceeded => SharedProfileFailureKind.quota,
+      SocialFailureKind.sessionExpired => SharedProfileFailureKind.sessionExpired,
+      SocialFailureKind.busy => SharedProfileFailureKind.busy,
+      _ when f.code == 'not-found' => SharedProfileFailureKind.notFound,
+      _ => SharedProfileFailureKind.unknown,
+    },
+    code: f.code,
+    settled: f is SharedToggleUncertain ? f.settled : null,
+  );
 
   static const offlineMessage = 'Sem conexão. Tente de novo quando estiver online.';
   static const unavailableMessage = 'O perfil compartilhado ainda não está disponível.';
@@ -73,7 +76,7 @@ class SharedProfileFailure implements Exception {
 }
 
 /// The owner's side of `shared_profiles/{uid}` (docs/82 §7.1, §6, §9): reads
-/// the own document, runs the consent toggles (one transaction each) and
+/// the own document, runs "Aparecer na busca" (one transaction) and
 /// sends the engine's recalculations. Maps every failure to
 /// [SharedProfileFailure]. Fatia 3: a friend's profile ([readFriend]).
 class SharedProfileRepository {
@@ -101,33 +104,36 @@ class SharedProfileRepository {
   Future<SharedProfileDoc?> readOwn() =>
       _guard(() async => SharedProfileDoc.parse(await source.readOwn(fromServer: true)));
 
-  /// Turns [section] on with the consent given in the dialog; [content] is
-  /// the section calculated for the preview. "Atividades" starts empty.
-  Future<void> turnOn(SharedSection section, SharedProfileContent content, DateTime now) => _guard(
-    () => source.toggle((current) {
-      final doc = SharedProfileDoc.parse(current);
-      if (doc != null && doc.sharing.contains(section)) {
-        return const SocialWrite(SocialWriteMode.transaction, []);
+  /// "Aparecer na busca" (docs/95 §9): ONE transaction over the card
+  /// `handles/{handle}` and the own document, idempotent (it reads both and
+  /// writes only what differs, RF-SC7). [on] with [content] (the preview the
+  /// dialog showed): card on + the missing sections; off: card off + the
+  /// document deleted. A card that is missing or not this user's stops it
+  /// before anything is written ([SharedProfileFailureKind.denied] when
+  /// turning on: friendships are off; turning off still deletes the
+  /// document).
+  Future<void> searchAndShare(
+    bool on, {
+    required String handle,
+    SharedProfileContent? content,
+    required DateTime now,
+  }) => _guard(
+    () => source.searchAndShare(handle, (card, current) {
+      final mine = card != null && card['uid'] == uid;
+      if (on && !mine) {
+        throw const SocialFailure(SocialFailureKind.denied, code: 'card-missing');
       }
-      return SharedProfilePayloads.turnOn(
+      return SharedProfilePayloads.searchAndShare(
         uid,
-        section: section,
+        handle: handle,
+        on: on,
+        cardDiscoverable: mine ? card['discoverable'] == true : null,
+        // A document that exists but does not parse still counts as
+        // existing: turning off deletes it.
+        current: current == null ? null : (SharedProfileDoc.parse(current)?.sharing ?? const {}),
         content: content,
-        current: doc?.sharing,
         now: now,
       );
-    }),
-  );
-
-  /// Turns [section] off: consent and section are deleted together; the
-  /// last section deletes the document. Already off = nothing written.
-  Future<void> turnOff(SharedSection section) => _guard(
-    () => source.toggle((current) {
-      final doc = SharedProfileDoc.parse(current);
-      if (doc == null || !doc.sharing.contains(section)) {
-        return const SocialWrite(SocialWriteMode.transaction, []);
-      }
-      return SharedProfilePayloads.turnOff(uid, section: section, current: doc.sharing);
     }),
   );
 

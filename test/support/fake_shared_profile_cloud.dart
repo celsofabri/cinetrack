@@ -48,6 +48,13 @@ class FakeSharedProfileCloud {
   /// Server clock (`serverTimestamp`).
   DateTime Function() clock = () => DateTime.now().toUtc();
 
+  /// The social fake's `handles` (wired by `cloudOverrides`): "Aparecer na
+  /// busca" writes the card in the same transaction as the document.
+  Map<String, Map<String, dynamic>>? cards;
+
+  /// Every "Aparecer na busca" transaction the fake ACCEPTED (payloads as sent).
+  final List<SocialWrite> searches = [];
+
   /// Uids whose `social/{uid}` does not exist: consent changes are denied
   /// (the rules need it to create or change `sharing`).
   final Set<String> socialClosed = {};
@@ -106,8 +113,26 @@ class FakeSharedProfileCloud {
   /// = denied). Throws without changing anything when refused.
   void apply(String uid, SocialWrite write, {required bool consent}) {
     if (oldRules) throw _denied;
+    // All or nothing, like a transaction: check the card ops first.
+    for (final op in write.ops.where((o) => o.path.startsWith('handles/'))) {
+      final card = cards?[op.path.split('/').last];
+      if (card == null) throw _notFound;
+      if (card['uid'] != uid || op.op != 'update') throw _denied;
+      final keys = op.data!.keys.toSet();
+      if (!{'discoverable', 'updatedAt'}.containsAll(keys) ||
+          op.data!['updatedAt'] is! ServerTimestamp) {
+        throw _denied;
+      }
+    }
     for (final op in write.ops) {
       final id = op.path.split('/').last;
+      if (op.path.startsWith('handles/')) {
+        final card = cards![id]!;
+        for (final e in op.data!.entries) {
+          card[e.key] = _value(e.value);
+        }
+        continue;
+      }
       switch (op.op) {
         case 'delete':
           docs.remove(id);
@@ -243,6 +268,42 @@ class InMemorySharedProfileDataSource implements SharedProfileDataSource {
     if (failure != null) {
       // Like FirestoreSharedProfileDataSource: an uncertain toggle carries
       // the end of its ORIGINAL transaction.
+      if (cloud.lateUncertainToggles) {
+        final done = Completer<void>();
+        cloud._late = commit;
+        cloud._lateDone = done;
+        throw SharedToggleUncertain(done.future, code: failure.code ?? 'timeout');
+      }
+      if (cloud.deliverUncertainToggles) commit();
+      throw SharedToggleUncertain(Future<void>.value(), code: failure.code);
+    }
+    commit();
+  }
+
+  @override
+  Future<void> searchAndShare(
+    String handle,
+    SocialWrite Function(Map<String, dynamic>? card, Map<String, dynamic>? current) plan,
+  ) async {
+    final gate = cloud.toggleGate;
+    if (gate != null) await gate.future;
+    final failure = cloud._take('toggle');
+    if (failure != null && failure.kind != SocialFailureKind.uncertain) throw failure;
+    if (cloud.oldRules) throw _denied;
+    cloud.reads += 2;
+    final card = cloud.cards?[handle];
+    final current = cloud.docs[uid];
+    final write = plan(
+      card == null ? null : Map<String, dynamic>.of(card),
+      current == null ? null : FakeSharedProfileCloud._deepCopy(current),
+    );
+    void commit() {
+      cloud.apply(uid, write, consent: true);
+      cloud.searches.add(write);
+      cloud.log.add('search');
+    }
+
+    if (failure != null) {
       if (cloud.lateUncertainToggles) {
         final done = Completer<void>();
         cloud._late = commit;

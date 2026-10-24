@@ -496,5 +496,11 @@ class _CountingShared implements SharedProfileDataSource {
       inner.toggle(plan);
 
   @override
+  Future<void> searchAndShare(
+    String handle,
+    SocialWrite Function(Map<String, dynamic>? card, Map<String, dynamic>? current) plan,
+  ) => inner.searchAndShare(handle, plan);
+
+  @override
   Future<void> writeSections(SocialWrite write) => inner.writeSections(write);
 }

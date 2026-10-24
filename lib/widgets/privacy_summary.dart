@@ -38,13 +38,14 @@ class PrivacyPolicyLink extends ConsumerWidget {
 
 /// What friends see and how the owner chooses it (docs/82 §8, Fatia 2).
 const kPrivacySharingSentence =
-    'Por padrão, quem vira seu amigo vê só o seu cartão (apelido e foto). Em "O que seus '
-    'amigos veem", no perfil, você escolhe, por seção, mostrar também a amigos mútuos suas '
-    'estatísticas (números totais, deste mês e deste ano, tempo assistido e desde quando está '
-    'no CineTrack), suas atividades recentes (títulos que favoritou, assistiu ou concluiu, só a '
-    'partir de quando ligar) e seus recomendados (até 50 títulos que marcou com Recomendo, na '
-    'ordem da sua aba, que segue o que você assistiu ou favoritou por último, e quantos são); '
-    'para isso guardamos uma cópia só do que você ligou, e desligar apaga na hora.';
+    'Por padrão, quem vira seu amigo vê só o seu cartão (apelido e foto). Se você ligar '
+    '"Aparecer na busca", no perfil, e confirmar, além de aparecer na busca exata pelo '
+    'identificador você mostra aos seus amigos mútuos suas estatísticas (números totais, deste '
+    'mês e deste ano, tempo assistido e desde quando está no CineTrack), suas atividades '
+    'recentes (títulos que favoritou, assistiu ou concluiu, só a partir de quando ligar) e seus '
+    'recomendados (até 50 títulos que marcou com Recomendo, na ordem da sua aba, e quantos '
+    'são), inclusive no Ranking entre amigos; para isso guardamos uma cópia disso, e desligar '
+    'apaga na hora.';
 
 /// Short, plain-language summary of what is stored (full text in the page).
 class PrivacySummary extends StatelessWidget {

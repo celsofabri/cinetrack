@@ -28,6 +28,7 @@ List<Override> cloudOverrides({
 }) {
   final social = socialCloud ?? FakeSocialCloud();
   final shared = sharedCloud ?? FakeSharedProfileCloud(log: cloud.deletionLog);
+  shared.cards ??= social.handles;
   shared.friendsLink ??= (a, b) => social.friendships.containsKey(FakeSocialCloud.pairId(a, b));
   return [
     authRepositoryProvider.overrideWithValue(auth),
@@ -39,12 +40,15 @@ List<Override> cloudOverrides({
       createdFor?.add(uid);
       return InMemoryFavoritesDataSource(cloud, uid: uid);
     }),
-    profileDataSourceFactoryProvider
-        .overrideWithValue((uid) => InMemoryProfileDataSource(cloud, uid: uid)),
-    socialDataSourceFactoryProvider
-        .overrideWithValue((uid) => InMemorySocialDataSource(social, uid: uid)),
-    sharedProfileDataSourceFactoryProvider
-        .overrideWithValue((uid) => InMemorySharedProfileDataSource(shared, uid: uid)),
+    profileDataSourceFactoryProvider.overrideWithValue(
+      (uid) => InMemoryProfileDataSource(cloud, uid: uid),
+    ),
+    socialDataSourceFactoryProvider.overrideWithValue(
+      (uid) => InMemorySocialDataSource(social, uid: uid),
+    ),
+    sharedProfileDataSourceFactoryProvider.overrideWithValue(
+      (uid) => InMemorySharedProfileDataSource(shared, uid: uid),
+    ),
     localStoreProvider.overrideWithValue(store ?? FakeLocalStore()),
     tmdbApiKeyProvider.overrideWithValue('test'),
     tmdbApiClientProvider.overrideWithValue(api ?? FakeTmdbApiClient()),

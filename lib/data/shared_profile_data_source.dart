@@ -59,6 +59,17 @@ abstract class SharedProfileDataSource {
   /// read; [SocialFailureKind.denied] = old rules or friendships off.
   Future<void> toggle(SocialWrite Function(Map<String, dynamic>? current) plan);
 
+  /// "Aparecer na busca" (docs/95 §9) as ONE transaction over two documents:
+  /// reads the card `handles/{handle}` and the own shared document, [plan]
+  /// builds the write for what was read (it may throw a [SocialFailure] to
+  /// stop) and it is applied in the same transaction. Same failures as
+  /// [toggle] (offline = nothing sent; uncertain = a [SharedToggleUncertain]
+  /// whose `settled` completes when the original transaction ends).
+  Future<void> searchAndShare(
+    String handle,
+    SocialWrite Function(Map<String, dynamic>? card, Map<String, dynamic>? current) plan,
+  );
+
   /// A recalculation or pulse (docs/82 §6): ONE `update` of the own document,
   /// resolved when the server acknowledges it. Its failures go to the caller
   /// only (never to the favorites' sync banner). `not-found` comes out as
@@ -90,6 +101,12 @@ class SignedOutSharedProfileDataSource implements SharedProfileDataSource {
   @override
   Future<void> toggle(SocialWrite Function(Map<String, dynamic>? current) plan) =>
       Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
+
+  @override
+  Future<void> searchAndShare(
+    String handle,
+    SocialWrite Function(Map<String, dynamic>? card, Map<String, dynamic>? current) plan,
+  ) => Future.error(const SocialFailure(SocialFailureKind.sessionExpired));
 
   @override
   Future<void> writeSections(SocialWrite write) =>

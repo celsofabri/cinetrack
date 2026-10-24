@@ -28,20 +28,21 @@ final sharedProfileRepositoryProvider = Provider<SharedProfileRepository>(
 /// default; overridden in tests (America/Sao_Paulo = -180).
 final sharedTzProvider = Provider<int Function(DateTime now)>((ref) => deviceTzMinutes);
 
-/// The toggles of "O que seus amigos veem", in this order (docs/81 RF-P2).
+/// The sections of "O que seus amigos veem", in this order (docs/81 RF-P2).
+/// Since docs/95 one consent ("Aparecer na busca") covers all of them.
 const kSharingSections = [SharedSection.stats, SharedSection.activity, SharedSection.recs];
 
 enum SharingPhase {
   /// No active friendships (RF-P1): the section does not exist.
   hidden,
 
-  /// The session read is running (toggles from the local hint, disabled).
+  /// The session read is running (the switch from the local hint, disabled).
   loading,
 
   /// The server state of this session is known.
   ready,
 
-  /// The state could not be confirmed (no connection): toggles disabled.
+  /// The state could not be confirmed (no connection): the switch disabled.
   offline,
 
   /// The phase-2 rules are not published (old rules).
@@ -69,11 +70,12 @@ class SharingState {
   /// Sections the device remembers (shown while loading); null = no hint.
   final Set<SharedSection>? hint;
 
-  /// The toggle running now (one at a time, RF-P8).
-  final SharedSection? busy;
+  /// "Aparecer na busca" is being written now (one operation at a time).
+  final bool busy;
 
-  /// Toggles whose result is unknown (B5): section -> it was turning ON.
-  final Map<SharedSection, bool> uncertain;
+  /// The last "Aparecer na busca" write has an unknown result (B5): true =
+  /// it was turning ON, false = OFF; null = nothing uncertain.
+  final bool? uncertain;
   final SharingNotice? notice;
 
   const SharingState({
@@ -81,12 +83,12 @@ class SharingState {
     this.doc,
     this.confirmed = false,
     this.hint,
-    this.busy,
-    this.uncertain = const {},
+    this.busy = false,
+    this.uncertain,
     this.notice,
   });
 
-  /// What the toggles show.
+  /// The sections shown (the server's once confirmed, the hint before).
   Set<SharedSection> get sections => confirmed ? (doc?.sharing ?? const {}) : (hint ?? const {});
 
   SharingState copyWith({
@@ -94,31 +96,28 @@ class SharingState {
     SharedProfileDoc? doc,
     bool clearDoc = false,
     bool? confirmed,
-    SharedSection? busy,
-    bool clearBusy = false,
-    Map<SharedSection, bool>? uncertain,
+    bool? busy,
+    bool? uncertain,
+    bool clearUncertain = false,
     SharingNotice? notice,
   }) => SharingState(
     phase: phase ?? this.phase,
     doc: clearDoc ? null : (doc ?? this.doc),
     confirmed: confirmed ?? this.confirmed,
     hint: hint,
-    busy: clearBusy ? null : (busy ?? this.busy),
-    uncertain: uncertain ?? this.uncertain,
+    busy: busy ?? this.busy,
+    uncertain: clearUncertain ? null : (uncertain ?? this.uncertain),
     notice: notice ?? this.notice,
   );
 }
 
-/// pt-BR "turned off" confirmation (RF-P5).
-String sharingOffMessage(SharedSection s) => switch (s) {
-  SharedSection.stats => 'Seus amigos não veem mais suas estatísticas.',
-  SharedSection.activity => 'Seus amigos não veem mais suas atividades recentes.',
-  SharedSection.recs => 'Seus amigos não veem mais seus recomendados.',
-};
+/// T-S1..T-S3 of docs/95 §7.
+const kSearchOnDone =
+    'Pronto: você aparece na busca e seus amigos veem suas estatísticas, atividades e recomendados.';
+const kSearchOffDone = 'Você não aparece mais na busca e seus amigos veem só seu cartão.';
+const kSearchOnFailed = 'Não foi possível ligar. Tente de novo.';
 
-const kSharingOnConfirmed = 'Compartilhamento ligado.';
-
-/// How long an uncertain toggle waits for its original transaction to end
+/// How long an uncertain switch waits for its original transaction to end
 /// before the server is read anyway (A).
 const kSharingSettleCap = Duration(seconds: 60);
 
@@ -126,21 +125,33 @@ const kSharingSettleCap = Duration(seconds: 60);
 const kSharingUncertainRetry = Duration(seconds: 30);
 const kSharingOffFailed = 'Não foi possível desligar. Tente de novo.';
 
-/// State of "O que seus amigos veem" (docs/82 §7.1, B5): ONE server read per
-/// session for accounts with active friendships (it also feeds the rules
-/// gate, decision Q1 of docs/85), the consent toggles as transactions, the
-/// "uncertain" reconciliation and the local hint. Accounts without active
-/// friendships: nothing is read.
+/// True when [doc] holds the 3 sections (the consent of docs/95).
+bool sharesEverything(SharedProfileDoc? doc) =>
+    doc != null && kSharingSections.every(doc.sharing.contains);
+
+/// State of "O que seus amigos veem" (docs/82 §7.1, B5, docs/95): ONE server
+/// read per session for accounts with active friendships (it also feeds the
+/// rules gate, decision Q1 of docs/85), "Aparecer na busca" as ONE
+/// transaction over the card and the document, the "uncertain"
+/// reconciliation and the local hint. Accounts without active friendships:
+/// nothing is read.
 class SharingController extends Notifier<SharingState> {
   int _generation = 0;
   int _noticeId = 0;
 
+  /// Successful server reads so far (tells a read that answered from one
+  /// that failed, even when both leave the same document).
+  int _reads = 0;
+
   /// The read in flight (C): a second request while it runs joins it.
   Future<void>? _loading;
 
-  /// Uncertain toggles whose ORIGINAL transaction has not ended yet (A): a
-  /// read now could predate a late commit, so they are not resolved by it.
-  final Set<SharedSection> _settling = {};
+  /// The uncertain write's ORIGINAL transaction has not ended yet (A): a read
+  /// now could predate a late commit, so it is not resolved by it.
+  bool _settling = false;
+
+  /// The uncertain write is being announced (the card is read again).
+  bool _announcing = false;
 
   /// One delayed re-read per uncertainty when reading failed while online.
   Timer? _retry;
@@ -150,7 +161,8 @@ class SharingController extends Notifier<SharingState> {
   SharingState build() {
     final generation = ++_generation;
     _loading = null;
-    _settling.clear();
+    _settling = false;
+    _announcing = false;
     _retry?.cancel();
     _retry = null;
     _retryUsed = false;
@@ -161,9 +173,9 @@ class SharingController extends Notifier<SharingState> {
       if (generation == _generation) _generation++;
       _retry?.cancel();
     });
-    // Back online: read the server again (RF-P10: a section changed on
-    // another device shows up; RF-P7: an uncertain toggle is reconciled),
-    // without any queue. 1 read per reconnection.
+    // Back online: read the server again (RF-P10: a change made on another
+    // device shows up; RF-P7: an uncertain write is reconciled), without any
+    // queue. 1 read per reconnection.
     ref.listen(syncStatusProvider.select((s) => (s.fromCache, s.serverConfirmed)), (prev, next) {
       if (prev == null || generation != _generation) return;
       // Cache -> server. At session start (the server never answered
@@ -225,15 +237,28 @@ class SharingController extends Notifier<SharingState> {
     await _load(generation);
   }
 
+  /// Waits for this session's first answer (activation, RF-SC5: the
+  /// controller is created when friendships turn on and reads at once).
+  Future<void> settle() async {
+    await Future<void>.delayed(Duration.zero);
+    final running = _loading;
+    if (running != null) await running;
+  }
+
   Future<void> _read(int generation) async {
     final repo = ref.read(sharedProfileRepositoryProvider);
     try {
       final doc = await repo.readOwn();
       if (generation != _generation) return;
+      _reads++;
       unawaited(ref.read(sharedRulesGateProvider).feed(RulesProbe.ready));
       _setDoc(doc);
       state = state.copyWith(phase: SharingPhase.ready);
-      _resolveUncertain(doc);
+      // Notices A/B need the card's state of THIS session (docs/95 §4): the
+      // friendships state is read now if a fresh hint skipped it (only for
+      // accounts that do not share the 3 sections; at most once).
+      if (!sharesEverything(doc)) ref.read(socialControllerProvider.notifier).confirm();
+      _resolveUncertain(generation);
     } on SharedProfileFailure catch (f) {
       if (generation != _generation) return;
       if (f.kind == SharedProfileFailureKind.denied) {
@@ -250,11 +275,11 @@ class SharingController extends Notifier<SharingState> {
     }
   }
 
-  /// A read failed while a toggle is uncertain: try once more later, so the
-  /// toggle does not stay "Ainda não confirmado…" for the whole session when
+  /// A read failed while a write is uncertain: try once more later, so the
+  /// switch does not stay "Ainda não confirmado…" for the whole session when
   /// no reconnection event comes.
   void _retryLater(int generation) {
-    if (state.uncertain.isEmpty || _retryUsed || _retry != null) return;
+    if (state.uncertain == null || _retryUsed || _retry != null) return;
     _retryUsed = true;
     _retry = Timer(kSharingUncertainRetry, () {
       _retry = null;
@@ -271,46 +296,52 @@ class SharingController extends Notifier<SharingState> {
 
   void _onReconnect(int generation, {required bool wasOnline}) {
     if (state.phase == SharingPhase.unavailable) return;
-    if (wasOnline || !state.confirmed || state.uncertain.isNotEmpty) _load(generation);
+    if (wasOnline || !state.confirmed || state.uncertain != null) _load(generation);
   }
 
-  /// Shows the REAL state after an uncertain toggle (RF-P7).
-  void _resolveUncertain(SharedProfileDoc? doc) {
-    if (state.uncertain.isEmpty) return;
-    final pending = {
-      for (final e in state.uncertain.entries)
-        if (!_settling.contains(e.key)) e.key: e.value,
-    };
-    if (pending.isEmpty) return;
-    state = state.copyWith(
-      uncertain: {
-        for (final e in state.uncertain.entries)
-          if (_settling.contains(e.key)) e.key: e.value,
-      },
-    );
-    if (state.uncertain.isEmpty) {
-      _retryUsed = false;
-      _retry?.cancel();
-      _retry = null;
-    }
-    for (final MapEntry(key: section, value: turningOn) in pending.entries) {
-      final shared = doc?.sharing.contains(section) ?? false;
-      if (turningOn) {
-        if (shared) _notice(kSharingOnConfirmed);
-      } else {
-        _notice(shared ? kSharingOffFailed : sharingOffMessage(section));
-      }
+  /// Shows the REAL state after an uncertain write (RF-SC6), from a read
+  /// made after its original transaction ended.
+  void _resolveUncertain(int generation) {
+    final on = state.uncertain;
+    if (on == null || _settling || _announcing) return;
+    _announcing = true;
+    unawaited(_announce(generation, on));
+  }
+
+  Future<void> _announce(int generation, bool on) async {
+    // The card is written in the same transaction: read it again too.
+    try {
+      await ref.read(socialControllerProvider.notifier).reload();
+    } catch (_) {}
+    if (generation != _generation) return;
+    _announcing = false;
+    state = state.copyWith(clearUncertain: true);
+    _retryUsed = false;
+    _retry?.cancel();
+    _retry = null;
+    final discoverable = ref.read(socialControllerProvider).profile?.discoverable;
+    if (on) {
+      _notice(
+        discoverable == true && sharesEverything(state.doc) ? kSearchOnDone : kSearchOnFailed,
+      );
+    } else {
+      _notice(discoverable != true && state.doc == null ? kSearchOffDone : kSharingOffFailed);
     }
   }
 
-  /// Why a toggle cannot start now (null = it can). Shown as a notice.
+  /// Why "Aparecer na busca" cannot change now (null = it can).
   String? blockReason() {
-    // One toggle at a time; an uncertain one is still "in progress" (RF-P8).
-    if (state.busy != null || state.uncertain.isNotEmpty) {
+    // One operation at a time; an uncertain one is still "in progress".
+    if (state.busy || state.uncertain != null) {
       return const SharedProfileFailure(SharedProfileFailureKind.busy).message;
     }
+    final social = ref.read(socialControllerProvider);
+    if (social.busy) return const SharedProfileFailure(SharedProfileFailureKind.busy).message;
     if (state.phase == SharingPhase.unavailable) return SharedProfileFailure.unavailableMessage;
-    if (!state.confirmed || ref.read(syncStatusProvider).offline) {
+    if (!state.confirmed ||
+        ref.read(syncStatusProvider).offline ||
+        social.fromCache ||
+        social.profile == null) {
       return SharedProfileFailure.offlineMessage;
     }
     return null;
@@ -319,113 +350,115 @@ class SharingController extends Notifier<SharingState> {
   /// Tells the screen about [reason] (see [blockReason]).
   void tell(String reason) => _notice(reason);
 
-  /// Turns [section] on with the consent given in the dialog; [content] is
-  /// the preview the dialog showed (RF-P4).
-  Future<void> turnOn(SharedSection section, SharedProfileContent content) async {
+  /// "Aparecer na busca" (docs/95 RF-SC2/SC3/SC4): [on] with the consent
+  /// given in the dialog ([content] = the preview it showed) = the card on
+  /// and the missing sections added; off = the card off and the document
+  /// deleted. ONE transaction. Returns false when it surely did not happen
+  /// (the notice says why, or [failureText] instead); true when it did or
+  /// may have (uncertain: reconciled by a later read).
+  Future<bool> setSearchSharing(
+    bool on, {
+    SharedProfileContent? content,
+    String? failureText,
+  }) async {
     final generation = _generation;
-    final reason = blockReason();
-    if (reason != null) return _notice(reason);
-    state = state.copyWith(busy: section);
+    final reason = blockReason() ?? (on && content == null ? kSearchOnFailed : null);
+    if (reason != null) {
+      _notice(failureText ?? reason);
+      return false;
+    }
+    final handle = ref.read(socialControllerProvider).profile!.handle;
+    state = state.copyWith(busy: true);
     final now = ref.read(serverClockProvider).now();
     try {
-      await ref.read(sharedProfileRepositoryProvider).turnOn(section, content, now);
-      if (generation != _generation) return;
-      state = state.copyWith(clearBusy: true);
-      // The server's own times (`actSince`, `updatedAt`) come with a read.
-      final before = state.doc;
-      await _reload(generation);
-      if (generation != _generation) return;
-      if (identical(state.doc, before) || !(state.doc?.sharing.contains(section) ?? false)) {
-        // The read failed: the local view of the committed transaction.
-        final base = state.doc ?? const SharedProfileDoc(sharing: {});
-        _setDoc(
-          base.copyWith(
-            sharing: {...base.sharing, section},
-            updatedAt: now,
-            tz: content.tz,
-            calc: content.calc,
-            actSince: section == SharedSection.activity ? now : null,
-            stats: section == SharedSection.stats ? content.stats : null,
-            activity: section == SharedSection.activity ? const [] : null,
-            recs: section == SharedSection.recs ? content.recs : null,
-          ),
-        );
+      await ref
+          .read(sharedProfileRepositoryProvider)
+          .searchAndShare(on, handle: handle, content: content, now: now);
+      if (generation != _generation) return true;
+      state = state.copyWith(busy: false);
+      ref.read(socialControllerProvider.notifier).noteDiscoverable(on);
+      if (on) {
+        // The server's own times (`actSince`, `updatedAt`) come with a read.
+        final reads = _reads;
+        await _reload(generation);
+        if (generation != _generation) return true;
+        if (reads == _reads) _setDoc(_withEverything(state.doc, content!, now));
+        _notice(kSearchOnDone);
+      } else {
+        _setDoc(null);
+        _notice(kSearchOffDone);
       }
+      return true;
     } on SharedProfileFailure catch (f) {
-      await _onFailure(generation, section, true, f);
+      return _onFailure(generation, on, f, failureText);
     }
   }
 
-  /// Turns [section] off, without confirmation (RF-P5).
-  Future<void> turnOff(SharedSection section) async {
-    final generation = _generation;
-    final reason = blockReason();
-    if (reason != null) return _notice(reason);
-    state = state.copyWith(busy: section);
-    try {
-      await ref.read(sharedProfileRepositoryProvider).turnOff(section);
-      if (generation != _generation) return;
-      state = state.copyWith(clearBusy: true);
-      final doc = state.doc;
-      final left = {...?doc?.sharing}..remove(section);
-      _setDoc(
-        doc == null || left.isEmpty
-            ? null
-            : doc.copyWith(
-                sharing: left,
-                updatedAt: ref.read(serverClockProvider).now(),
-                clearStats: section == SharedSection.stats,
-                clearActivity: section == SharedSection.activity,
-                clearActSince: section == SharedSection.activity,
-                clearRecs: section == SharedSection.recs,
-              ),
-      );
-      _notice(sharingOffMessage(section));
-    } on SharedProfileFailure catch (f) {
-      await _onFailure(generation, section, false, f);
-    }
+  /// The local view of a committed "on" when the read after it failed: the
+  /// sections that were there stay as they were, the missing ones come from
+  /// the preview ("Atividades" starts empty at the server's time).
+  static SharedProfileDoc _withEverything(
+    SharedProfileDoc? base,
+    SharedProfileContent content,
+    DateTime now,
+  ) {
+    final doc = base ?? const SharedProfileDoc(sharing: {});
+    final has = doc.sharing;
+    return doc.copyWith(
+      sharing: {...kSharingSections},
+      updatedAt: now,
+      tz: content.tz,
+      calc: content.calc,
+      stats: has.contains(SharedSection.stats) ? null : content.stats,
+      recs: has.contains(SharedSection.recs) ? null : content.recs,
+      activity: has.contains(SharedSection.activity) ? null : const [],
+      actSince: has.contains(SharedSection.activity) ? null : now,
+    );
   }
 
-  Future<void> _onFailure(
+  Future<bool> _onFailure(
     int generation,
-    SharedSection section,
-    bool turningOn,
+    bool on,
     SharedProfileFailure f,
+    String? failureText,
   ) async {
-    if (generation != _generation) return;
-    state = state.copyWith(clearBusy: true);
+    if (generation != _generation) return false;
+    state = state.copyWith(busy: false);
     switch (f.kind) {
       case SharedProfileFailureKind.uncertain:
         // It may have happened: never "failed" (B5). Only a read made AFTER
         // the original transaction ended is the truth (A); then also at
         // every reconnection until it answers.
-        state = state.copyWith(uncertain: {...state.uncertain, section: turningOn});
+        state = state.copyWith(uncertain: on);
         _retryUsed = false;
         final settled = f.settled;
         if (settled == null) {
           await _reload(generation);
         } else {
-          _settling.add(section);
-          await _afterSettle(generation, section, settled);
+          _settling = true;
+          await _afterSettle(generation, settled);
         }
+        return true;
       case SharedProfileFailureKind.denied:
         // Friendships turned off elsewhere (this section disappears when the
         // friendships state says so) or the rules are old.
         await ref.read(socialControllerProvider.notifier).refresh();
-        if (generation != _generation) return;
-        _notice(SharedProfileFailure.unavailableMessage);
+        if (generation != _generation) return false;
+        _notice(failureText ?? SharedProfileFailure.unavailableMessage);
+        return false;
       default:
-        _notice(f.message);
+        _notice(failureText ?? f.message);
+        return false;
     }
   }
 
-  Future<void> _afterSettle(int generation, SharedSection section, Future<void> settled) async {
+  Future<void> _afterSettle(int generation, Future<void> settled) async {
     try {
-      // Bounded: a transaction that never ends must not freeze the toggle.
+      // Bounded: a transaction that never ends must not freeze the switch.
       await settled.timeout(kSharingSettleCap);
     } catch (_) {}
     if (generation != _generation) return;
-    _settling.remove(section);
+    _settling = false;
     await _reload(generation);
   }
 
@@ -451,6 +484,78 @@ class SharingController extends Notifier<SharingState> {
 final sharingControllerProvider = NotifierProvider<SharingController, SharingState>(
   SharingController.new,
 );
+
+/// The states of docs/95 §4 (derived; nothing new is stored).
+enum SharingMode {
+  /// No active friendships: nothing exists.
+  hidden,
+
+  /// E0: not in the search, nothing shared.
+  off,
+
+  /// E1: in the search and the 3 sections shared.
+  on,
+
+  /// E2: in the search, the new consent not given yet (none or some sections).
+  review,
+
+  /// E3 (legacy, docs/95 ❓1): not in the search but some section shared.
+  legacy,
+
+  /// Ep: the state of this session is not confirmed (no read, offline,
+  /// friendships from the device).
+  pending,
+
+  /// Ei: the last write has an unknown result.
+  uncertain,
+}
+
+/// docs/95 §4, 1:1 (`D` = the card's `discoverable`, `S` = the sections of the
+/// document confirmed in this session).
+SharingMode sharingModeOf(SocialState social, SharingState sharing) {
+  if (sharing.phase == SharingPhase.hidden) return SharingMode.hidden;
+  if (sharing.uncertain != null) return SharingMode.uncertain;
+  final profile = social.profile;
+  if (!sharing.confirmed ||
+      social.phase != SocialPhase.active ||
+      social.fromCache ||
+      profile == null) {
+    return SharingMode.pending;
+  }
+  final sections = sharing.doc?.sharing ?? const <SharedSection>{};
+  if (profile.discoverable) {
+    return sharesEverything(sharing.doc) ? SharingMode.on : SharingMode.review;
+  }
+  return sections.isEmpty ? SharingMode.off : SharingMode.legacy;
+}
+
+final sharingModeProvider = Provider<SharingMode>(
+  (ref) => sharingModeOf(ref.watch(socialControllerProvider), ref.watch(sharingControllerProvider)),
+);
+
+/// The one-time notices of docs/95: A (E2, "Novidade") and B (E3, legacy).
+enum SharingNoticeKind { review, legacy }
+
+/// Uids whose notice was already opened in this session (memory only, per
+/// uid: "visto nesta sessão", docs/95 §4). A new session shows it again.
+final sharingNoticeSeenProvider = StateProvider<Set<String>>((ref) => const {});
+
+/// The notice to open now, if any: only with the state CONFIRMED by this
+/// session, online, nothing running, and not opened yet in this session.
+final sharingNoticeDueProvider = Provider<SharingNoticeKind?>((ref) {
+  final uid = ref.watch(currentUidProvider);
+  if (uid == null) return null;
+  final mode = ref.watch(sharingModeProvider);
+  final sharing = ref.watch(sharingControllerProvider);
+  if (sharing.phase != SharingPhase.ready || sharing.busy) return null;
+  if (ref.watch(syncStatusProvider.select((s) => s.offline))) return null;
+  if (ref.watch(sharingNoticeSeenProvider).contains(uid)) return null;
+  return switch (mode) {
+    SharingMode.review => SharingNoticeKind.review,
+    SharingMode.legacy => SharingNoticeKind.legacy,
+    _ => null,
+  };
+});
 
 /// Timings of the engine (overridden in tests).
 class SharedSyncTiming {
@@ -717,10 +822,10 @@ final sharedProfileSyncProvider = NotifierProvider<SharedProfileSync, SharedSync
   SharedProfileSync.new,
 );
 
-/// The content the consent dialog previews for [section] (null = the data
-/// is not trustworthy yet: "Calculando…", RF-P4). Same builder and inputs as
-/// the engine, so the preview equals what will be written.
-final sharedPreviewProvider = Provider.family<SharedProfileContent?, SharedSection>((ref, section) {
+/// The content the consent dialog (and notice A) previews: the 3 sections
+/// (null = the data is not trustworthy yet: "Calculando…", RF-SC2). Same
+/// builder and inputs as the engine, so the preview equals what is written.
+final sharedPreviewProvider = Provider<SharedProfileContent?>((ref) {
   final status = ref.watch(syncStatusProvider);
   final held = ref.watch(sharedProfileSyncProvider.select((s) => s.catalogHeld));
   if (!sharedDataReady(status, catalogHeld: held)) return null;
@@ -734,7 +839,7 @@ final sharedPreviewProvider = Provider.family<SharedProfileContent?, SharedSecti
     catalog: store.readSeasonCatalog,
     movieRuntime: store.readMovieRuntime,
     tvFallbackRuntime: store.readTvFallbackRuntime,
-    sections: {section},
+    sections: {...kSharingSections},
     now: now,
     tzMinutes: ref.read(sharedTzProvider)(now),
     actSince: now,

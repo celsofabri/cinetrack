@@ -12,6 +12,7 @@ import 'count_badge.dart';
 import 'invite_section.dart';
 import 'nickname_dialog.dart';
 import 'person_avatar.dart';
+import 'sharing_section.dart';
 import 'social_dialogs.dart';
 
 /// Profile section "Amizades": opt-in, off by default. Nothing is written
@@ -214,21 +215,8 @@ class _Active extends ConsumerWidget {
         ),
         if (state.fromCache) ...[const SizedBox(height: 8), const _OfflineNote()],
         const SizedBox(height: 8),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Aparecer na busca'),
-          subtitle: const Text(
-            'Ligado: quem digitar seu identificador exato vê seu apelido e sua foto. '
-            'Desligado: só quem você aceitar ou convidar.',
-          ),
-          value: profile.discoverable,
-          onChanged: locked
-              ? null
-              : (value) => toggle(
-                  () => controller.setDiscoverable(value),
-                  value ? 'Você aparece na busca.' : 'Você não aparece mais na busca.',
-                ),
-        ),
+        // The single switch (docs/95): search AND sharing, one consent.
+        SearchSharingTile(profile: profile),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('Mostrar minha foto'),
@@ -368,4 +356,3 @@ const kPhotoOnHint =
 const kPhotoOffHint =
     'Seu cartão está sem foto. Se a foto sumiu do Google, ela não volta sozinha: para voltar a '
     'mostrar, ligue "Mostrar minha foto".';
-

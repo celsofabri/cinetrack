@@ -60,6 +60,68 @@ class SharedProfilePayloads {
     return SocialWrite(SocialWriteMode.transaction, [op], reads: [path(uid)]);
   }
 
+  /// "Aparecer na busca" (docs/95 §9, RF-SC2/SC3/SC4/SC7): ONE transaction
+  /// over the card `handles/{handle}` and the own shared document, built from
+  /// what the transaction read. [cardDiscoverable] = the card's
+  /// `discoverable` as read (null = no card: nothing is written to it);
+  /// [current] = sections of the shared document as read (null = no
+  /// document).
+  /// - [on]: the card becomes `discoverable = true` (only if it is not) and
+  ///   the MISSING sections are added under one consent (`set` with the 3
+  ///   when there is no document). Sections already present are never
+  ///   rewritten: an existing "Atividades" keeps `actSince` and its items.
+  ///   Nothing missing and the card already on = no write at all.
+  /// - off: the card becomes `discoverable = false` (only if it is not) and
+  ///   the document is deleted (only if it exists).
+  static SocialWrite searchAndShare(
+    String uid, {
+    required String handle,
+    required bool on,
+    required bool? cardDiscoverable,
+    required Set<SharedSection>? current,
+    SharedProfileContent? content,
+    required DateTime now,
+  }) {
+    final card = SocialPayloads.handlePath(handle);
+    final ops = <SocialOp>[
+      if (cardDiscoverable != null && cardDiscoverable != on)
+        SocialOp.update(card, {'discoverable': on, 'updatedAt': serverTimestamp}),
+    ];
+    if (on) {
+      final missing = SharedSection.values.where((s) => !(current?.contains(s) ?? false)).toList();
+      if (missing.isNotEmpty) {
+        if (content == null) throw ArgumentError('turning sharing on needs the previewed content');
+        _check(content, now);
+        final addsActivity = missing.contains(SharedSection.activity);
+        Object? value(SharedSection s) =>
+            s == SharedSection.activity ? const <Object?>[] : _section(content, s);
+        ops.add(
+          current == null
+              ? SocialOp.set(path(uid), {
+                  'v': kSharedSchemaVersion,
+                  'calc': content.calc,
+                  'updatedAt': serverTimestamp,
+                  'tz': normalizeTz(content.tz),
+                  'sharing': {for (final s in missing) s.field: true},
+                  'actSince': serverTimestamp,
+                  for (final s in missing) s.field: value(s),
+                })
+              : SocialOp.update(path(uid), {
+                  for (final s in missing) 'sharing.${s.field}': true,
+                  for (final s in missing) s.field: value(s),
+                  if (addsActivity) 'actSince': serverTimestamp,
+                  'calc': content.calc,
+                  'tz': normalizeTz(content.tz),
+                  'updatedAt': serverTimestamp,
+                }),
+        );
+      }
+    } else if (current != null) {
+      ops.add(SocialOp.delete(path(uid)));
+    }
+    return SocialWrite(SocialWriteMode.transaction, ops, reads: [card, path(uid)]);
+  }
+
   /// Turns [section] off: consent and section go together; the last section
   /// deletes the document. [current] = sections as read in the transaction.
   static SocialWrite turnOff(

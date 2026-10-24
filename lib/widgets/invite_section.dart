@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../shared_profile/sharing_texts.dart';
 import '../providers/social_providers.dart';
 import '../social/invite_code.dart';
 import '../social/social_models.dart';
@@ -142,7 +143,7 @@ class _InviteSectionState extends ConsumerState<InviteSection> {
         const SizedBox(height: 4),
         Text(
           'Quem abrir o link vê seu apelido e sua foto e pode pedir amizade; você decide se aceita. '
-          'Funciona mesmo com "Aparecer na busca" desligado. Você pode revogar quando quiser.',
+          '${SharingTexts.invite}',
           style: theme.textTheme.bodySmall,
         ),
         const SizedBox(height: 8),

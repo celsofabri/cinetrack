@@ -195,6 +195,33 @@ class SocialController extends Notifier<SocialState> {
     await _load(_generation);
   }
 
+  /// Reads the state again WITHOUT going back to "loading" (docs/95: the
+  /// shared profile reconciles "Aparecer na busca" after an uncertain switch).
+  Future<void> reload() => _load(_generation, keepOnFailure: true);
+
+  /// "Aparecer na busca" was written by the shared profile's transaction
+  /// (docs/95 §9): the card now holds [value]; the view follows without a read.
+  void noteDiscoverable(bool value) {
+    final p = state.profile;
+    if (p == null || p.discoverable == value) return;
+    state = SocialState(
+      phase: state.phase,
+      profile: SocialProfile(
+        handle: p.handle,
+        handleChangedAt: p.handleChangedAt,
+        nickname: p.nickname,
+        photoUrl: p.photoUrl,
+        discoverable: value,
+        cardMissing: p.cardMissing,
+        invite: p.invite,
+      ),
+      fromCache: state.fromCache,
+      busy: state.busy,
+      failure: state.failure,
+      cleanupPending: state.cleanupPending,
+    );
+  }
+
   Future<void> _load(int generation, {bool keepOnFailure = false}) async {
     SocialState next;
     final uid = ref.read(currentUidProvider);
