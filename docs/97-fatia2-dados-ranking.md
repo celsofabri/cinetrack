@@ -51,7 +51,7 @@
 - `flutter analyze`: 0 issues (cópia de `HEAD` em `/tmp`).
 - `TZ=America/Sao_Paulo flutter test` e `TZ=UTC flutter test`: 2562 testes, todos verdes nos dois fusos (cópia de `HEAD` = `842435e`).
 - Oráculos cobertos linha a linha: O7 1–33 (29 com troca de conta; 30–31 desativar/reativar; 32 coberto pela limpeza no `AccountController` + 33 nova sessão), O8 1–9, O9 1–18 (+ janela, < 10 sem disjuntor, `take(50)`, minha linha, offline), O10 1–13 (+ sem `ok` ⇒ sem cooldown), O11 1, 2/3, 4, 5, 6, 7, 11, 12, 13, 14, 15, 16 (perfil aberto no TTL com o `FriendProfileController` real = 0 leituras), 17, 18, 19, 20 e 21–24 nos testes do sinal.
-- Mutações Dart (só as da fatia, `python3 tool/dart_mutations.py <cópia> R2-1 … R2-30`): **30/30 mortas**.
+- Mutações Dart (só as da fatia, `python3 tool/dart_mutations.py <cópia> R2-1 … R2-30`): **33/33 mortas**.
 
 | # | Mutação | Morta por |
 |---|---|---|
@@ -67,9 +67,10 @@
 | R2-23/24/25 | dedupe por uid removida; quem já está na lista contado; gancho depois do retorno antecipado | O7-13, 13b, teste de gancho |
 | R2-26/27/28/29 | resposta em voo não descartada com `dirty`; agregada a cada navegação; recontagem que pisca; pista sem TTL | O7-11/24, O7-8/9, O7-22, O7-3 |
 | R2-30 | bloqueio de amigo listado sem decremento | teste de `block()` |
+| R2-31/32 | exclusão de conta / desativação mantêm `friendsHint` | `friends_hint_cleanup_test` (O7-32, O7-30) |
+| R2-33 | `_revoked` do perfil de amigo sem recontagem | teste do perfil negado em `ranking_controller_test` |
 
 ## 6. Notas para review/QA
 
 - Meu primeiro commit WIP (`47f63b2`) levou junto, em `social_lists_providers.dart`, a extração do `collationKey` que a Fatia 1 tinha em stage; o commit seguinte da Fatia 1 (`8a6d17b`) trouxe `lib/social/collation_key.dart`, então `HEAD` compila. Só `47f63b2` isolado não compila.
-- O32 (exclusão de conta apaga `friendsHint`) está no código, sem teste automatizado novo (o teste de exclusão existente não observa as pistas).
-- Sem teste automatizado: `_revoked` do perfil de amigo chamando `invalidate` (1 linha; coberto por review).
+- O32/O30 (exclusão de conta e desativação apagam `friendsHint`) e `_revoked` do perfil chamando `invalidate`: com teste e mutação (R2-31…R2-33).

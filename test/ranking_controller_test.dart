@@ -1076,6 +1076,19 @@ void main() {
       sub.close();
     });
 
+    test('friend profile denied (_revoked) -> the signal recounts once', () async {
+      await rig(3);
+      final uid = Rig.uidOf(1);
+      final sub = r.c.listen(friendProfileControllerProvider(uid), (_, _) {});
+      await settle();
+      expect(r.reads, [uid]);
+      await r.respond(A.denied);
+      expect(r.c.read(friendProfileControllerProvider(uid)).phase, FriendProfilePhase.unavailable);
+      expect(r.c.read(friendsControllerProvider).items.map((f) => f.uid), isNot(contains(uid)));
+      expect(r.counts, hasLength(1));
+      sub.close();
+    });
+
     test('17: 80 friends, list cold, signal confirmed = 50 gets + 1 list (51 docs)', () async {
       await rig(80, listInMemory: false);
       await r.open();
