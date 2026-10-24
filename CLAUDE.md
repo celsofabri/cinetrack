@@ -16,7 +16,7 @@ flutter pub get
 flutter analyze                                   # tem de dar "No issues found"
 TZ=America/Sao_Paulo flutter test                 # o CI roda neste fuso
 TZ=UTC flutter test                               # rode também em UTC
-flutter test --platform chrome test/shared_reading_web_safe_test.dart test/qa_a2_friend_profile_test.dart   # semântica numérica do web (dart2js)
+flutter test --platform chrome <arquivos do passo "Test (web semantics, Chrome)" do workflow>   # semântica numérica do web (dart2js); a lista oficial fica no deploy-pages.yml
 flutter build web --release --base-href "/cinetrack/"
 python3 tool/dart_mutations.py <cópia em /tmp>    # mutações Dart; recusa rodar num checkout git
 ```
