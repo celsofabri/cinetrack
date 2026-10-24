@@ -6,7 +6,8 @@ import { readFileSync } from 'node:fs';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where,
+  collection, deleteDoc, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, setDoc, updateDoc,
+  where,
 } from 'firebase/firestore';
 import {
   RULES_URL, U, acceptBatch, commit, makeTools, newEnv, requestRef,
@@ -39,6 +40,10 @@ const spExpr = (verb) => {
 const xGroups = (tag, n) => Array.from({ length: Math.ceil(n / 10) }, (_, g) =>
   `    function x${tag}${g}() { return ${Array.from({ length: Math.min(10, n - g * 10) }, (_, i) =>
     `request.resource.data.tz != ${2000 + g * 10 + i}`).join(' && ')}; }`).join('\n');
+// Same, over the STORED document (a delete has no request.resource).
+const xGroupsStored = (tag, n) => Array.from({ length: Math.ceil(n / 10) }, (_, g) =>
+  `    function x${tag}${g}() { return ${Array.from({ length: Math.min(10, n - g * 10) }, (_, i) =>
+    `resource.data.tz != ${2000 + g * 10 + i}`).join(' && ')}; }`).join('\n');
 const xCall = (tag, n) => Array.from({ length: Math.ceil(n / 10) }, (_, g) => `x${tag}${g}()`).join(' && ');
 // NFR (docs/82 §4.5, revised 2026-10-10): heaviest APP write <= 65% of the 1000-expression limit;
 // heaviest LEGAL document <= 70%. Unit = 1 comparison grouped 10 per function; an empty request fits
@@ -63,11 +68,24 @@ const probes = `
     match /probe_sp_delete10/{uid} { allow delete: if ${spExpr('delete')} && ${chain(10, 's')}; }
 ${xGroups('w', HEAD_WORST)}
 ${xGroups('a', HEAD_APP)}
+${xGroupsStored('d', HEAD_APP)}
 ${xGroups('o', OVER_LIMIT)}
 ${xGroups('c', CAPACITY)}
     match /probe_sp_headw/{uid} { allow create: if ${spExpr('create')} && ${xCall('w', HEAD_WORST)}; }
     match /probe_sp_headws/{uid} { allow update: if ${spExpr('update')} && ${xCall('w', HEAD_WORST)}; }
     match /probe_sp_heada/{uid} { allow update: if ${spExpr('update')} && ${xCall('a', HEAD_APP)}; }
+    match /probe_sp_createa/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow create: if ${spExpr('create')} && ${xCall('a', HEAD_APP)};
+    }
+    match /probe_sp_deletea/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow delete: if ${spExpr('delete')} && ${xCall('d', HEAD_APP)};
+    }
+    match /probe_sp_updatea/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow update: if ${spExpr('update')} && ${xCall('a', HEAD_APP)};
+    }
     match /probe_sp_over/{uid} { allow create: if ${xCall('o', OVER_LIMIT)}; }
     match /probe_sp_cap/{uid} { allow create: if ${xCall('c', CAPACITY)}; }
     match /probe_get10/{id} { allow get: if request.auth != null && ${chain(10, 'a')}; }
@@ -348,6 +366,85 @@ describe('Phase 2 shared_profiles: headroom under the 1000-expression limit (doc
     await t.seedDoc(['probe_sp_heada', ana], stored());
     await assertSucceeds(updateDoc(sp(t.db(ana), 'probe_sp_heada'), {
       ...changed(), tz: -120, calc: 1, updatedAt: st(),
+    }));
+  });
+});
+
+// Fatia S (docs/95 §9, S0): the single "Aparecer na busca" switch writes the card AND the shared
+// document in ONE transaction. The limit may be counted per request (not per document), so the
+// card's own expressions are part of these requests: each case must still leave HEAD_APP free on
+// the shared document (heaviest app write <= 65%). Never loosen these to make a write fit; if (a)
+// does not fit, docs/95 plan B (two writes in sequence) applies.
+describe('Fatia S: card + shared_profiles in one transaction stay inside the app budget (docs/95 S0)', () => {
+  const card = (d) => doc(d, 'handles', 'ana');
+  const probe = (d, col) => doc(d, col, ana);
+  const fresh = () => ({
+    v: 1, calc: 1, updatedAt: st(), tz: -180,
+    sharing: { stats: true, activity: true, recs: true },
+    actSince: st(), stats: stats(), activity: [], recs: recs(50, 120),
+  });
+  it(`(a) card discoverable=true + create with 3 sections, activity [] and 50 recs: + ${HEAD_APP} comparisons fit`, async () => {
+    await t.seedSocial(ana, { discoverable: false });
+    const d = t.db(ana);
+    await assertSucceeds(runTransaction(d, async (tx) => {
+      await tx.get(card(d));
+      await tx.get(probe(d, 'probe_sp_createa'));
+      tx.update(card(d), { discoverable: true, updatedAt: st() });
+      tx.set(probe(d, 'probe_sp_createa'), fresh());
+    }));
+    // ... and the same create with one more section field than the rules allow is still denied
+    // (the probe is real: it is the create expression, not an open door).
+    await env.clearFirestore();
+    await t.seedSocial(ana, { discoverable: false });
+    await assertFails(runTransaction(d, async (tx) => {
+      tx.update(card(d), { discoverable: true, updatedAt: st() });
+      tx.set(probe(d, 'probe_sp_createa'), { ...fresh(), extra: 1 });
+    }));
+  });
+  it(`(b) card discoverable=false + delete of the shared document: + ${HEAD_APP} comparisons fit`, async () => {
+    await t.seedSocial(ana);
+    await t.seedDoc(['probe_sp_deletea', ana], stored());
+    const d = t.db(ana);
+    await assertSucceeds(runTransaction(d, async (tx) => {
+      await tx.get(card(d));
+      await tx.get(probe(d, 'probe_sp_deletea'));
+      tx.update(card(d), { discoverable: false, updatedAt: st() });
+      tx.delete(probe(d, 'probe_sp_deletea'));
+    }));
+  });
+  it(`(c) adding 2 sections (activity [] + 50 recs) over a document with stats only: + ${HEAD_APP} comparisons fit`, async () => {
+    await t.seedSocial(ana);
+    const s = stored();
+    delete s.sharing.activity;
+    delete s.activity;
+    delete s.actSince;
+    delete s.sharing.recs;
+    delete s.recs;
+    await t.seedDoc(['probe_sp_updatea', ana], s);
+    const d = t.db(ana);
+    await assertSucceeds(runTransaction(d, async (tx) => {
+      await tx.get(probe(d, 'probe_sp_updatea'));
+      tx.update(probe(d, 'probe_sp_updatea'), {
+        'sharing.activity': true, 'sharing.recs': true, activity: [], actSince: st(), recs: recs(50, 120),
+        calc: 1, tz: -180, updatedAt: st(),
+      });
+    }));
+  });
+  it(`(c') adding stats + recs over a document with activity only (activity kept): + ${HEAD_APP} comparisons fit`, async () => {
+    await t.seedSocial(ana);
+    const s = stored();
+    delete s.sharing.stats;
+    delete s.stats;
+    delete s.sharing.recs;
+    delete s.recs;
+    await t.seedDoc(['probe_sp_updatea', ana], s);
+    const d = t.db(ana);
+    await assertSucceeds(runTransaction(d, async (tx) => {
+      await tx.get(probe(d, 'probe_sp_updatea'));
+      tx.update(probe(d, 'probe_sp_updatea'), {
+        'sharing.stats': true, 'sharing.recs': true, stats: stats(), recs: recs(50, 120),
+        calc: 1, tz: -180, updatedAt: st(),
+      });
     }));
   });
 });
