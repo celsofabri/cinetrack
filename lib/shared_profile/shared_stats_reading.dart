@@ -210,6 +210,10 @@ class FriendSharedView {
   /// The owner's zone in minutes (periods); unknown = UTC.
   final int tz;
 
+  /// Version of the calculation (`calc`, >= 1); null = unreadable. Only the
+  /// ranking uses it (stale marker, docs/91 §7.4); the profile ignores it.
+  final int? calc;
+
   /// Null = not shared.
   final SharedStatsReading? stats;
 
@@ -219,7 +223,14 @@ class FriendSharedView {
   /// Null = not shared.
   final SharedRecsReading? recs;
 
-  const FriendSharedView({this.updatedAt, this.tz = 0, this.stats, this.activity, this.recs});
+  const FriendSharedView({
+    this.updatedAt,
+    this.tz = 0,
+    this.calc,
+    this.stats,
+    this.activity,
+    this.recs,
+  });
 
   static FriendSharedView parse(Map<String, dynamic> raw) {
     final updated = raw['updatedAt'];
@@ -227,6 +238,7 @@ class FriendSharedView {
     return FriendSharedView(
       updatedAt: updated is DateTime ? updated.toUtc() : null,
       tz: readSafeInt(raw['tz'], min: kMinTzMinutes, max: kMaxTzMinutes) ?? 0,
+      calc: readSafeInt(raw['calc'], min: 1),
       stats: SharedStatsReading.read(raw['stats']),
       activity: activity is List ? ActivityItem.parseList(activity) : null,
       recs: SharedRecsReading.read(raw['recs']),
